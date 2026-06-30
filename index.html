@@ -180,8 +180,8 @@ main{position:relative;z-index:1}
 
 <nav id="nav">
   <button data-view="step1" class="active"><span class="num">1</span> Chargement VT</button>
-  <button data-view="step2"><span class="num">2</span> Valorisation CEE</button>
-  <button data-view="step3"><span class="num">3</span> Extraction &amp; sélection</button>
+  <button data-view="step3"><span class="num">2</span> Extraction &amp; sélection</button>
+  <button data-view="step2"><span class="num">3</span> Valorisation CEE</button>
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
   <button data-view="step5"><span class="num">5</span> Rapport</button>
   <span class="spacer"></span>
@@ -226,7 +226,7 @@ main{position:relative;z-index:1}
 
       <div class="actions">
         <span></span>
-        <button class="btn" data-goto="step2">Étape suivante : Valorisation →</button>
+        <button class="btn" data-goto="step3">Étape suivante : Extraction →</button>
       </div>
     </div>
   </section>
@@ -234,7 +234,7 @@ main{position:relative;z-index:1}
   <!-- ====================================================== ÉTAPE 2 — VALORISATION CEE ====================================================== -->
   <section class="view" id="step2">
     <div class="card">
-      <h2>2 · Valorisation CEE</h2>
+      <h2>3 · Valorisation CEE</h2>
       <p class="hint">Questions générales (toutes VT) + questions par habitation. La valorisation est un <strong>lookup déterministe</strong> dans le template (pas de calcul IA).</p>
 
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Questions générales</h3>
@@ -251,8 +251,8 @@ main{position:relative;z-index:1}
       <div id="habQuestions"></div>
 
       <div class="actions">
-        <button class="btn ghost" data-goto="step1">← Retour</button>
-        <button class="btn" data-goto="step3">Étape suivante : Extraction →</button>
+        <button class="btn ghost" data-goto="step3">← Retour</button>
+        <button class="btn" data-goto="step4">🧮 Lancer le calcul global →</button>
       </div>
     </div>
   </section>
@@ -260,7 +260,7 @@ main{position:relative;z-index:1}
   <!-- ====================================================== ÉTAPE 3 — EXTRACTION ====================================================== -->
   <section class="view" id="step3">
     <div class="card">
-      <h2>3 · Extraction des données VT &amp; sélection</h2>
+      <h2>2 · Extraction des données VT &amp; sélection</h2>
       <p class="hint">Extraction structurée (IA) des 5 catégories : ITE, ITI, Combles, Plancher, Fenêtres. Décoche les pièces hors-travaux (WC, SdB…). Tout est éditable si l'extraction échoue. Les calculs utilisent la <strong>surface nette</strong>.</p>
 
       <div class="flex">
@@ -270,8 +270,8 @@ main{position:relative;z-index:1}
       <div id="extractList" style="margin-top:16px"></div>
 
       <div class="actions">
-        <button class="btn ghost" data-goto="step2">← Retour</button>
-        <button class="btn" data-goto="step4">Étape suivante : Charges →</button>
+        <button class="btn ghost" data-goto="step1">← Retour</button>
+        <button class="btn" data-goto="step2">Étape suivante : Valorisation →</button>
       </div>
     </div>
   </section>
@@ -283,7 +283,7 @@ main{position:relative;z-index:1}
       <p class="hint">Coût de revient = Σ(surface × Px Achat) + Audit VT + Régie %. Marge = Vente − Coût de revient. GO/NO-GO selon le seuil de marge.</p>
       <div id="calcArea"></div>
       <div class="actions">
-        <button class="btn ghost" data-goto="step3">← Retour</button>
+        <button class="btn ghost" data-goto="step2">← Retour</button>
         <button class="btn" data-goto="step5">Étape suivante : Rapport →</button>
       </div>
     </div>
