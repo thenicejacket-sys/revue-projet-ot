@@ -766,6 +766,10 @@ function findChargeCol(name){
 function habitations(){ return state.vts.filter(v=>v.role==='habitation'); }
 function iteVts(){ return state.vts.filter(v=>v.role==='ite'); }
 function hasDedicatedIte(){ return iteVts().length > 0; }
+// Toutes les instances ITE provenant des VT ITE dédiées (source de la catégorie ITE des habitations)
+function dedicatedIteInstances(){
+  return iteVts().flatMap(v => (v.extraction && v.extraction.categories && v.extraction.categories.ITE) || []);
+}
 
 // Instances effectives d'une catégorie pour une VT donnée (gère la règle ITE)
 function effectiveInstances(vt, cat){
@@ -880,7 +884,10 @@ function renderVtList(){
     </div>`).join('');
 
   wrap.querySelectorAll('[data-role]').forEach(s=> s.addEventListener('change', e=>{
-    const vt = state.vts.find(v=>v.id==e.target.dataset.role); vt.role = e.target.value; renderVtList();
+    const vt = state.vts.find(v=>v.id==e.target.dataset.role);
+    // ajuste le libellé par défaut si l'utilisateur n'en a pas saisi un personnalisé
+    if(vt.label==='VT ITE' || vt.label==='Habitation '+vt.id) vt.label = (e.target.value==='ite'?'VT ITE':'Habitation '+vt.id);
+    vt.role = e.target.value; renderVtList();
   }));
   wrap.querySelectorAll('[data-label]').forEach(inp=> inp.addEventListener('input', e=>{
     state.vts.find(v=>v.id==e.target.dataset.label).label = e.target.value;
@@ -894,9 +901,10 @@ async function handleFiles(fileList){
   for(const file of fileList){
     if(!/\.pdf$/i.test(file.name)) continue;
     const id = ++_vtSeq;
-    const vt = { id, fileName:file.name, role:defaultRoleForNewVt(), text:'', hints:null,
+    const role = defaultRoleForNewVt();
+    const vt = { id, fileName:file.name, role, text:'', hints:null,
                  extraction:null, revenus:'classique', cdp:'non', sauts:'2', shab:0,
-                 selections:{}, pcLines:[], label:'Habitation '+id, extracting:false, error:null, extractedOk:false };
+                 selections:{}, pcLines:[], label:(role==='ite'?'VT ITE':'Habitation '+id), extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
     renderVtList();
     try{
@@ -996,14 +1004,35 @@ function renderStep3(){
         ? `<div class="alert err">${esc(vt.error)} <button class="btn small" data-goparams="1">→ Renseigner la clé (Paramètres)</button>
              <div style="margin-top:4px"><small>Astuce : tu peux aussi saisir les surfaces manuellement ci-dessous.</small></div></div>`
         : (!vt.extractedOk ? `<div class="alert info">Pas encore extrait — clique « Extraire » ci-dessus, ou saisis les surfaces à la main.</div>` : '');
-      const warns = vt.extractedOk ? assertAllParoisDetected(vt.hints || {detected:{}}, vt.extraction) : [];
+      // Catégories à afficher : une VT ITE ne porte QUE l'ITE ; une habitation porte les 5
+      // (dont l'ITE en lecture seule si une VT ITE dédiée existe).
+      const catsToShow = vt.role==='ite' ? ['ITE'] : CATS;
+      // Alerte « paroi manquante » limitée aux catégories réellement attendues pour cette VT
+      const warns = vt.extractedOk ? catsToShow.filter(cat =>
+        !(cat==='ITE' && vt.role==='habitation' && hasDedicatedIte()) &&     // ITE déléguée -> pas d'alerte
+        (vt.hints && vt.hints.detected && vt.hints.detected[cat]) &&
+        ((vt.extraction.categories[cat]||[]).length === 0)
+      ) : [];
       const warnHtml = warns.length ? `<div class="alert warn">⚠️ Paroi(s) repérée(s) dans le texte mais absente(s) de l'extraction : <strong>${warns.map(c=>CAT_LABEL[c]).join(', ')}</strong>. Vérifier / saisir manuellement.</div>` : '';
-      const cats = CATS.map(cat=>{
+      const cats = catsToShow.map(cat=>{
         const inst = effectiveInstances(vt, cat);
         const overridden = (cat==='ITE' && vt.role==='habitation' && hasDedicatedIte());
+        // ITE d'une habitation = lecture seule, reprise de la VT ITE dédiée
+        if(overridden){
+          const di = dedicatedIteInstances();
+          const totIte = di.reduce((s,it)=>s+num(it.surface_nette),0);
+          const headRO = `<div class="cat-head"><strong>${CAT_LABEL[cat]}</strong>
+              <span class="pill">${di.length} instance(s) · ${m2(totIte)} (VT ITE)</span></div>`;
+          const bodyRO = di.length===0
+            ? `<div class="cat-body"><small>VT ITE dédiée chargée mais aucune instance ITE extraite — éditer dans le bloc « VT ITE ».</small></div>`
+            : `<div class="cat-body"><small>📎 Fournie par la VT ITE dédiée (lecture seule — modifiable dans le bloc « VT ITE »).</small>
+                 <table><thead><tr><th>Description</th><th>Pièce</th><th class="num">Surface (m²)</th></tr></thead><tbody>
+                 ${di.map(it=>`<tr><td>${esc(it.description)}</td><td>${esc(it.piece)}</td><td class="num">${m2(it.surface_nette)}</td></tr>`).join('')}
+                 </tbody></table></div>`;
+          return `<div class="cat-block">${headRO}${bodyRO}</div>`;
+        }
         const head = `<div class="cat-head"><strong>${CAT_LABEL[cat]}</strong>
             <span class="pill">${inst.length} instance(s) · ${m2(sumChecked(vt,cat))} cochés</span></div>`;
-        if(overridden) return `<div class="cat-block">${head}<div class="cat-body"><small>ITE fournie par la VT ITE dédiée — non comptée ici.</small></div></div>`;
         const body = inst.length===0
           ? `<div class="cat-body"><small>Aucune instance. <button class="btn small ghost" data-add="${vt.id}|${cat}">+ Ajouter une ligne</button></small></div>`
           : `<div class="cat-body"><table><thead><tr>
