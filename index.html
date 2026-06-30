@@ -1127,21 +1127,21 @@ function renderStep4(){
   });
 
   // Total immeuble (cas 3) ou récap global
-  html += `<div class="card" style="background:#0b1220">
-    <h3>Total ${state.cas===3?'immeuble':'projet'}</h3>
-    <table><tbody>
-      <tr><td>Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
-      <tr><td>Audit VT (habitations)</td><td class="num">${eur(tot.audit)}</td></tr>
-      <tr><td>Régie commerciale</td><td class="num">${eur(tot.regie)}</td></tr>
-      <tr class="total"><td>Coût de revient total</td><td class="num">${eur(tot.coutRevient)}</td></tr>
-      <tr><td>Prix de vente HT</td><td class="num">${eur(tot.venteTravaux)}</td></tr>
-      <tr><td>Prime CEE totale</td><td class="num">${eur(tot.prime)}</td></tr>
-      <tr><td>Reste à charge total</td><td class="num">${eur(tot.reste)}</td></tr>
-    </tbody></table>
+  html += `<div class="card" style="background:linear-gradient(135deg,#eef4ff,#fbfdff);border:2px solid var(--primary)">
+    <h3 style="color:var(--primary)">📊 Total ${state.cas===3?'immeuble':'projet'}</h3>
     <div class="kpi-grid">
+      <div class="kpi"><div class="lab">Coût de revient total</div><div class="val">${eur(tot.coutRevient)}</div></div>
+      <div class="kpi"><div class="lab">Prix de vente HT</div><div class="val">${eur(tot.venteTravaux)}</div></div>
+      <div class="kpi"><div class="lab">Prime CEE totale</div><div class="val">${eur(tot.prime)}</div></div>
+      <div class="kpi"><div class="lab">Reste à charge total</div><div class="val">${eur(tot.reste)}</div></div>
       <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Marge globale</div><div class="val">${eur(tot.marge)}</div></div>
-      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Décision globale (seuil ${eur(seuil)})</div><div class="val">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
+      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Décision (seuil ${eur(seuil)})</div><div class="val">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
     </div>
+    <table style="margin-top:8px"><tbody>
+      <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
+      <tr><td>Détail — Audit VT (habitations)</td><td class="num">${eur(tot.audit)}</td></tr>
+      <tr><td>Détail — Régie commerciale</td><td class="num">${eur(tot.regie)}</td></tr>
+    </tbody></table>
   </div>`;
 
   area.innerHTML = html;
