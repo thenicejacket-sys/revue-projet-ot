@@ -647,9 +647,15 @@ const VCOL = { A:0, B:1, C:2, D:3, G:6, J:9, K:10, L:11, N:13, O:14 };
 function parseValorisation(workbook){
   const ws = workbook.Sheets['Feuil1'] || workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, blankrows:false, defval:'' });
-  const data = rows.slice(2);   // données à partir de la ligne 3 (index 2)
-  const parsed = data
-    .filter(r => String(r[VCOL.G]||'').trim() !== '')   // ligne valide = pollueur présent
+  // Détection ROBUSTE des lignes de données, quelle que soit la position des en-têtes
+  // (en-têtes en ligne 1 OU ligne 2, avec ou sans ligne de titre) :
+  // une ligne valide = Nb sauts (col A) commence par 2/3/4 ET Pollueur (col G) renseigné (≠ en-tête).
+  const parsed = rows
+    .filter(r => {
+      const a = String(r[VCOL.A] ?? '').trim();
+      const g = String(r[VCOL.G] ?? '').trim();
+      return /^[234]/.test(a) && g && g.toLowerCase() !== 'pollueur/mandataire';
+    })
     .map(r => ({
       sauts:     normSauts(r[VCOL.A]),
       kwhc:      num(r[VCOL.B]),
