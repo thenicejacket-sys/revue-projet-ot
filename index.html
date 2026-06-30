@@ -1211,32 +1211,58 @@ function buildReportWorkbook(){
   wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:19},{wch:16},{wch:12},{wch:14},{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
 
-  // --- Une feuille détaillée par VT ---
-  const used = {};
+  // --- Feuille « Détail complet » : TOUTE la granularité (chaque instance/pièce) ---
+  const det = [
+    ['DÉTAIL COMPLET — Revue Projet OT'],
+    ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
+    []
+  ];
+  const COLS = ['Catégorie','Description','Pièce','Surface (m²)','Inclus','Px achat HT','Px vente HT','Coût de revient','Vente HT'];
   blocks.forEach(({vt,res})=>{
-    const rows = [
-      [vt.label+' — '+(vt.role==='ite'?'VT ITE dédiée':'Habitation')],
-      [],
-      ['Catégorie','Surface/Qté','Px achat HT','Px vente HT','Coût de revient','Vente HT']
-    ];
-    res.lignes.forEach(l=> rows.push([l.label, round2(l.surf), round2(l.achat), round2(l.vente), round2(l.cR), round2(l.vR)]));
-    rows.push(['Sous-total travaux','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
-    if(vt.role==='habitation') rows.push(['+ Audit VT (fixe)','','','', round2(res.audit), '']);
-    rows.push(['+ Régie commerciale '+pct+'%','','','', round2(res.regie), '']);
-    rows.push(['Coût de revient total','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
-    rows.push([]);
-    rows.push(['Prime CEE', round2(res.prime)]);
-    rows.push(['Reste à charge ménage', round2(res.reste)]);
-    rows.push(['Marge', round2(res.marge)]);
-    rows.push(['Décision', res.go?'GO':'NO-GO']);
-    if(res.valoErr) rows.push(['⚠️ Valorisation', res.valoErr]);
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:26},{wch:12},{wch:12},{wch:12},{wch:16},{wch:14}];
-    let base = sanitizeSheetName(vt.label), name = base, i = 2;
-    while(used[name]){ name = sanitizeSheetName(base.slice(0,24)+' '+i); i++; }
-    used[name] = 1;
-    XLSX.utils.book_append_sheet(wb, ws, name);
+    det.push(['■ ' + vt.label + ' — ' + (vt.role==='ite'?'VT ITE dédiée':'Habitation')]);
+    det.push(COLS.slice());
+    CATS.forEach(cat=>{
+      const inst = effectiveInstances(vt, cat);
+      if(!inst.length) return;
+      const cc = findChargeCol(CHARGE_MAP[cat]);
+      const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
+      let sSurf=0, sCout=0, sVente=0;
+      inst.forEach((it,i)=>{
+        const inc = isChecked(vt, cat, i);          // ligne cochée = comptée
+        const s = num(it.surface_nette);
+        const cR = inc ? s*achat : 0, vR = inc ? s*vente : 0;
+        if(inc){ sSurf+=s; sCout+=cR; sVente+=vR; }
+        det.push([cat, it.description||'', it.piece||'', round2(s), inc?'✓':'✗ exclu', achat, vente, round2(cR), round2(vR)]);
+      });
+      det.push(['  Sous-total '+CAT_LABEL[cat], '', '', round2(sSurf), '', '', '', round2(sCout), round2(sVente)]);
+    });
+    (vt.pcLines||[]).forEach(pl=>{
+      const cc = findChargeCol(pl.cat); const q = num(pl.qty);
+      const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
+      det.push([pl.cat+' (à l\'unité)', 'Quantité saisie', '', q, '✓', achat, vente, round2(q*achat), round2(q*vente)]);
+    });
+    det.push(['  SOUS-TOTAL TRAVAUX','','','','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
+    if(vt.role==='habitation') det.push(['  + Audit VT (fixe)','','','','','','', round2(res.audit), '']);
+    det.push(['  + Régie commerciale '+pct+'%','','','','','','', round2(res.regie), '']);
+    det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
+    det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
+    det.push(['  Reste à charge ménage','','','','','','','', round2(res.reste)]);
+    det.push(['  MARGE','','','','','','','', round2(res.marge)]);
+    det.push(['  Décision', res.go?'GO':'NO-GO']);
+    if(res.valoErr) det.push(['  ⚠️ Valorisation hors barème', res.valoErr]);
+    det.push([]);
   });
+  det.push(['★ TOTAL '+(state.cas===3?'IMMEUBLE':'PROJET')]);
+  det.push(['Coût de revient total','','','','','','', round2(tot.coutRevient), '']);
+  det.push(['Prix de vente HT','','','','','','','', round2(tot.venteTravaux)]);
+  det.push(['Prime CEE totale','','','','','','','', round2(tot.prime)]);
+  det.push(['Reste à charge total','','','','','','','', round2(tot.reste)]);
+  det.push(['MARGE GLOBALE','','','','','','','', round2(tot.marge)]);
+  det.push(['Décision globale (seuil '+round2(num(state.settings.seuilGo))+' €)', tot.go?'GO':'NO-GO']);
+  const wsDet = XLSX.utils.aoa_to_sheet(det);
+  wsDet['!cols'] = [{wch:28},{wch:34},{wch:16},{wch:12},{wch:9},{wch:12},{wch:12},{wch:16},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, wsDet, 'Détail complet');
+
   return wb;
 }
 $('#downloadExcel').addEventListener('click', ()=>{
