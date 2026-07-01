@@ -317,7 +317,10 @@ main{position:relative;z-index:1}
       <div class="row">
         <div class="col">
           <label class="fld">Clé API OpenRouter</label>
-          <input type="password" id="apiKey" placeholder="sk-or-v1-…" autocomplete="new-password" data-lpignore="true" data-1p-ignore />
+          <!-- Champ TEXTE masqué (pas type=password) : évite que le navigateur détecte un
+               formulaire de connexion et propose « Gérer les mots de passe » sur les autres champs. -->
+          <input type="text" id="apiKey" placeholder="sk-or-v1-…" autocomplete="off"
+                 data-lpignore="true" data-1p-ignore class="masked" style="-webkit-text-security:disc" />
         </div>
         <div class="col">
           <label class="fld">Modèle d'extraction</label>
