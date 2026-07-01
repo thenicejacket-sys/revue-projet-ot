@@ -200,7 +200,9 @@ main{position:relative;z-index:1}
       <div class="row">
         <div class="col">
           <label class="fld">Nom du dossier <span style="color:var(--danger)">*</span> (obligatoire)</label>
-          <input type="text" id="nomDossier" placeholder="ex. Dupont — 12 rue des Lilas" />
+          <input type="text" id="nomDossier" placeholder="ex. Dupont — 12 rue des Lilas"
+                 autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                 data-lpignore="true" data-1p-ignore data-form-type="other" name="nom_dossier_libre" />
           <small>Identifie le dossier dans le rapport et l'historique.</small>
         </div>
       </div>
@@ -315,7 +317,7 @@ main{position:relative;z-index:1}
       <div class="row">
         <div class="col">
           <label class="fld">Clé API OpenRouter</label>
-          <input type="password" id="apiKey" placeholder="sk-or-v1-…" autocomplete="off" />
+          <input type="password" id="apiKey" placeholder="sk-or-v1-…" autocomplete="new-password" data-lpignore="true" data-1p-ignore />
         </div>
         <div class="col">
           <label class="fld">Modèle d'extraction</label>
