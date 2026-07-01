@@ -767,6 +767,9 @@ function findChargeCol(name){
    ============================================================================ */
 function habitations(){ return state.vts.filter(v=>v.role==='habitation'); }
 function iteVts(){ return state.vts.filter(v=>v.role==='ite'); }
+// VT ITE dédiée(s) TOUJOURS en tête, puis les habitations (ordre de chargement conservé dans chaque groupe).
+// Tri stable -> utilisé pour tous les affichages, calculs et rapports.
+function orderedVts(){ return [...state.vts].sort((a,b)=> (a.role==='ite'?0:1) - (b.role==='ite'?0:1)); }
 function hasDedicatedIte(){ return iteVts().length > 0; }
 
 // Instances effectives d'une catégorie pour une VT donnée (gère la règle ITE)
@@ -836,7 +839,7 @@ function calcVT(vt){
 }
 
 function calcGlobal(){
-  const blocks = state.vts.map(vt=>({ vt, res:calcVT(vt) }));
+  const blocks = orderedVts().map(vt=>({ vt, res:calcVT(vt) }));   // VT ITE en tête
   const tot = { chargesTravaux:0, venteTravaux:0, audit:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0 };
   blocks.forEach(b=>{ for(const k in tot) tot[k]+=b.res[k]||0; });
   tot.go = tot.marge >= num(state.settings.seuilGo);
@@ -862,7 +865,7 @@ function defaultRoleForNewVt(){
 function renderVtList(){
   const wrap = $('#vtList');
   if(state.vts.length === 0){ wrap.innerHTML = '<small>Aucune VT chargée.</small>'; return; }
-  wrap.innerHTML = state.vts.map(vt=>`
+  wrap.innerHTML = orderedVts().map(vt=>`
     <div class="vt-block">
       <div class="head">
         <strong>📄 ${esc(vt.fileName)}</strong>
@@ -990,7 +993,7 @@ function renderStep3(){
   const wrap = $('#extractList');
   if(state.vts.length===0){ wrap.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
 
-  wrap.innerHTML = state.vts.map(vt=>{
+  wrap.innerHTML = orderedVts().map(vt=>{
     const badge = vt.role==='ite' ? '<span class="badge ite">VT ITE</span>' : '<span class="badge hab">Habitation</span>';
     let inner;
     if(vt.extracting){ inner = '<div class="alert info"><span class="spinner"></span> Extraction IA en cours…</div>'; }
