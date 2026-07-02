@@ -1060,15 +1060,17 @@ function renderStep3(){
         const head = `<div class="cat-head" data-toggle="${vt.id}|${cat}" style="cursor:pointer">
             <strong>${collapsed?'➕':'➖'} ${CAT_LABEL[cat]}</strong>
             <span class="pill">${inst.length} instance(s)</span></div>`;
-        if(collapsed) return `<div class="cat-block">${head}</div>`;
-        // Barre TOTAL (en bas) avec le % retenu
-        const totalBar = inst.length ? `<div class="flex" style="justify-content:flex-end;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
-            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Surface utilisée dans le calcul">Coché (calcul) : <strong>${m2(sumChecked(vt,cat))}</strong></span>
-            <span style="color:var(--border)">|</span>
-            <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — n'entre PAS dans le calcul"><span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Indicatif %</span>
-              <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:74px;text-align:right"></label>
-            <span class="pill" title="Purement indicatif — n'entre PAS dans le calcul">≈ <strong>${m2(retainedSurface(vt,cat))}</strong></span>
+        // Barre TOTAL : % indicatif à GAUCHE, total réel (calcul) à DROITE.
+        // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
+        const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
+            <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — n'entre PAS dans le calcul">
+              <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Indicatif %</span>
+              <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:70px;text-align:right">
+              <span class="pill">≈ ${m2(retainedSurface(vt,cat))}</span></label>
+            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Surface utilisée dans le calcul">Total réel : <strong>${m2(sumChecked(vt,cat))}</strong></span>
           </div>` : '';
+        // Replié : en-tête + total seulement (détail masqué)
+        if(collapsed) return `<div class="cat-block">${head}${totalBar}</div>`;
         const body = inst.length===0
           ? `<div class="cat-body"><small>Aucune instance. <button class="btn small ghost" data-add="${vt.id}|${cat}">+ Ajouter une ligne</button></small></div>`
           : `<div class="cat-body"><table><thead><tr>
