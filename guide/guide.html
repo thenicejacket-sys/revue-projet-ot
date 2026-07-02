@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --primary:#1B3F8B; --primary-dark:#12296a; --primary-light:#2a56b8;
+    --green:#2E7D32; --green-bg:#E6F4EA; --teal:#00838f;
+    --ink:#1A1A2E; --muted:#5a6577; --line:#dde3ef; --bg:#F4F7FC;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Nunito',sans-serif;color:var(--ink);font-size:13px;line-height:1.55}
+  h1,h2,h3,.mont{font-family:'Montserrat',sans-serif}
+  @page{ size:A4; margin:0; }
+  .page{ width:210mm; min-height:296mm; padding:20mm 18mm; position:relative; page-break-after:always; background:#fff; }
+  .page:last-child{ page-break-after:auto; }
+
+  /* ---------- COUVERTURE ---------- */
+  .cover{ background:linear-gradient(150deg,#12296a 0%,#1B3F8B 55%,#2a56b8 100%); color:#fff; display:flex; flex-direction:column; justify-content:center; padding:26mm; }
+  .cover .logo{ width:66px;height:66px;border-radius:16px;background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.4);
+    display:flex;align-items:center;justify-content:center;font-family:'Montserrat';font-weight:800;font-size:26px;margin-bottom:26px}
+  .cover .kicker{ text-transform:uppercase; letter-spacing:.28em; font-size:12px; font-weight:700; color:#a9c3f5; margin-bottom:14px }
+  .cover h1{ font-size:46px; font-weight:800; line-height:1.05; margin-bottom:16px }
+  .cover .sub{ font-size:16px; color:#dfe8fb; max-width:135mm; margin-bottom:40px }
+  .cover .url{ display:inline-flex; align-items:center; gap:10px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.3);
+    padding:12px 18px; border-radius:999px; font-family:'Montserrat'; font-weight:700; font-size:14px; align-self:flex-start }
+  .cover .foot{ position:absolute; bottom:22mm; left:26mm; right:26mm; display:flex; justify-content:space-between; font-size:12px; color:#a9c3f5 }
+
+  /* ---------- CONTENU ---------- */
+  .ph{ display:flex; align-items:center; gap:12px; border-bottom:3px solid var(--primary); padding-bottom:12px; margin-bottom:22px }
+  .ph .n{ width:34px;height:34px;border-radius:9px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Montserrat';font-weight:800;font-size:16px }
+  .ph h2{ font-size:22px; color:var(--primary); font-weight:800 }
+  .lead{ color:var(--muted); font-size:13.5px; margin-bottom:20px }
+
+  .step{ display:flex; gap:16px; margin-bottom:18px; }
+  .step .badge{ flex:0 0 40px; height:40px; border-radius:11px; background:var(--green-bg); color:var(--primary);
+    display:flex;align-items:center;justify-content:center; font-family:'Montserrat'; font-weight:800; font-size:18px; border:1px solid #cfe2d6 }
+  .step .body h3{ font-size:15px; font-weight:700; margin-bottom:4px; color:var(--ink) }
+  .step .body p{ color:var(--muted); font-size:12.5px }
+  .step .body .k{ color:var(--primary); font-weight:700 }
+
+  .card{ border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; background:#fbfcff; }
+  .card h3{ font-size:14px; color:var(--primary); margin-bottom:8px; font-weight:700 }
+  ul.clean{ list-style:none }
+  ul.clean li{ padding-left:22px; position:relative; margin-bottom:7px; font-size:12.5px; color:#2b3448 }
+  ul.clean li:before{ content:'▸'; position:absolute; left:4px; color:var(--primary); font-weight:800 }
+  .tip{ background:var(--green-bg); border-left:4px solid var(--green); border-radius:0 8px 8px 0; padding:11px 15px; font-size:12.5px; color:#1e4620; margin:8px 0 }
+  .warn{ background:#FFF8E1; border-left:4px solid #F5A623; border-radius:0 8px 8px 0; padding:11px 15px; font-size:12.5px; color:#7a5300; margin:8px 0 }
+  .pill{ display:inline-block; background:#eef2fb; border:1px solid var(--line); color:var(--primary); font-weight:700; font-size:11px; padding:2px 9px; border-radius:999px }
+  b,strong{ color:var(--ink) }
+  .foot-note{ position:absolute; bottom:12mm; left:18mm; right:18mm; border-top:1px solid var(--line); padding-top:8px;
+    display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); font-family:'Montserrat'; font-weight:600 }
+  .two{ display:flex; gap:14px } .two > *{ flex:1 }
+  .grid5{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+</style>
+</head>
+<body>
+
+<!-- ============ COUVERTURE ============ -->
+<section class="page cover">
+  <div class="logo">OT</div>
+  <div class="kicker">OT Énergie · Pré-chiffrage CEE</div>
+  <h1>Revue Projet OT</h1>
+  <div class="sub">Guide utilisateur — évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO.</div>
+  <div class="url">🔗 thenicejacket-sys.github.io/revue-projet-ot</div>
+  <div class="foot"><span>Guide utilisateur</span><span>Version juillet 2026</span></div>
+</section>
+
+<!-- ============ DÉMARRAGE ============ -->
+<section class="page">
+  <div class="ph"><div class="n">✦</div><h2>À quoi ça sert &amp; comment démarrer</h2></div>
+  <p class="lead">Revue Projet OT réalise un <b>pré-chiffrage rapide</b> d'un dossier de rénovation : il lit les Visites Techniques (VT) en PDF, calcule la prime CEE, estime les coûts et la marge, et vous aide à décider <b>GO / NO-GO</b>. Tout se passe dans votre navigateur — aucune donnée n'est envoyée sur un serveur (sauf l'extraction IA).</p>
+
+  <div class="card">
+    <h3>Démarrer en 3 points</h3>
+    <ul class="clean">
+      <li>Ouvrez le lien, puis rafraîchissez avec <span class="pill">Ctrl + Maj + R</span>.</li>
+      <li>Allez dans l'onglet <b>⚙️ Paramètres</b> et collez votre <b>clé OpenRouter</b> (nécessaire à l'extraction IA). Chacun utilise sa propre clé.</li>
+      <li>Vérifiez le <b>barème de prix</b> (achat / vente) — pré-rempli, modifiable, puis « Enregistrer ».</li>
+    </ul>
+  </div>
+
+  <div class="tip">💡 <b>Le parcours</b> : 1 Chargement → 2 Extraction → 3 Valorisation → 4 Charges &amp; marges → 5 Rapport. Deux onglets annexes : <b>Historique</b> et <b>Paramètres</b>.</div>
+
+  <div class="card">
+    <h3>Les 3 cas de dossier</h3>
+    <ul class="clean">
+      <li><b>Cas 1 — Appartement / logement simple</b> : 1 VT.</li>
+      <li><b>Cas 2 — Maison / pavillon</b> : 1 VT ITE (extérieur) + 1 VT intérieure.</li>
+      <li><b>Cas 3 — Immeuble</b> : 1 VT ITE façade + N VT d'appartements.</li>
+    </ul>
+    <div class="tip" style="margin-top:6px">La <b>VT ITE</b> est toujours placée <b>en tête</b> ; les habitations suivent. L'ITE est globale, les habitations sont individuelles.</div>
+  </div>
+</section>
+
+<!-- ============ ÉTAPES 1-2-3 ============ -->
+<section class="page">
+  <div class="ph"><div class="n">1</div><h2>Le parcours en 5 étapes</h2></div>
+
+  <div class="step"><div class="badge">1</div><div class="body">
+    <h3>Chargement des VT</h3>
+    <p>Saisissez le <span class="k">Nom du dossier</span> (obligatoire), choisissez le <span class="k">cas</span> (1/2/3), puis glissez-déposez les PDF de VT. Pour chaque VT, indiquez son <span class="k">rôle</span> : <b>VT ITE dédiée</b> ou <b>Habitation</b>.</p>
+  </div></div>
+
+  <div class="step"><div class="badge">2</div><div class="body">
+    <h3>Extraction &amp; sélection</h3>
+    <p>Cliquez <span class="k">« Extraire toutes les VT »</span> : l'IA remplit les 5 catégories (ITE, ITI, Combles, Plancher, Fenêtres). <b>Cochez / décochez</b> chaque ligne — <b>seules les lignes cochées sont calculées</b>. Tout est éditable si besoin. Réduisez une catégorie avec <b>➖ / ➕</b> (le total reste visible). Le <b>%</b> à gauche est un simple repère indicatif (il n'entre pas dans le calcul).</p>
+  </div></div>
+
+  <div class="step"><div class="badge">3</div><div class="body">
+    <h3>Valorisation CEE</h3>
+    <p>Renseignez le <span class="k">Pollueur</span>, et par habitation : <span class="k">revenus</span> (Classique / Précaire), <span class="k">Coup de Pouce</span>, <span class="k">nb de sauts</span>. La <span class="k">surface habitable</span> est déjà pré-remplie depuis l'extraction. La <b>prime CEE</b> s'affiche automatiquement. Cliquez <b>« Lancer le calcul global »</b>.</p>
+  </div></div>
+
+  <div class="warn">⚠️ Sur les <b>fenêtres</b>, la colonne « Pièce » affiche le type de pièce <b>si la VT l'indique</b> ; sinon elle garde l'orientation (Nord/Sud). L'IA n'invente jamais une information absente de la VT.</div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+<!-- ============ ÉTAPES 4-5 + RÉSULTATS ============ -->
+<section class="page">
+  <div class="ph"><div class="n">2</div><h2>Résultats &amp; rapport</h2></div>
+
+  <div class="step"><div class="badge">4</div><div class="body">
+    <h3>Charges &amp; marges</h3>
+    <p>Pour chaque habitation et pour l'ITE : coût de revient (charges + Audit VT + régie), prix de vente, <span class="k">prime CEE</span>, <span class="k">reste à charge</span> du ménage, <span class="k">marge</span> et décision <b>GO / NO-GO</b>. En bas, le <b>Total projet / immeuble</b> agrège l'ensemble.</p>
+  </div></div>
+
+  <div class="step"><div class="badge">5</div><div class="body">
+    <h3>Rapport</h3>
+    <p>Cliquez <span class="k">« Rapport Excel (.xlsx) »</span>. Le fichier contient une feuille <b>Synthèse</b> (1 ligne par habitation + total) et une feuille <b>Détail complet</b> (chaque ligne de calcul, jusqu'au résultat).</p>
+  </div></div>
+
+  <div class="two">
+    <div class="card"><h3>⚙️ Paramètres</h3>
+      <ul class="clean">
+        <li>Clé API &amp; modèle IA (OpenRouter)</li>
+        <li>Template de valorisation (.xlsx)</li>
+        <li>Barème de prix achat / vente</li>
+        <li>Montant Audit VT · % Régie · Seuil GO/NO-GO</li>
+      </ul>
+    </div>
+    <div class="card"><h3>📋 Historique</h3>
+      <ul class="clean">
+        <li>Chaque rapport généré est enregistré</li>
+        <li>Date, dossier, coûts, marge, prime, reste à charge, statut</li>
+        <li>Export Excel de l'historique</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card"><h3>Bonnes pratiques</h3>
+    <ul class="clean">
+      <li><b>Le calcul = uniquement les lignes cochées</b> (le % est indicatif).</li>
+      <li>Les calculs utilisent la <b>surface nette</b>.</li>
+      <li>Vos <b>prix / marges restent privés</b> : ils vivent dans votre navigateur, jamais en ligne.</li>
+      <li>Un souci d'extraction ? Saisissez les surfaces <b>à la main</b> — tout est éditable.</li>
+    </ul>
+  </div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+</body>
+</html>
