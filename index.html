@@ -337,19 +337,20 @@ main{position:relative;z-index:1}
       </div>
 
       <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Fichiers de paramètres (.xlsx)</h3>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Template de valorisation (.xlsx)</h3>
       <div class="row">
         <div class="col">
           <label class="fld">VALORISATION_TEMPLATE.xlsx</label>
           <input type="file" id="valoFile" accept=".xlsx,.xls" />
           <div id="valoInfo"></div>
         </div>
-        <div class="col">
-          <label class="fld">Charges.xlsx</label>
-          <input type="file" id="chargesFile" accept=".xlsx,.xls" />
-          <div id="chargesInfo"></div>
-        </div>
       </div>
+
+      <hr/>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Barème de prix (achat / vente HT, €/m²)</h3>
+      <p class="hint">Valeurs par défaut reprises du fichier Charges. Modifie-les puis « Enregistrer » : elles deviennent le barème utilisé pour les calculs.</p>
+      <table id="chargesTable"><thead><tr><th>Catégorie</th><th class="num">Px achat HT</th><th class="num">Prix vente HT</th></tr></thead>
+        <tbody id="chargesBody"></tbody></table>
 
       <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Paramètres de calcul</h3>
@@ -405,6 +406,19 @@ const CHARGE_MAP = {ITE:'ITE',ITI:'ITI',Combles:'Combles',Plancher:'Planchers',F
 const PC_CATS = ['Radiateurs','Ballon Thermo','Ballon Hybrid','VMC','Rampants','Toit Terrasse'];
 // % de la surface cochée réellement retenu pour le calcul, par catégorie (modifiable par VT).
 const CAT_PCT_DEFAULT = { ITE:25, ITI:25, Combles:100, Plancher:100, Fenetres:25 };
+// Barème de prix par défaut (reprend le fichier Charges.xlsx OT Énergie). Clés = noms de colonnes charges.
+const CHARGES_DEFAULT = {
+  ITI:      { unite:'M2', achat:70,  vente:210 },
+  Fenetres: { unite:'M2', achat:550, vente:1500 },
+  Combles:  { unite:'M2', achat:30,  vente:90 },
+  Planchers:{ unite:'M2', achat:30,  vente:90 },
+  ITE:      { unite:'M2', achat:100, vente:200 }
+};
+// Lignes affichées dans Paramètres (clé barème -> libellé)
+const CHARGES_ROWS = [
+  { key:'ITI', label:'ITI' }, { key:'Fenetres', label:'Fenêtres' }, { key:'Combles', label:'Combles' },
+  { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
+];
 
 const state = {
   cas: 1,
@@ -1399,17 +1413,16 @@ $('#valoFile').addEventListener('change', async e=>{
     saveLS();
   }catch(err){ $('#valoInfo').innerHTML = `<div class="alert err">${esc(err.message)}</div>`; }
 });
-$('#chargesFile').addEventListener('change', async e=>{
-  const f=e.target.files[0]; if(!f) return;
-  try{
-    const wb = await readWorkbook(f);
-    state.chargesTable = parseCharges(wb);
-    const rows = Object.entries(state.chargesTable).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${esc(v.unite)}</td><td class="num">${eur(v.achat)}</td><td class="num">${eur(v.vente)}</td></tr>`).join('');
-    $('#chargesInfo').innerHTML = `<div class="alert ok">${Object.keys(state.chargesTable).length} catégorie(s) lue(s).</div>
-      <table><thead><tr><th>Catégorie</th><th>Unité</th><th class="num">Px achat</th><th class="num">Px vente</th></tr></thead><tbody>${rows}</tbody></table>`;
-    saveLS();
-  }catch(err){ $('#chargesInfo').innerHTML = `<div class="alert err">${esc(err.message)}</div>`; }
-});
+// Barème de prix éditable (remplace l'upload Charges.xlsx). Pré-rempli depuis state.chargesTable / défauts.
+function renderChargesEditor(){
+  const src = state.chargesTable || CHARGES_DEFAULT;
+  $('#chargesBody').innerHTML = CHARGES_ROWS.map(r=>{
+    const v = src[r.key] || CHARGES_DEFAULT[r.key] || {achat:0,vente:0};
+    return `<tr><td><strong>${esc(r.label)}</strong></td>
+      <td class="num"><input type="number" data-charge="${r.key}|achat" value="${num(v.achat)}" step="1" style="width:120px;text-align:right"> €</td>
+      <td class="num"><input type="number" data-charge="${r.key}|vente" value="${num(v.vente)}" step="1" style="width:120px;text-align:right"> €</td></tr>`;
+  }).join('');
+}
 
 $('#model').addEventListener('change', e=>{
   state.settings.model = e.target.value;
@@ -1428,6 +1441,13 @@ $('#saveParams').addEventListener('click', ()=>{
   state.settings.auditVT = num($('#auditVT').value);
   state.settings.regiePct= num($('#regiePct').value);
   state.settings.seuilGo = num($('#seuilGo').value);
+  // Barème de prix : les valeurs saisies deviennent le barème utilisé pour les calculs
+  const ct = {};
+  CHARGES_ROWS.forEach(r=>{ ct[r.key] = { unite:'M2', achat:0, vente:0 }; });
+  $$('#chargesBody [data-charge]').forEach(inp=>{
+    const [key,field] = inp.dataset.charge.split('|'); ct[key][field] = num(inp.value);
+  });
+  state.chargesTable = ct;
   saveLS();
   $('#saveParams').textContent='✅ Enregistré'; setTimeout(()=>$('#saveParams').textContent='💾 Enregistrer',1500);
 });
@@ -1445,9 +1465,10 @@ function hydrateParamsUI(){
   $('#cas').value = state.cas;
   $('#nomDossier').value = state.nomDossier || '';
   if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
-  if(state.chargesTable) $('#chargesInfo').innerHTML = `<div class="alert ok">${Object.keys(state.chargesTable).length} catégorie(s) en mémoire.</div>`;
+  renderChargesEditor();
 }
 loadLS();
+if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 hydrateParamsUI();
 renderCasDesc();
 renderVtList();
