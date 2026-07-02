@@ -579,7 +579,7 @@ const EXTRACTION_SCHEMA_HINT = `{
     "ITI":      [{ "description": "", "piece": "", "surface_nette": 0, "surface_brute": 0 }],
     "Combles":  [{ "description": "", "piece": "", "surface_nette": 0, "surface_brute": 0 }],
     "Plancher": [{ "description": "", "piece": "", "surface_nette": 0, "surface_brute": 0 }],
-    "Fenetres": [{ "description": "", "piece": "", "surface_nette": 0, "surface_brute": 0 }]
+    "Fenetres": [{ "description": "", "piece": "", "dimensions": "", "surface_nette": 0, "surface_brute": 0 }]
   }
 }`;
 
@@ -612,6 +612,10 @@ async function callAIExtraction(vtText, hints){
     + "- NE CONFONDS PAS ITE (extérieur, bardage, enduit, façade) et ITI (intérieur, doublage, placo).\n"
     + "- NE CONFONDS PAS Combles (en haut) et Plancher (en bas).\n"
     + "- Une ligne par instance/pièce, avec description, pièce, surface_nette, surface_brute (nombres en m²).\n"
+    + "- Le champ 'piece' = le TYPE DE PIÈCE (cuisine, salle de bain, chambre, séjour, WC, dégagement…), "
+    + "PAS l'orientation (Nord/Sud/Est/Ouest). N'utilise l'orientation que pour l'ITE (façades).\n"
+    + "- Pour Fenetres UNIQUEMENT : renseigne 'dimensions' = dimensions de la menuiserie telles qu'écrites sur la VT "
+    + "(ex. « 1,20 x 1,00 » ou « L120 x H100 »). 'piece' = la pièce où se trouve la fenêtre (cuisine, chambre…).\n"
     + "- Catégorie absente => tableau vide [].\n"
     + "- Parois repérées dans le texte (indice, à vérifier) : " + detectedList + ".\n\n"
     + "TEXTE DE LA VT :\n\"\"\"\n" + vtText.slice(0, 24000) + "\n\"\"\"";
@@ -656,6 +660,7 @@ function safeParseExtraction(raw){
     norm.categories[cat] = (Array.isArray(arr)?arr:[]).map(it=>({
       description: String(it.description||''),
       piece: String(it.piece||''),
+      dimensions: String(it.dimensions||''),   // ex. « 1,20 x 1,00 » (surtout Fenêtres)
       surface_nette: num(it.surface_nette),
       surface_brute: num(it.surface_brute)
     }));
@@ -1028,12 +1033,14 @@ function renderStep3(){
         const body = inst.length===0
           ? `<div class="cat-body"><small>Aucune instance. <button class="btn small ghost" data-add="${vt.id}|${cat}">+ Ajouter une ligne</button></small></div>`
           : `<div class="cat-body"><table><thead><tr>
-               <th style="width:30px"></th><th>Description</th><th>Pièce</th>
+               <th style="width:30px"></th><th>Description</th><th>Pièce (type)</th>
+               ${cat==='Fenetres'?'<th>Dimensions</th>':''}
                <th class="num">Surface (m²)</th><th></th></tr></thead><tbody>
                ${inst.map((it,i)=>`<tr>
                  <td><input type="checkbox" data-chk="${vt.id}|${cat}|${i}" ${isChecked(vt,cat,i)?'checked':''}></td>
                  <td><input type="text" value="${esc(it.description)}" data-edit="${vt.id}|${cat}|${i}|description"></td>
-                 <td><input type="text" value="${esc(it.piece)}" data-edit="${vt.id}|${cat}|${i}|piece" style="width:110px"></td>
+                 <td><input type="text" value="${esc(it.piece)}" data-edit="${vt.id}|${cat}|${i}|piece" placeholder="ex. Cuisine" style="width:120px"></td>
+                 ${cat==='Fenetres'?`<td><input type="text" value="${esc(it.dimensions||'')}" data-edit="${vt.id}|${cat}|${i}|dimensions" placeholder="ex. 1,20 × 1,00" style="width:130px"></td>`:''}
                  <td class="num"><input type="number" value="${it.surface_nette}" step="0.1" data-edit="${vt.id}|${cat}|${i}|surface_nette" style="width:90px;text-align:right"></td>
                  <td><button class="btn danger small" data-rm="${vt.id}|${cat}|${i}">✕</button></td>
                </tr>`).join('')}
@@ -1073,7 +1080,7 @@ function renderStep3(){
   wrap.querySelectorAll('[data-add]').forEach(b=> b.addEventListener('click', e=>{
     const [id,cat]=e.target.dataset.add.split('|'); const vt=state.vts.find(v=>v.id==id);
     if(!vt.extraction) vt.extraction={shab_m2:0,categories:{ITE:[],ITI:[],Combles:[],Plancher:[],Fenetres:[]}};
-    vt.extraction.categories[cat].push({description:'',piece:'',surface_nette:0,surface_brute:0}); renderStep3();
+    vt.extraction.categories[cat].push({description:'',piece:'',dimensions:'',surface_nette:0,surface_brute:0}); renderStep3();
   }));
   wrap.querySelectorAll('[data-shab]').forEach(inp=> inp.addEventListener('input', e=>{
     state.vts.find(v=>v.id==e.target.dataset.shab).shab = num(e.target.value);
@@ -1240,7 +1247,8 @@ function buildReportWorkbook(){
         const s = num(it.surface_nette);
         const cR = inc ? s*achat : 0, vR = inc ? s*vente : 0;
         if(inc){ sSurf+=s; sCout+=cR; sVente+=vR; }
-        det.push([cat, it.description||'', it.piece||'', round2(s), inc?'✓':'✗ exclu', achat, vente, round2(cR), round2(vR)]);
+        const desc = (it.description||'') + (cat==='Fenetres' && it.dimensions ? ' — '+it.dimensions : '');
+        det.push([cat, desc, it.piece||'', round2(s), inc?'✓':'✗ exclu', achat, vente, round2(cR), round2(vR)]);
       });
       det.push(['  Sous-total '+CAT_LABEL[cat], '', '', round2(sSurf), '', '', '', round2(sCout), round2(sVente)]);
     });
