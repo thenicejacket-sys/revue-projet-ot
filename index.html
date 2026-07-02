@@ -824,13 +824,13 @@ function calcVT(vt){
   const lignes = [];
   let chargesTravaux = 0, venteTravaux = 0;
   for(const cat of CATS){
-    const surf = retainedSurface(vt, cat);   // surface cochée × % retenu de la catégorie
+    const surf = sumChecked(vt, cat);   // CALCUL = uniquement les lignes cochées (le % est purement indicatif)
     if(surf <= 0 && effectiveInstances(vt,cat).length===0) continue;
     const cc = findChargeCol(CHARGE_MAP[cat]);
     const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
     const cR = surf*achat, vR = surf*vente;
     chargesTravaux += cR; venteTravaux += vR;
-    lignes.push({ cat, label:CAT_LABEL[cat], surf, achat, vente, cR, vR, pct:catPct(vt,cat), missing: !cc && surf>0 });
+    lignes.push({ cat, label:CAT_LABEL[cat], surf, achat, vente, cR, vR, missing: !cc && surf>0 });
   }
   // Lignes PC saisies manuellement
   (vt.pcLines||[]).forEach(pl=>{
@@ -1049,10 +1049,11 @@ function renderStep3(){
         if(collapsed) return `<div class="cat-block">${head}</div>`;
         // Barre TOTAL (en bas) avec le % retenu
         const totalBar = inst.length ? `<div class="flex" style="justify-content:flex-end;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
-            <span class="pill">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
-            <label class="flex" style="gap:6px;margin:0"><span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">% retenu</span>
+            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Surface utilisée dans le calcul">Coché (calcul) : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+            <span style="color:var(--border)">|</span>
+            <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — n'entre PAS dans le calcul"><span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Indicatif %</span>
               <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:74px;text-align:right"></label>
-            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)">Retenu : <strong>${m2(retainedSurface(vt,cat))}</strong></span>
+            <span class="pill" title="Purement indicatif — n'entre PAS dans le calcul">≈ <strong>${m2(retainedSurface(vt,cat))}</strong></span>
           </div>` : '';
         const body = inst.length===0
           ? `<div class="cat-body"><small>Aucune instance. <button class="btn small ghost" data-add="${vt.id}|${cat}">+ Ajouter une ligne</button></small></div>`
@@ -1155,7 +1156,7 @@ function renderStep4(){
         ${res.valoErr?`<span class="badge ko">${esc(res.valoErr)}</span>`:''}</div>
       <table><thead><tr><th>Catégorie</th><th class="num">Surf / Qté</th><th class="num">Px achat HT</th><th class="num">Px vente HT</th><th class="num">Coût revient</th><th class="num">Vente</th></tr></thead><tbody>
         ${res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
-          <td>${esc(l.label)} ${(l.pct!=null && l.pct!==100)?`<span class="pill">${l.pct}%</span>`:''} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
+          <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
           <td class="num">${l.pc?l.surf:m2(l.surf)}</td>
           <td class="num">${eur(l.achat)}</td><td class="num">${eur(l.vente)}</td>
           <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>'}
@@ -1283,8 +1284,7 @@ function buildReportWorkbook(){
         const desc = (it.description||'') + (cat==='Fenetres' && it.dimensions ? ' — '+it.dimensions : '');
         det.push([cat, desc, it.piece||'', round2(s), inc?'✓':'✗ exclu', achat, vente, round2(cR), round2(vR)]);
       });
-      const p = catPct(vt,cat)/100;   // % retenu de la catégorie
-      det.push(['  Sous-total '+CAT_LABEL[cat]+' — retenu '+catPct(vt,cat)+'%', '', '', round2(sSurf*p), '', '', '', round2(sCout*p), round2(sVente*p)]);
+      det.push(['  Sous-total '+CAT_LABEL[cat]+' (lignes cochées)', '', '', round2(sSurf), '', '', '', round2(sCout), round2(sVente)]);
     });
     (vt.pcLines||[]).forEach(pl=>{
       const cc = findChargeCol(pl.cat); const q = num(pl.qty);
