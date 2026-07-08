@@ -137,6 +137,12 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .kpi .val{font-size:20px;font-weight:800;margin-top:3px;font-variant-numeric:tabular-nums;font-family:'Montserrat',sans-serif;color:var(--primary)}
 .kpi.go .val{color:var(--green-tx)}
 .kpi.nogo .val{color:var(--red-tx)}
+.kpi.editable{cursor:pointer;position:relative}
+.kpi.editable:hover{border-color:var(--primary)}
+.kpi.edited{border:1.5px dashed var(--primary);background:#f4f8ff}
+.kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
+.kpi .ov-reset:hover{color:var(--primary)}
+.kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
 
 .alert{padding:10px 14px;border-radius:8px;font-size:13px;margin:8px 0;border:1px solid}
 .alert.warn{background:#fff8e1;border-color:#ffe08a;color:var(--orange-tx)}
@@ -289,7 +295,12 @@ main{position:relative;z-index:1}
   <section class="view" id="step4">
     <div class="card">
       <h2>4 · Calculs charges &amp; marges</h2>
-      <p class="hint">Coût de revient = Σ(surface × Px Achat) + Audit VT + Régie %. Marge = Vente − Coût de revient. GO/NO-GO selon le seuil de marge.</p>
+      <p class="hint">Coût de revient = Σ(surface × Px Achat) + Audit VT + frais VT ITE + Régie %. Marge = Vente − Coût de revient. GO/NO-GO selon le seuil de marge.
+        <strong>Cliquez sur un widget</strong> pour corriger sa valeur ou forcer la décision GO/NO-GO (survolez pour voir la formule) — <em>↺ pour revenir au calcul automatique</em>.</p>
+      <div class="actions" style="margin:0 0 10px">
+        <span><small>Les modifications sont sauvegardées automatiquement avec le dossier.</small></span>
+        <button class="btn" id="saveDossier">💾 Sauvegarder</button>
+      </div>
       <div id="calcArea"></div>
       <div class="actions">
         <button class="btn ghost" data-goto="step2">← Retour</button>
@@ -436,6 +447,7 @@ const state = {
   nomDossier: '',           // nom du dossier (obligatoire)
   vts: [],                  // {id, fileName, role, text, hints, extraction, revenus, cdp, sauts, shab, selections, pcLines, label, extracting, error}
   general: { pollueur:'', nbAuditsVT:null },   // nbAuditsVT null = auto (1 par habitation)
+  overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0 },
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   pollueurs: [],
@@ -475,7 +487,11 @@ function saveLS(){
       chargesTable: state.chargesTable,
       general: state.general,
       cas: state.cas,
-      history: state.history
+      history: state.history,
+      nomDossier: state.nomDossier,
+      overrides: state.overrides,
+      // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
+      vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false}))
     }));
   }catch(e){ console.warn('Persistance impossible', e.message); }
 }
@@ -490,6 +506,9 @@ function loadLS(){
     if(d.general) Object.assign(state.general, d.general);
     if(d.cas) state.cas = d.cas;
     if(Array.isArray(d.history)) state.history = d.history;
+    if(d.nomDossier !== undefined) state.nomDossier = d.nomDossier;
+    if(d.overrides) state.overrides = Object.assign({global:{}, vt:{}}, d.overrides);
+    if(Array.isArray(d.vts) && d.vts.length){ state.vts = d.vts; _vtSeq = Math.max(0, ...d.vts.map(v=>num(v.id))); }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
 
@@ -802,6 +821,15 @@ function findChargeCol(name){
    ============================================================================ */
 function habitations(){ return state.vts.filter(v=>v.role==='habitation'); }
 function iteVts(){ return state.vts.filter(v=>v.role==='ite'); }
+// Corrections manuelles des widgets (étape 4). Clé stable par VT : nom de fichier (sinon label).
+function ovKey(vt){ return vt.fileName || vt.label; }
+function vtOv(vt){ return (state.overrides && state.overrides.vt[ovKey(vt)]) || {}; }
+function applyOv(scope, key, field, value){
+  if(!state.overrides) state.overrides = {global:{}, vt:{}};
+  const bag = scope==='g' ? state.overrides.global : (state.overrides.vt[key] = state.overrides.vt[key] || {});
+  if(value === null) delete bag[field]; else bag[field] = value;
+  saveLS();
+}
 // Nombre d'Audits VT : par défaut 1 par habitation, modifiable par l'utilisateur (étape Valorisation)
 function nbAuditsVT(){
   const n = state.general.nbAuditsVT;
@@ -884,18 +912,29 @@ function calcVT(vt){
     const r = lookupValo({ pollueur:state.general.pollueur, cee:vt.revenus, cdp:vt.cdp, sauts:vt.sauts, shab:vt.shab });
     if(r.error) valoErr = r.error; else prime = r.valoCee;
   }
-  const reste = venteTravaux - prime;
-  const marge = venteTravaux - coutRevient;
+  // Corrections manuelles (widgets éditables de l'étape 4)
+  const ov = vtOv(vt);
+  if(ov.prime !== undefined && ov.prime !== null){ prime = num(ov.prime); valoErr = null; }
+  let reste = venteTravaux - prime;
+  if(ov.reste !== undefined && ov.reste !== null) reste = num(ov.reste);
+  let marge = venteTravaux - coutRevient;
+  if(ov.marge !== undefined && ov.marge !== null) marge = num(ov.marge);
+  let go = marge >= num(state.settings.seuilGo);
+  if(ov.decision === 'go') go = true; else if(ov.decision === 'nogo') go = false;
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge,
-           go: marge >= num(state.settings.seuilGo) };
+           go, ov };
 }
 
 function calcGlobal(){
   const blocks = orderedVts().map(vt=>({ vt, res:calcVT(vt) }));   // VT ITE en tête
   const tot = { chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0 };
   blocks.forEach(b=>{ for(const k in tot) tot[k]+=b.res[k]||0; });
-  tot.go = tot.marge >= num(state.settings.seuilGo);
+  // Corrections manuelles globales (widgets du Total projet/immeuble)
+  const gov = (state.overrides && state.overrides.global) || {};
+  ['coutRevient','venteTravaux','prime','reste','marge'].forEach(k=>{ if(gov[k] !== undefined && gov[k] !== null) tot[k] = num(gov[k]); });
+  tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= num(state.settings.seuilGo));
+  tot.ov = gov;
   return { blocks, tot };
 }
 
@@ -916,6 +955,7 @@ function defaultRoleForNewVt(){
 }
 
 function renderVtList(){
+  saveLS();   // persiste le dossier (VT, rôles, labels) à chaque interaction
   const wrap = $('#vtList');
   if(state.vts.length === 0){ wrap.innerHTML = '<small>Aucune VT chargée.</small>'; return; }
   wrap.innerHTML = orderedVts().map(vt=>`
@@ -997,6 +1037,7 @@ function updateNbAuditsHint(){
   $('#nbAuditsVTHint').textContent = n + ' Audit(s) VT × ' + eur(m) + ' = ' + eur(n*m) + ' — par défaut 1 par habitation, modifiable.';
 }
 function renderStep2(){
+  saveLS();   // persiste les réponses de valorisation à chaque interaction
   renderPollueurs();
   $('#pollueur').value = state.general.pollueur || '';
   $('#nbAuditsVT').value = nbAuditsVT();
@@ -1054,6 +1095,7 @@ function renderStep2(){
    RENDU — ÉTAPE 3 (extraction + sélection des instances)
    ============================================================================ */
 function renderStep3(){
+  saveLS();   // persiste extraction + sélections à chaque interaction
   const wrap = $('#extractList');
   if(state.vts.length===0){ wrap.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
 
@@ -1185,7 +1227,39 @@ $('#extractAll').addEventListener('click', async ()=>{
 /* ============================================================================
    RENDU — ÉTAPE 4 (charges & marges) + PC manuelles
    ============================================================================ */
+// Widget KPI éditable : clic = éditer, survol = formule (légende type Excel), ↺ = retour au calcul auto
+function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited}
+  const id = o.scope + '|' + encodeURIComponent(o.key||'') + '|' + o.field + '|' + o.type;
+  const tip = o.formula + (o.edited ? ' — ✎ valeur modifiée manuellement' : '') + ' (cliquer pour modifier)';
+  return `<div class="kpi editable ${o.cls||''} ${o.edited?'edited':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
+    ${o.edited?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
+    <div class="lab">${o.label}${o.edited?' ✎':''}</div><div class="val">${o.display}</div>
+  </div>`;
+}
+function openKpiEditor(kpi){
+  const parts = kpi.dataset.ov.split('|');
+  const scope = parts[0], key = decodeURIComponent(parts[1]), field = parts[2], type = parts[3];
+  const valBox = kpi.querySelector('.val');
+  const commit = v => { applyOv(scope, key, field, v); renderStep4(); };
+  if(type === 'dec'){
+    valBox.innerHTML = '<select><option value="">Auto (calculé)</option><option value="go">✅ GO</option><option value="nogo">⛔ NO-GO</option></select>';
+    const sel = valBox.querySelector('select');
+    sel.value = (kpi.dataset.val==='go' || kpi.dataset.val==='nogo') ? kpi.dataset.val : '';
+    sel.focus();
+    sel.addEventListener('change', ()=> commit(sel.value || null));
+    sel.addEventListener('blur', ()=> setTimeout(renderStep4, 100));
+  }else{
+    valBox.innerHTML = `<input type="number" step="0.01" value="${num(kpi.dataset.val)}">`;
+    const inp = valBox.querySelector('input');
+    inp.focus(); inp.select();
+    let done = false;
+    const fin = save => { if(done) return; done = true; save ? commit(num(inp.value)) : renderStep4(); };
+    inp.addEventListener('keydown', e=>{ if(e.key==='Enter') fin(true); if(e.key==='Escape') fin(false); });
+    inp.addEventListener('blur', ()=> fin(true));
+  }
+}
 function renderStep4(){
+  saveLS();   // persiste le dossier (dont corrections de widgets) à chaque interaction
   const area = $('#calcArea');
   if(!state.chargesTable){ area.innerHTML='<div class="alert err">Charges.xlsx non chargé (onglet Paramètres).</div>'; return; }
   if(state.vts.length===0){ area.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
@@ -1212,10 +1286,14 @@ function renderStep4(){
         <tr class="total"><td>Coût de revient total</td><td colspan="3"></td><td class="num">${eur(res.coutRevient)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
       </tbody></table>
       <div class="kpi-grid">
-        <div class="kpi"><div class="lab">Prime CEE</div><div class="val">${eur(res.prime)}</div></div>
-        <div class="kpi"><div class="lab">Reste à charge ménage</div><div class="val">${eur(res.reste)}</div></div>
-        <div class="kpi ${res.go?'go':'nogo'}"><div class="lab">Marge</div><div class="val">${eur(res.marge)}</div></div>
-        <div class="kpi ${res.go?'go':'nogo'}"><div class="lab">Décision</div><div class="val">${res.go?'✅ GO':'⛔ NO-GO'}</div></div>
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), edited:res.ov.prime!=null,
+          formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge ménage', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
+          formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
+          formula:'Marge = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'decision', type:'dec', label:'Décision', display:res.go?'✅ GO':'⛔ NO-GO', rawVal:res.ov.decision||'auto', cls:res.go?'go':'nogo', edited:!!res.ov.decision,
+          formula:'Décision = GO si Marge ≥ Seuil : '+eur(res.marge)+(res.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
       </div>
       ${ vt.role==='habitation' ? renderPcEditor(vt) : '' }
     </div>`;
@@ -1225,12 +1303,18 @@ function renderStep4(){
   html += `<div class="card" style="background:linear-gradient(135deg,#eef4ff,#fbfdff);border:2px solid var(--primary)">
     <h3 style="color:var(--primary)">📊 Total ${state.cas===3?'immeuble':'projet'}</h3>
     <div class="kpi-grid">
-      <div class="kpi"><div class="lab">Coût de revient total</div><div class="val">${eur(tot.coutRevient)}</div></div>
-      <div class="kpi"><div class="lab">Prix de vente HT</div><div class="val">${eur(tot.venteTravaux)}</div></div>
-      <div class="kpi"><div class="lab">Prime CEE totale</div><div class="val">${eur(tot.prime)}</div></div>
-      <div class="kpi"><div class="lab">Reste à charge total</div><div class="val">${eur(tot.reste)}</div></div>
-      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Marge globale</div><div class="val">${eur(tot.marge)}</div></div>
-      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Décision (seuil ${eur(seuil)})</div><div class="val">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
+      ${kpiCell({scope:'g', key:'', field:'coutRevient', type:'num', label:'Coût de revient total', display:eur(tot.coutRevient), rawVal:round2(tot.coutRevient), edited:tot.ov.coutRevient!=null,
+        formula:'Coût de revient total = Σ des VT (charges travaux + Audit VT + frais VT ITE + régie)'})}
+      ${kpiCell({scope:'g', key:'', field:'venteTravaux', type:'num', label:'Prix de vente HT', display:eur(tot.venteTravaux), rawVal:round2(tot.venteTravaux), edited:tot.ov.venteTravaux!=null,
+        formula:'Prix de vente HT = Σ (surfaces cochées × prix de vente du barème)'})}
+      ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), edited:tot.ov.prime!=null,
+        formula:'Prime CEE totale = Σ des primes CEE des habitations'})}
+      ${kpiCell({scope:'g', key:'', field:'reste', type:'num', label:'Reste à charge total', display:eur(tot.reste), rawVal:round2(tot.reste), edited:tot.ov.reste!=null,
+        formula:'Reste à charge total = Prix de vente HT − Prime CEE totale = '+eur(tot.venteTravaux)+' − '+eur(tot.prime)})}
+      ${kpiCell({scope:'g', key:'', field:'marge', type:'num', label:'Marge globale', display:eur(tot.marge), rawVal:round2(tot.marge), cls:tot.go?'go':'nogo', edited:tot.ov.marge!=null,
+        formula:'Marge globale = Prix de vente HT − Coût de revient total = '+eur(tot.venteTravaux)+' − '+eur(tot.coutRevient)})}
+      ${kpiCell({scope:'g', key:'', field:'decision', type:'dec', label:'Décision (seuil '+eur(seuil)+')', display:tot.go?'✅ GO':'⛔ NO-GO', rawVal:tot.ov.decision||'auto', cls:tot.go?'go':'nogo', edited:!!tot.ov.decision,
+        formula:'Décision = GO si Marge globale ≥ Seuil : '+eur(tot.marge)+(tot.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
     </div>
     <table style="margin-top:8px"><tbody>
       <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
@@ -1241,6 +1325,22 @@ function renderStep4(){
   </div>`;
 
   area.innerHTML = html;
+
+  // Widgets éditables : clic = éditer, ↺ = retour au calcul automatique
+  area.querySelectorAll('.kpi.editable').forEach(kpi=>{
+    kpi.addEventListener('click', e=>{
+      if(e.target.closest('.ov-reset')) return;
+      if(kpi.querySelector('input,select')) return;
+      openKpiEditor(kpi);
+    });
+    const rst = kpi.querySelector('.ov-reset');
+    if(rst) rst.addEventListener('click', e=>{
+      e.stopPropagation();
+      const p = kpi.dataset.ov.split('|');
+      applyOv(p[0], decodeURIComponent(p[1]), p[2], null);
+      renderStep4();
+    });
+  });
 
   // PC editors listeners
   area.querySelectorAll('[data-pc-add]').forEach(b=> b.addEventListener('click', ()=>{
@@ -1470,6 +1570,11 @@ $('#auditVT').addEventListener('input', e=>{ state.settings.auditVT = num(e.targ
 $('#vtIte').addEventListener('input', e=>{ state.settings.vtIte = num(e.target.value); saveLS(); });
 $('#regiePct').addEventListener('input', e=>{ state.settings.regiePct = num(e.target.value); saveLS(); });
 $('#seuilGo').addEventListener('input', e=>{ state.settings.seuilGo = num(e.target.value); saveLS(); });
+$('#saveDossier').addEventListener('click', ()=>{
+  saveLS();
+  $('#saveDossier').textContent = '✅ Sauvegardé';
+  setTimeout(()=>$('#saveDossier').textContent = '💾 Sauvegarder', 1500);
+});
 $('#saveParams').addEventListener('click', ()=>{
   state.settings.apiKey  = $('#apiKey').value.trim();      // jamais journalisée
   state.settings.model   = $('#model').value;
