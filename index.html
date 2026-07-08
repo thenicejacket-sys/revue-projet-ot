@@ -247,6 +247,13 @@ main{position:relative;z-index:1}
           <small>Liste lue depuis le template de valorisation.</small>
         </div>
       </div>
+      <div class="row">
+        <div class="col">
+          <label class="fld">Nombre d'Audits VT</label>
+          <input type="number" id="nbAuditsVT" min="0" step="1" />
+          <small id="nbAuditsVTHint">Par défaut : 1 par habitation. Modifiable.</small>
+        </div>
+      </div>
 
       <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Questions par habitation</h3>
@@ -428,7 +435,7 @@ const state = {
   cas: 1,
   nomDossier: '',           // nom du dossier (obligatoire)
   vts: [],                  // {id, fileName, role, text, hints, extraction, revenus, cdp, sauts, shab, selections, pcLines, label, extracting, error}
-  general: { pollueur:'' },
+  general: { pollueur:'', nbAuditsVT:null },   // nbAuditsVT null = auto (1 par habitation)
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0 },
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   pollueurs: [],
@@ -795,6 +802,11 @@ function findChargeCol(name){
    ============================================================================ */
 function habitations(){ return state.vts.filter(v=>v.role==='habitation'); }
 function iteVts(){ return state.vts.filter(v=>v.role==='ite'); }
+// Nombre d'Audits VT : par défaut 1 par habitation, modifiable par l'utilisateur (étape Valorisation)
+function nbAuditsVT(){
+  const n = state.general.nbAuditsVT;
+  return (n===null || n===undefined || n==='') ? habitations().length : Math.max(0, Math.round(num(n)));
+}
 // VT ITE dédiée(s) TOUJOURS en tête, puis les habitations (ordre de chargement conservé dans chaque groupe).
 // Tri stable -> utilisé pour tous les affichages, calculs et rapports.
 function orderedVts(){ return [...state.vts].sort((a,b)=> (a.role==='ite'?0:1) - (b.role==='ite'?0:1)); }
@@ -859,7 +871,9 @@ function calcVT(vt){
     lignes.push({ cat:pl.cat, label:pl.cat+' (PC×'+q+')', surf:q, achat, vente, cR, vR, pc:true, missing:!cc });
   });
 
-  const audit = (vt.role === 'ite') ? 0 : num(state.settings.auditVT);
+  // Audit VT : total = Nombre d'Audits VT (étape Valorisation) × montant paramètre, réparti sur les habitations
+  const nbHab = habitations().length;
+  const audit = (vt.role === 'ite' || nbHab === 0) ? 0 : nbAuditsVT() * num(state.settings.auditVT) / nbHab;
   const vtIte = (vt.role === 'ite') ? num(state.settings.vtIte) : 0;   // frais fixe par VT ITE
   const regie = chargesTravaux * (num(state.settings.regiePct)/100);
   const coutRevient = chargesTravaux + audit + vtIte + regie;
@@ -943,7 +957,7 @@ async function handleFiles(fileList){
     const id = ++_vtSeq;
     const role = defaultRoleForNewVt();
     const vt = { id, fileName:file.name, role, text:'', hints:null,
-                 extraction:null, revenus:'classique', cdp:'non', sauts:'2', shab:0,
+                 extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0,
                  selections:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
                  label:(role==='ite'?'VT ITE':'Habitation '+id), extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
@@ -978,9 +992,19 @@ function renderPollueurs(){
     .map(p=>`<option ${p===state.general.pollueur?'selected':''}>${esc(p)}</option>`).join('');
   if(!state.general.pollueur && state.pollueurs.length) state.general.pollueur = state.pollueurs[0];
 }
+function updateNbAuditsHint(){
+  const n = nbAuditsVT(), m = num(state.settings.auditVT);
+  $('#nbAuditsVTHint').textContent = n + ' Audit(s) VT × ' + eur(m) + ' = ' + eur(n*m) + ' — par défaut 1 par habitation, modifiable.';
+}
 function renderStep2(){
   renderPollueurs();
   $('#pollueur').value = state.general.pollueur || '';
+  $('#nbAuditsVT').value = nbAuditsVT();
+  updateNbAuditsHint();
+  $('#nbAuditsVT').oninput = e=>{
+    state.general.nbAuditsVT = (e.target.value==='') ? null : Math.max(0, Math.round(num(e.target.value)));
+    saveLS(); updateNbAuditsHint();
+  };
 
   const habs = habitations();
   const box = $('#habQuestions');
@@ -1210,7 +1234,7 @@ function renderStep4(){
     </div>
     <table style="margin-top:8px"><tbody>
       <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
-      <tr><td>Détail — Audit VT (habitations)</td><td class="num">${eur(tot.audit)}</td></tr>
+      <tr><td>Détail — Audit VT (${nbAuditsVT()} × ${eur(num(state.settings.auditVT))})</td><td class="num">${eur(tot.audit)}</td></tr>
       <tr><td>Détail — Frais VT ITE</td><td class="num">${eur(tot.vtIte)}</td></tr>
       <tr><td>Détail — Régie commerciale</td><td class="num">${eur(tot.regie)}</td></tr>
     </tbody></table>
@@ -1265,7 +1289,7 @@ function buildReportWorkbook(){
     ['Revue Projet OT — Rapport de pré-chiffrage'],
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
-    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€/hab)', num(state.settings.auditVT), 'VT ITE (€/VT)', num(state.settings.vtIte)],
+    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', nbAuditsVT(), 'VT ITE (€/VT)', num(state.settings.vtIte)],
     [],
     ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Reste à charge','Marge','Décision']
   ];

@@ -111,7 +111,7 @@
 
   <div class="step"><div class="badge">3</div><div class="body">
     <h3>Valorisation CEE</h3>
-    <p>Renseignez le <span class="k">Pollueur</span>, et par habitation : <span class="k">revenus</span> (Classique / Précaire), <span class="k">Coup de Pouce</span>, <span class="k">nb de sauts</span>. La <span class="k">surface habitable</span> est déjà pré-remplie depuis l'extraction. La <b>prime CEE</b> s'affiche automatiquement. Cliquez <b>« Lancer le calcul global »</b>.</p>
+    <p>Renseignez le <span class="k">Pollueur</span> et le <span class="k">Nombre d'Audits VT</span> (pré-rempli : 1 par habitation, modifiable — le total = N × montant Audit VT des Paramètres). Par habitation : <span class="k">revenus</span> (Classique / Précaire), <span class="k">Coup de Pouce</span> (<b>Oui</b> par défaut), <span class="k">nb de sauts</span>. La <span class="k">surface habitable</span> est déjà pré-remplie depuis l'extraction. La <b>prime CEE</b> s'affiche automatiquement. Cliquez <b>« Lancer le calcul global »</b>.</p>
   </div></div>
 
   <div class="warn">⚠️ Sur les <b>fenêtres</b>, la colonne « Pièce » affiche le type de pièce <b>si la VT l'indique</b> ; sinon elle garde l'orientation (Nord/Sud). L'IA n'invente jamais une information absente de la VT.</div>
@@ -125,7 +125,7 @@
 
   <div class="step"><div class="badge">4</div><div class="body">
     <h3>Charges &amp; marges</h3>
-    <p>Pour chaque habitation et pour l'ITE : coût de revient (charges + Audit VT + régie), prix de vente, <span class="k">prime CEE</span>, <span class="k">reste à charge</span> du ménage, <span class="k">marge</span> et décision <b>GO / NO-GO</b>. En bas, le <b>Total projet / immeuble</b> agrège l'ensemble.</p>
+    <p>Pour chaque habitation et pour l'ITE : coût de revient (charges + Audit VT + frais fixe VT ITE + régie), prix de vente, <span class="k">prime CEE</span>, <span class="k">reste à charge</span> du ménage, <span class="k">marge</span> et décision <b>GO / NO-GO</b>. En bas, le <b>Total projet / immeuble</b> agrège l'ensemble.</p>
   </div></div>
 
   <div class="step"><div class="badge">5</div><div class="body">
@@ -139,7 +139,7 @@
         <li>Clé API &amp; modèle IA (OpenRouter)</li>
         <li>Template de valorisation (.xlsx)</li>
         <li>Barème de prix achat / vente</li>
-        <li>Montant Audit VT · % Régie · Seuil GO/NO-GO</li>
+        <li>Montant Audit VT · Montant VT ITE (70 € par défaut) · % Régie · Seuil GO/NO-GO</li>
       </ul>
     </div>
     <div class="card"><h3>📋 Historique</h3>
