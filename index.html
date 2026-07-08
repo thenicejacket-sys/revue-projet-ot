@@ -900,9 +900,10 @@ function calcTravaux(vt){
 function iteParticipants(){ return habitations().filter(h => (h.hasIte||'oui') !== 'non'); }
 function iteDistributionActive(){ return hasDedicatedIte() && iteParticipants().length > 0; }
 function itePool(){
-  let charges = 0, vente = 0, fee = 0;
-  iteVts().forEach(v=>{ const t = calcTravaux(v); charges += t.chargesTravaux; vente += t.venteTravaux; fee += num(state.settings.vtIte); });
-  return { charges, vente, fee };
+  let charges = 0, vente = 0, fee = 0, surf = 0;
+  iteVts().forEach(v=>{ const t = calcTravaux(v); charges += t.chargesTravaux; vente += t.venteTravaux; fee += num(state.settings.vtIte); surf += sumChecked(v,'ITE'); });
+  const cc = findChargeCol('ITE');
+  return { charges, vente, fee, surf, achatU: cc?cc.achat:0, venteU: cc?cc.vente:0 };
 }
 function iteShare(vt){
   if(!iteDistributionActive() || vt.role !== 'habitation' || (vt.hasIte||'oui') === 'non') return null;
@@ -910,7 +911,8 @@ function iteShare(vt){
   const totShab = parts.reduce((s,h)=>s+num(h.shab), 0);
   const pct = totShab > 0 ? num(vt.shab)/totShab : 1/parts.length;   // pas de surfaces saisies -> parts égales
   const pool = itePool();
-  return { pct, charges: pool.charges*pct, vente: pool.vente*pct, fee: pool.fee*pct };
+  return { pct, charges: pool.charges*pct, vente: pool.vente*pct, fee: pool.fee*pct,
+           surfEq: pool.surf*pct, achatU: pool.achatU, venteU: pool.venteU };   // surface équivalente + prix unitaires barème (affichage)
 }
 
 // Calcul complet d'une VT (habitation OU bloc ITE)
@@ -930,7 +932,7 @@ function calcVT(vt){
   const share = iteShare(vt);
   if(share){
     lignes.push({ cat:'ITE', label:'Part ITE ('+(share.pct*100).toFixed(1).replace('.',',')+' %)',
-                  surf:share.pct, achat:0, vente:0, cR:share.charges, vR:share.vente, itePart:true });
+                  surf:share.surfEq, achat:share.achatU, vente:share.venteU, cR:share.charges, vR:share.vente, itePart:true });
     chargesTravaux += share.charges; venteTravaux += share.vente;
   }
 
@@ -1316,8 +1318,8 @@ function renderStep4(){
       : '<span class="badge hab">Habitation'+((vt.hasIte||'oui')==='non'?' — sans ITE':'')+'</span>';
     const lignesHtml = res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
           <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
-          <td class="num">${l.itePart?(l.surf*100).toFixed(1).replace('.',',')+' %':(l.pc?l.surf:m2(l.surf))}</td>
-          <td class="num">${l.itePart?'—':eur(l.achat)}</td><td class="num">${l.itePart?'—':eur(l.vente)}</td>
+          <td class="num">${l.pc?l.surf:m2(l.surf)}</td>
+          <td class="num">${eur(l.achat)}</td><td class="num">${eur(l.vente)}</td>
           <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>';
     const bodyRows = res.distributed
       ? `<tr><td>Sous-total travaux ITE</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravauxRaw)}</td><td class="num">${eur(res.venteTravauxRaw)}</td></tr>
@@ -1497,7 +1499,7 @@ function buildReportWorkbook(){
       det.push([]);
       return;
     }
-    if(res.iteShare) det.push(['ITE — part répartie ('+(res.iteShare.pct*100).toFixed(1)+' %)', 'Part de la VT ITE au prorata des surfaces', '', '', '✓', '', '', round2(res.iteShare.charges), round2(res.iteShare.vente)]);
+    if(res.iteShare) det.push(['ITE — part répartie ('+(res.iteShare.pct*100).toFixed(1)+' %)', 'Part de la VT ITE au prorata des surfaces', '', round2(res.iteShare.surfEq), '✓', res.iteShare.achatU, res.iteShare.venteU, round2(res.iteShare.charges), round2(res.iteShare.vente)]);
     det.push(['  SOUS-TOTAL TRAVAUX','','','','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
     if(vt.role==='habitation' && res.audit>0) det.push(['  + Audit VT ('+vtAudits(vt)+' × '+round2(num(state.settings.auditVT))+' €)','','','','','','', round2(res.audit), '']);
     if(res.vtIte>0) det.push(['  + Frais VT ITE '+(vt.role==='ite'?'(fixe)':'(part)'),'','','','','','', round2(res.vtIte), '']);
