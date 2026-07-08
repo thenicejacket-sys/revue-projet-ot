@@ -180,7 +180,7 @@ main{position:relative;z-index:1}
   <div class="logo">OT</div>
   <div>
     <h1>Revue Projet OT</h1>
-    <div class="sub">Pré-chiffrage CEE / Coup de Pouce — extraction VT, valorisation, charges &amp; marges, GO / NO-GO</div>
+    <div class="sub">Pré-chiffrage CEE / Coup de Pouce — extraction VT, valorisation, charges &amp; marges, GO / NO-GO<span id="buildTag" style="opacity:.65"></span></div>
   </div>
 </header>
 
@@ -435,6 +435,8 @@ const CHARGES_ROWS = [
   { key:'ITI', label:'ITI' }, { key:'Fenetres', label:'Fenêtres' }, { key:'Combles', label:'Combles' },
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
+
+const BUILD_ID = '2026-07-08.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 
 const state = {
   cas: 1,
@@ -1153,7 +1155,18 @@ function defaultRoleForNewVt(){
   return iteVts().length === 0 ? 'ite' : 'habitation';
 }
 
+// Numérotation stable des VT : basée sur la POSITION dans la liste (VT ITE en tête → habitations 2, 3, 4…),
+// jamais sur le compteur interne. Un libellé personnalisé par l'utilisateur n'est jamais écrasé.
+function renumberVts(){
+  state.vts.forEach((vt, i)=>{
+    if(vt.labelCustom === undefined) vt.labelCustom = !/^(VT ITE|Habitation \d+)$/.test(vt.label||'');
+    if(vt.labelCustom) return;
+    vt.label = vt.role==='ite' ? 'VT ITE' : 'Habitation ' + (i+1);
+  });
+}
+
 function renderVtList(){
+  renumberVts();
   saveLS();   // persiste le dossier (VT, rôles, labels) à chaque interaction
   const wrap = $('#vtList');
   if(state.vts.length === 0){ wrap.innerHTML = '<small>Aucune VT chargée.</small>'; return; }
@@ -1178,12 +1191,14 @@ function renderVtList(){
 
   wrap.querySelectorAll('[data-role]').forEach(s=> s.addEventListener('change', e=>{
     const vt = state.vts.find(v=>v.id==e.target.dataset.role);
-    // ajuste le libellé par défaut si l'utilisateur n'en a pas saisi un personnalisé
-    if(vt.label==='VT ITE' || vt.label==='Habitation '+vt.id) vt.label = (e.target.value==='ite'?'VT ITE':'Habitation '+vt.id);
-    vt.role = e.target.value; renderVtList();
+    vt.role = e.target.value;   // le libellé par défaut est recalculé par renumberVts()
+    renderVtList();
   }));
   wrap.querySelectorAll('[data-label]').forEach(inp=> inp.addEventListener('input', e=>{
-    state.vts.find(v=>v.id==e.target.dataset.label).label = e.target.value;
+    const vt = state.vts.find(v=>v.id==e.target.dataset.label);
+    vt.label = e.target.value;
+    vt.labelCustom = e.target.value.trim() !== '';   // vidé -> retour au libellé automatique
+    saveLS();
   }));
   wrap.querySelectorAll('[data-del]').forEach(b=> b.addEventListener('click', e=>{
     state.vts = state.vts.filter(v=>v.id!=e.target.dataset.del); renderVtList();
@@ -1198,9 +1213,9 @@ async function handleFiles(fileList){
     const vt = { id, fileName:file.name, role, text:'', hints:null,
                  extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0, hasIte:'oui', nbAudits:1,
                  selections:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
-                 label:(role==='ite'?'VT ITE':'Habitation '+id), extracting:false, error:null, extractedOk:false };
+                 label:'', labelCustom:false, extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
-    renderVtList();
+    renderVtList();   // renumberVts() y attribue 'VT ITE' / 'Habitation N' selon la position
     try{
       const buf = await file.arrayBuffer();
       vt.text = await extractPdfText(buf);
@@ -1923,6 +1938,23 @@ function hydrateParamsUI(){
   if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
   renderChargesEditor();
 }
+// ── Anti-cache : le site vérifie s'il existe une version plus récente publiée et se recharge
+//    automatiquement en contournant le cache navigateur. Le dossier sauvegardé (localStorage)
+//    n'est PAS touché — seul le code de la page est rafraîchi. ──
+const bt = document.getElementById('buildTag'); if(bt) bt.textContent = ' · v'+BUILD_ID;
+(async function autoRefreshIfStale(){
+  try{
+    if(location.protocol === 'file:' || /^(localhost|127\.)/.test(location.hostname)) return;
+    const r = await fetch(location.pathname + '?vcheck=' + Date.now(), {cache:'no-store'});
+    if(!r.ok) return;
+    const m = (await r.text()).match(/BUILD_ID = '([^']+)'/);
+    if(m && m[1] !== BUILD_ID && new URL(location.href).searchParams.get('build') !== m[1]){
+      const u = new URL(location.href); u.searchParams.set('build', m[1]);
+      location.replace(u.toString());   // URL unique -> le navigateur recharge la nouvelle version
+    }
+  }catch(_){ /* hors-ligne : on garde la version en cache */ }
+})();
+
 GOLDEN_RESULTS = runGoldenTests();   // couche 2 : le moteur de calcul se re-prouve à chaque chargement
 loadLS();
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
