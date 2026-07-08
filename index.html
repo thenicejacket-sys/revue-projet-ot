@@ -877,8 +877,8 @@ function retainedSurface(vt, cat){ return sumChecked(vt, cat) * catPct(vt, cat) 
 // État plié/déplié d'une catégorie (par VT), déplié par défaut
 function catCollapsed(vt, cat){ return !!(vt.collapsed && vt.collapsed[cat]); }
 
-// Calcul complet d'une VT (habitation OU bloc ITE)
-function calcVT(vt){
+// Travaux bruts d'une VT (lignes cochées + PC manuelles) — utilisé par calcVT et par le pool ITE
+function calcTravaux(vt){
   const lignes = [];
   let chargesTravaux = 0, venteTravaux = 0;
   for(const cat of CATS){
@@ -898,11 +898,52 @@ function calcVT(vt){
     chargesTravaux += cR; venteTravaux += vR;
     lignes.push({ cat:pl.cat, label:pl.cat+' (PC×'+q+')', surf:q, achat, vente, cR, vR, pc:true, missing:!cc });
   });
+  return { lignes, chargesTravaux, venteTravaux };
+}
+
+// Répartition ITE : les coûts de la (des) VT ITE dédiée(s) sont répartis sur les habitations
+// participantes (ITE = Oui, étape Extraction) au prorata de leur surface Shab.
+function iteParticipants(){ return habitations().filter(h => (h.hasIte||'oui') !== 'non'); }
+function iteDistributionActive(){ return hasDedicatedIte() && iteParticipants().length > 0; }
+function itePool(){
+  let charges = 0, vente = 0, fee = 0;
+  iteVts().forEach(v=>{ const t = calcTravaux(v); charges += t.chargesTravaux; vente += t.venteTravaux; fee += num(state.settings.vtIte); });
+  return { charges, vente, fee };
+}
+function iteShare(vt){
+  if(!iteDistributionActive() || vt.role !== 'habitation' || (vt.hasIte||'oui') === 'non') return null;
+  const parts = iteParticipants();
+  const totShab = parts.reduce((s,h)=>s+num(h.shab), 0);
+  const pct = totShab > 0 ? num(vt.shab)/totShab : 1/parts.length;   // pas de surfaces saisies -> parts égales
+  const pool = itePool();
+  return { pct, charges: pool.charges*pct, vente: pool.vente*pct, fee: pool.fee*pct };
+}
+
+// Calcul complet d'une VT (habitation OU bloc ITE)
+function calcVT(vt){
+  const t = calcTravaux(vt);
+  const lignes = t.lignes;
+  let chargesTravaux = t.chargesTravaux, venteTravaux = t.venteTravaux;
+
+  // Bloc ITE : si la répartition est active, ses coûts sont transférés aux habitations
+  if(vt.role === 'ite' && iteDistributionActive()){
+    return { lignes, chargesTravauxRaw: chargesTravaux, venteTravauxRaw: venteTravaux,
+             chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0,
+             prime:0, valoErr:null, reste:0, marge:0, go:true, distributed:true, iteShare:null, ov:{} };
+  }
+
+  // Habitation : part des coûts ITE au prorata de la surface
+  const share = iteShare(vt);
+  if(share){
+    lignes.push({ cat:'ITE', label:'Part ITE ('+(share.pct*100).toFixed(1).replace('.',',')+' %)',
+                  surf:share.pct, achat:0, vente:0, cR:share.charges, vR:share.vente, itePart:true });
+    chargesTravaux += share.charges; venteTravaux += share.vente;
+  }
 
   // Audit VT : total = Nombre d'Audits VT (étape Valorisation) × montant paramètre, réparti sur les habitations
   const nbHab = habitations().length;
   const audit = (vt.role === 'ite' || nbHab === 0) ? 0 : nbAuditsVT() * num(state.settings.auditVT) / nbHab;
-  const vtIte = (vt.role === 'ite') ? num(state.settings.vtIte) : 0;   // frais fixe par VT ITE
+  const vtIte = (vt.role === 'ite') ? num(state.settings.vtIte) : (share ? share.fee : 0);   // frais fixe VT ITE (ou part)
   const regie = chargesTravaux * (num(state.settings.regiePct)/100);
   const coutRevient = chargesTravaux + audit + vtIte + regie;
 
@@ -923,7 +964,7 @@ function calcVT(vt){
   if(ov.decision === 'go') go = true; else if(ov.decision === 'nogo') go = false;
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge,
-           go, ov };
+           go, ov, distributed:false, iteShare:share };
 }
 
 function calcGlobal(){
@@ -997,7 +1038,7 @@ async function handleFiles(fileList){
     const id = ++_vtSeq;
     const role = defaultRoleForNewVt();
     const vt = { id, fileName:file.name, role, text:'', hints:null,
-                 extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0,
+                 extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0, hasIte:'oui',
                  selections:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
                  label:(role==='ite'?'VT ITE':'Habitation '+id), extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
@@ -1163,7 +1204,13 @@ function renderStep3(){
       }).join('');
       inner = errBanner + warnHtml + (vt.role==='habitation'
         ? `<div class="row"><div class="col" style="max-width:260px"><label class="fld">Shab (m²) — extraite ou saisie</label>
-             <input type="number" data-shab="${vt.id}" value="${vt.shab||''}" step="0.1"></div></div>`
+             <input type="number" data-shab="${vt.id}" value="${vt.shab||''}" step="0.1"></div>
+           <div class="col" style="max-width:260px"><label class="fld">ITE</label>
+             <select data-hasite="${vt.id}">
+               <option value="oui" ${(vt.hasIte||'oui')!=='non'?'selected':''}>Oui</option>
+               <option value="non" ${vt.hasIte==='non'?'selected':''}>Non</option>
+             </select>
+             <small>Non = exclue de la répartition des coûts ITE (ex. sous combles, sous-sol)</small></div></div>`
         : '') + cats;
     }
     return `<div class="vt-block">
@@ -1205,6 +1252,11 @@ function renderStep3(){
   }));
   wrap.querySelectorAll('[data-shab]').forEach(inp=> inp.addEventListener('input', e=>{
     state.vts.find(v=>v.id==e.target.dataset.shab).shab = num(e.target.value);
+    saveLS();
+  }));
+  wrap.querySelectorAll('[data-hasite]').forEach(sel=> sel.addEventListener('change', e=>{
+    state.vts.find(v=>v.id==e.target.dataset.hasite).hasIte = e.target.value;
+    renderStep3();
   }));
 }
 
@@ -1269,23 +1321,30 @@ function renderStep4(){
 
   let html = '';
   blocks.forEach(({vt,res})=>{
-    const badge = vt.role==='ite'?'<span class="badge ite">VT ITE — bloc global, pas d\'Audit VT</span>':'<span class="badge hab">Habitation</span>';
+    const badge = vt.role==='ite'
+      ? '<span class="badge ite">VT ITE — bloc global'+(res.distributed?', coûts répartis sur les habitations':', pas d\'Audit VT')+'</span>'
+      : '<span class="badge hab">Habitation'+((vt.hasIte||'oui')==='non'?' — sans ITE':'')+'</span>';
+    const lignesHtml = res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
+          <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
+          <td class="num">${l.itePart?(l.surf*100).toFixed(1).replace('.',',')+' %':(l.pc?l.surf:m2(l.surf))}</td>
+          <td class="num">${l.itePart?'—':eur(l.achat)}</td><td class="num">${l.itePart?'—':eur(l.vente)}</td>
+          <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>';
+    const bodyRows = res.distributed
+      ? `<tr><td>Sous-total travaux ITE</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravauxRaw)}</td><td class="num">${eur(res.venteTravauxRaw)}</td></tr>
+         <tr><td colspan="6">→ <strong>Réparti sur les habitations</strong> au prorata des surfaces Shab (habitations ITE = Oui, réglable à l'étape Extraction)</td></tr>`
+      : `<tr><td>Sous-total travaux</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravaux)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
+        ${vt.role==='habitation'?`<tr><td>+ Audit VT (fixe)</td><td colspan="3"></td><td class="num">${eur(res.audit)}</td><td></td></tr>`:''}
+        ${res.vtIte>0?`<tr><td>+ Frais VT ITE ${vt.role==='ite'?'(fixe)':'(part)'}</td><td colspan="3"></td><td class="num">${eur(res.vtIte)}</td><td></td></tr>`:''}
+        <tr><td>+ Régie commerciale (${num(state.settings.regiePct)} %)</td><td colspan="3"></td><td class="num">${eur(res.regie)}</td><td></td></tr>
+        <tr class="total"><td>Coût de revient total</td><td colspan="3"></td><td class="num">${eur(res.coutRevient)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>`;
     html += `<div class="vt-block">
       <div class="head"><strong>${esc(vt.label)}</strong> ${badge}
         ${res.valoErr?`<span class="badge ko">${esc(res.valoErr)}</span>`:''}</div>
       <table><thead><tr><th>Catégorie</th><th class="num">Surf / Qté</th><th class="num">Px achat HT</th><th class="num">Px vente HT</th><th class="num">Coût revient</th><th class="num">Vente</th></tr></thead><tbody>
-        ${res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
-          <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
-          <td class="num">${l.pc?l.surf:m2(l.surf)}</td>
-          <td class="num">${eur(l.achat)}</td><td class="num">${eur(l.vente)}</td>
-          <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>'}
-        <tr><td>Sous-total travaux</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravaux)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
-        ${vt.role==='habitation'?`<tr><td>+ Audit VT (fixe)</td><td colspan="3"></td><td class="num">${eur(res.audit)}</td><td></td></tr>`:''}
-        ${vt.role==='ite'?`<tr><td>+ Frais VT ITE (fixe)</td><td colspan="3"></td><td class="num">${eur(res.vtIte)}</td><td></td></tr>`:''}
-        <tr><td>+ Régie commerciale (${num(state.settings.regiePct)} %)</td><td colspan="3"></td><td class="num">${eur(res.regie)}</td><td></td></tr>
-        <tr class="total"><td>Coût de revient total</td><td colspan="3"></td><td class="num">${eur(res.coutRevient)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
+        ${lignesHtml}
+        ${bodyRows}
       </tbody></table>
-      <div class="kpi-grid">
+      ${res.distributed ? '' : `<div class="kpi-grid">
         ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), edited:res.ov.prime!=null,
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
@@ -1294,7 +1353,7 @@ function renderStep4(){
           formula:'Marge = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'decision', type:'dec', label:'Décision', display:res.go?'✅ GO':'⛔ NO-GO', rawVal:res.ov.decision||'auto', cls:res.go?'go':'nogo', edited:!!res.ov.decision,
           formula:'Décision = GO si Marge ≥ Seuil : '+eur(res.marge)+(res.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
-      </div>
+      </div>`}
       ${ vt.role==='habitation' ? renderPcEditor(vt) : '' }
     </div>`;
   });
@@ -1394,7 +1453,7 @@ function buildReportWorkbook(){
     ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Reste à charge','Marge','Décision']
   ];
   blocks.forEach(({vt,res})=> syn.push([
-    vt.label, vt.role==='ite'?'VT ITE':'Habitation',
+    vt.label, vt.role==='ite'?(res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((vt.hasIte||'oui')==='non'?' (sans ITE)':''),
     round2(res.chargesTravaux), round2(res.audit), round2(res.vtIte), round2(res.regie), round2(res.coutRevient),
     round2(res.venteTravaux), round2(res.prime), round2(res.reste), round2(res.marge), res.go?'GO':'NO-GO'
   ]));
@@ -1438,9 +1497,16 @@ function buildReportWorkbook(){
       const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
       det.push([pl.cat+' (à l\'unité)', 'Quantité saisie', '', q, '✓', achat, vente, round2(q*achat), round2(q*vente)]);
     });
+    if(res.distributed){
+      det.push(['  SOUS-TOTAL TRAVAUX ITE (avant répartition)','','','','','','', round2(res.chargesTravauxRaw), round2(res.venteTravauxRaw)]);
+      det.push(['  → Réparti sur les habitations au prorata des surfaces Shab (habitations ITE = Oui)']);
+      det.push([]);
+      return;
+    }
+    if(res.iteShare) det.push(['ITE — part répartie ('+(res.iteShare.pct*100).toFixed(1)+' %)', 'Part de la VT ITE au prorata des surfaces', '', '', '✓', '', '', round2(res.iteShare.charges), round2(res.iteShare.vente)]);
     det.push(['  SOUS-TOTAL TRAVAUX','','','','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
     if(vt.role==='habitation') det.push(['  + Audit VT (fixe)','','','','','','', round2(res.audit), '']);
-    if(vt.role==='ite') det.push(['  + Frais VT ITE (fixe)','','','','','','', round2(res.vtIte), '']);
+    if(res.vtIte>0) det.push(['  + Frais VT ITE '+(vt.role==='ite'?'(fixe)':'(part)'),'','','','','','', round2(res.vtIte), '']);
     det.push(['  + Régie commerciale '+pct+'%','','','','','','', round2(res.regie), '']);
     det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
     det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
