@@ -225,6 +225,7 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
+      <div id="resumeBanner"></div>
       <div class="dropzone" id="dz" style="margin-top:16px">
         <strong>📄 Glisser-déposer</strong> ou cliquer pour charger un ou plusieurs PDF de VT
         <input type="file" id="fileInput" accept="application/pdf" multiple style="display:none" />
@@ -436,7 +437,8 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-08.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-08.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 
 const state = {
   cas: 1,
@@ -476,19 +478,23 @@ function normPoll(v){ return String(v||'').trim().toLowerCase(); }
 const LS_KEY = 'revueProjetOT.v1';
 function saveLS(){
   try{
-    localStorage.setItem(LS_KEY, JSON.stringify({
+    // Si la page est encore vierge et qu'un dossier précédent est mis de côté, on le préserve
+    // (sinon le chargement d'une page vide écraserait le dossier proposé par « Reprendre »).
+    const blank = state.vts.length === 0 && !state.nomDossier;
+    const dossier = (blank && SAVED_DOSSIER)
+      ? { cas: SAVED_DOSSIER.cas, general: SAVED_DOSSIER.general, nomDossier: SAVED_DOSSIER.nomDossier,
+          overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts }
+      : { cas: state.cas, general: state.general, nomDossier: state.nomDossier,
+          overrides: state.overrides,
+          // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
+          vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false})) };
+    localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({
       settings: state.settings,
       valoTable: state.valoTable,
       pollueurs: state.pollueurs,
       chargesTable: state.chargesTable,
-      general: state.general,
-      cas: state.cas,
-      history: state.history,
-      nomDossier: state.nomDossier,
-      overrides: state.overrides,
-      // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
-      vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false}))
-    }));
+      history: state.history
+    }, dossier)));
   }catch(e){ console.warn('Persistance impossible', e.message); }
 }
 function loadLS(){
@@ -500,11 +506,13 @@ function loadLS(){
     if(d.pollueurs) state.pollueurs = d.pollueurs;
     if(d.chargesTable) state.chargesTable = d.chargesTable;
     if(d.general) Object.assign(state.general, d.general);
-    if(d.cas) state.cas = d.cas;
     if(Array.isArray(d.history)) state.history = d.history;
-    if(d.nomDossier !== undefined) state.nomDossier = d.nomDossier;
-    if(d.overrides) state.overrides = Object.assign({global:{}, vt:{}}, d.overrides);
-    if(Array.isArray(d.vts) && d.vts.length){ state.vts = d.vts; _vtSeq = Math.max(0, ...d.vts.map(v=>num(v.id))); }
+    // Le DOSSIER (VT, réponses, corrections) n'est PAS restauré automatiquement : la page
+    // s'ouvre vierge. Il est gardé de côté et proposé via le bandeau « Reprendre » (étape 1).
+    if((Array.isArray(d.vts) && d.vts.length) || d.nomDossier){
+      SAVED_DOSSIER = { cas:d.cas||1, nomDossier:d.nomDossier||'', vts:d.vts||[],
+                        overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''} };
+    }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
 
@@ -1167,6 +1175,7 @@ function renumberVts(){
 
 function renderVtList(){
   renumberVts();
+  renderResumeBanner();   // masque l'offre « Reprendre » dès qu'un dossier est en cours
   saveLS();   // persiste le dossier (VT, rôles, labels) à chaque interaction
   const wrap = $('#vtList');
   if(state.vts.length === 0){ wrap.innerHTML = '<small>Aucune VT chargée.</small>'; return; }
@@ -1955,12 +1964,38 @@ const bt = document.getElementById('buildTag'); if(bt) bt.textContent = ' · v'+
   }catch(_){ /* hors-ligne : on garde la version en cache */ }
 })();
 
+// ── Bandeau « Reprendre le dossier précédent » : la page s'ouvre VIERGE ; le dernier dossier
+//    sauvegardé est proposé en un clic (reprendre) ou supprimable. Rien n'est restauré d'office. ──
+function renderResumeBanner(){
+  const box = $('#resumeBanner'); if(!box) return;
+  if(!SAVED_DOSSIER || state.vts.length){ box.innerHTML=''; return; }
+  const nbVt = (SAVED_DOSSIER.vts||[]).length;
+  box.innerHTML = `<div style="border:1.5px solid var(--primary);background:#eef4ff;border-radius:12px;padding:12px 16px;margin-top:14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <span style="font-size:20px">📂</span>
+    <span>Dossier précédent sauvegardé : <strong>${esc(SAVED_DOSSIER.nomDossier||'(sans nom)')}</strong> — ${nbVt} VT, réponses et corrections conservées.</span>
+    <span style="flex:1"></span>
+    <button class="btn" id="resumeDossier">↩️ Reprendre ce dossier</button>
+    <button class="btn danger small" id="discardDossier" title="Supprimer le dossier sauvegardé">✕</button>
+  </div>`;
+  $('#resumeDossier').addEventListener('click', ()=>{
+    const d = SAVED_DOSSIER; SAVED_DOSSIER = null;
+    state.cas = d.cas; state.nomDossier = d.nomDossier; state.vts = d.vts;
+    state.overrides = Object.assign({global:{},vt:{}}, d.overrides);
+    Object.assign(state.general, d.general||{});
+    _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
+    $('#cas').value = state.cas; $('#nomDossier').value = state.nomDossier;
+    renderCasDesc(); renderResumeBanner(); renderVtList(); saveLS();
+  });
+  $('#discardDossier').addEventListener('click', ()=>{ SAVED_DOSSIER = null; renderResumeBanner(); saveLS(); });
+}
+
 GOLDEN_RESULTS = runGoldenTests();   // couche 2 : le moteur de calcul se re-prouve à chaque chargement
 loadLS();
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 hydrateParamsUI();
 renderCasDesc();
 renderVtList();
+renderResumeBanner();
 renderPollueurs();
 applyBackground('step1');   // fond initial (étape active au chargement)
 </script>
