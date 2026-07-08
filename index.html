@@ -1199,15 +1199,16 @@ function renderStep3(){
         return `<div class="cat-block">${head}${body}</div>`;
       }).join('');
       inner = errBanner + warnHtml + (vt.role==='habitation'
-        ? `<div class="row"><div class="col" style="max-width:260px"><label class="fld">Shab (m²) — extraite ou saisie</label>
+        ? `<div class="row" style="align-items:flex-start">
+           <div class="col" style="max-width:240px"><label class="fld">Surface habitable (m²)</label>
              <input type="number" data-shab="${vt.id}" value="${vt.shab||''}" step="0.1"></div>
-           <div class="col" style="max-width:120px"><label class="fld">ITE</label>
-             <label style="display:flex;align-items:center;gap:8px;margin:0;padding:10px 0;cursor:pointer">
+           <div class="col" style="max-width:110px;min-width:110px;flex:0 0 auto"><label class="fld">Audit</label>
+             <input type="number" data-audits="${vt.id}" value="${vtAudits(vt)}" min="0" step="1" style="width:100%">
+             <small>× ${eur(num(state.settings.auditVT))}</small></div>
+           <div class="col" style="max-width:60px;min-width:60px;flex:0 0 auto;margin-left:auto"><label class="fld">ITE</label>
+             <label style="display:flex;align-items:center;justify-content:center;margin:0;padding:10px 0;cursor:pointer">
                <input type="checkbox" data-hasite="${vt.id}" ${(vt.hasIte||'oui')!=='non'?'checked':''} style="width:18px;height:18px">
-             </label></div>
-           <div class="col" style="max-width:200px"><label class="fld">Audit</label>
-             <input type="number" data-audits="${vt.id}" value="${vtAudits(vt)}" min="0" step="1">
-             <small>Nb d'audits VT facturés à cette habitation × ${eur(num(state.settings.auditVT))}</small></div></div>`
+             </label></div></div>`
         : '') + cats;
     }
     return `<div class="vt-block">
