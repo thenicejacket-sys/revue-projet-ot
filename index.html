@@ -360,6 +360,10 @@ main{position:relative;z-index:1}
           <input type="number" id="auditVT" value="0" step="10" />
         </div>
         <div class="col">
+          <label class="fld">Montant fixe VT ITE (€ / VT ITE)</label>
+          <input type="number" id="vtIte" value="70" step="10" />
+        </div>
+        <div class="col">
           <label class="fld">Régie commerciale (% des charges)</label>
           <input type="number" id="regiePct" value="12" step="0.5" />
         </div>
@@ -425,7 +429,7 @@ const state = {
   nomDossier: '',           // nom du dossier (obligatoire)
   vts: [],                  // {id, fileName, role, text, hints, extraction, revenus, cdp, sauts, shab, selections, pcLines, label, extracting, error}
   general: { pollueur:'' },
-  settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, regiePct:12, seuilGo:0 },
+  settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0 },
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   pollueurs: [],
   chargesTable: null,       // { nomCol: {unite, achat, vente, col} }
@@ -856,8 +860,9 @@ function calcVT(vt){
   });
 
   const audit = (vt.role === 'ite') ? 0 : num(state.settings.auditVT);
+  const vtIte = (vt.role === 'ite') ? num(state.settings.vtIte) : 0;   // frais fixe par VT ITE
   const regie = chargesTravaux * (num(state.settings.regiePct)/100);
-  const coutRevient = chargesTravaux + audit + regie;
+  const coutRevient = chargesTravaux + audit + vtIte + regie;
 
   // Prime CEE (habitation uniquement)
   let prime = 0, valoErr = null;
@@ -868,13 +873,13 @@ function calcVT(vt){
   const reste = venteTravaux - prime;
   const marge = venteTravaux - coutRevient;
 
-  return { lignes, chargesTravaux, venteTravaux, audit, regie, coutRevient, prime, valoErr, reste, marge,
+  return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge,
            go: marge >= num(state.settings.seuilGo) };
 }
 
 function calcGlobal(){
   const blocks = orderedVts().map(vt=>({ vt, res:calcVT(vt) }));   // VT ITE en tête
-  const tot = { chargesTravaux:0, venteTravaux:0, audit:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0 };
+  const tot = { chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0 };
   blocks.forEach(b=>{ for(const k in tot) tot[k]+=b.res[k]||0; });
   tot.go = tot.marge >= num(state.settings.seuilGo);
   return { blocks, tot };
@@ -1178,6 +1183,7 @@ function renderStep4(){
           <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>'}
         <tr><td>Sous-total travaux</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravaux)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
         ${vt.role==='habitation'?`<tr><td>+ Audit VT (fixe)</td><td colspan="3"></td><td class="num">${eur(res.audit)}</td><td></td></tr>`:''}
+        ${vt.role==='ite'?`<tr><td>+ Frais VT ITE (fixe)</td><td colspan="3"></td><td class="num">${eur(res.vtIte)}</td><td></td></tr>`:''}
         <tr><td>+ Régie commerciale (${num(state.settings.regiePct)} %)</td><td colspan="3"></td><td class="num">${eur(res.regie)}</td><td></td></tr>
         <tr class="total"><td>Coût de revient total</td><td colspan="3"></td><td class="num">${eur(res.coutRevient)}</td><td class="num">${eur(res.venteTravaux)}</td></tr>
       </tbody></table>
@@ -1205,6 +1211,7 @@ function renderStep4(){
     <table style="margin-top:8px"><tbody>
       <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
       <tr><td>Détail — Audit VT (habitations)</td><td class="num">${eur(tot.audit)}</td></tr>
+      <tr><td>Détail — Frais VT ITE</td><td class="num">${eur(tot.vtIte)}</td></tr>
       <tr><td>Détail — Régie commerciale</td><td class="num">${eur(tot.regie)}</td></tr>
     </tbody></table>
   </div>`;
@@ -1258,22 +1265,22 @@ function buildReportWorkbook(){
     ['Revue Projet OT — Rapport de pré-chiffrage'],
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
-    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€/hab)', num(state.settings.auditVT)],
+    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€/hab)', num(state.settings.auditVT), 'VT ITE (€/VT)', num(state.settings.vtIte)],
     [],
-    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Reste à charge','Marge','Décision']
+    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Reste à charge','Marge','Décision']
   ];
   blocks.forEach(({vt,res})=> syn.push([
     vt.label, vt.role==='ite'?'VT ITE':'Habitation',
-    round2(res.chargesTravaux), round2(res.audit), round2(res.regie), round2(res.coutRevient),
+    round2(res.chargesTravaux), round2(res.audit), round2(res.vtIte), round2(res.regie), round2(res.coutRevient),
     round2(res.venteTravaux), round2(res.prime), round2(res.reste), round2(res.marge), res.go?'GO':'NO-GO'
   ]));
   syn.push([
     'TOTAL '+(state.cas===3?'immeuble':'projet'),'',
-    round2(tot.chargesTravaux), round2(tot.audit), round2(tot.regie), round2(tot.coutRevient),
+    round2(tot.chargesTravaux), round2(tot.audit), round2(tot.vtIte), round2(tot.regie), round2(tot.coutRevient),
     round2(tot.venteTravaux), round2(tot.prime), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
   ]);
   const wsSyn = XLSX.utils.aoa_to_sheet(syn);
-  wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:19},{wch:16},{wch:12},{wch:14},{wch:12},{wch:10}];
+  wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:14},{wch:12},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
 
   // --- Feuille « Détail complet » : TOUTE la granularité (chaque instance/pièce) ---
@@ -1309,6 +1316,7 @@ function buildReportWorkbook(){
     });
     det.push(['  SOUS-TOTAL TRAVAUX','','','','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
     if(vt.role==='habitation') det.push(['  + Audit VT (fixe)','','','','','','', round2(res.audit), '']);
+    if(vt.role==='ite') det.push(['  + Frais VT ITE (fixe)','','','','','','', round2(res.vtIte), '']);
     det.push(['  + Régie commerciale '+pct+'%','','','','','','', round2(res.regie), '']);
     det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
     det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
@@ -1435,12 +1443,14 @@ $('#model').addEventListener('change', e=>{
 $('#apiKey').addEventListener('input', e=>{ state.settings.apiKey = e.target.value.trim(); saveLS(); });
 $('#modelCustom').addEventListener('input', e=>{ if($('#model').value==='__custom__'){ state.settings.model = e.target.value.trim(); saveLS(); } });
 $('#auditVT').addEventListener('input', e=>{ state.settings.auditVT = num(e.target.value); saveLS(); });
+$('#vtIte').addEventListener('input', e=>{ state.settings.vtIte = num(e.target.value); saveLS(); });
 $('#regiePct').addEventListener('input', e=>{ state.settings.regiePct = num(e.target.value); saveLS(); });
 $('#seuilGo').addEventListener('input', e=>{ state.settings.seuilGo = num(e.target.value); saveLS(); });
 $('#saveParams').addEventListener('click', ()=>{
   state.settings.apiKey  = $('#apiKey').value.trim();      // jamais journalisée
   state.settings.model   = $('#model').value;
   state.settings.auditVT = num($('#auditVT').value);
+  state.settings.vtIte   = num($('#vtIte').value);
   state.settings.regiePct= num($('#regiePct').value);
   state.settings.seuilGo = num($('#seuilGo').value);
   // Barème de prix : les valeurs saisies deviennent le barème utilisé pour les calculs
@@ -1462,6 +1472,7 @@ function hydrateParamsUI(){
   $('#model').value = ['google/gemini-2.5-flash-lite','google/gemini-2.5-flash','google/gemini-3-flash-preview','openai/gpt-5-mini'].includes(state.settings.model) ? state.settings.model : '__custom__';
   if($('#model').value==='__custom__'){ $('#modelCustom').style.display='block'; $('#modelCustom').value=state.settings.model; }
   $('#auditVT').value = state.settings.auditVT;
+  $('#vtIte').value = state.settings.vtIte;
   $('#regiePct').value = state.settings.regiePct;
   $('#seuilGo').value = state.settings.seuilGo;
   $('#cas').value = state.cas;
