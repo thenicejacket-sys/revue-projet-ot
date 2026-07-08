@@ -628,7 +628,7 @@ function resolveModel(){
     : state.settings.model;
 }
 
-async function callAIExtraction(vtText, hints){
+async function callAIExtraction(vtText, hints, role){
   // Lecture LIVE : on prend la clé en mémoire, sinon directement le champ (même sans clic « Enregistrer »).
   const fieldKey = (document.getElementById('apiKey')?.value || '').trim();
   const key = state.settings.apiKey || fieldKey;
@@ -649,6 +649,15 @@ async function callAIExtraction(vtText, hints){
     + "- 5 catégories de parois/travaux : ITE (isolation par l'EXTÉRIEUR), ITI (isolation par l'INTÉRIEUR), "
     + "Combles (toiture/plafond), Plancher (plancher bas / vide sanitaire / sous-sol), Fenetres (menuiseries/vitrages).\n"
     + "- NE CONFONDS PAS ITE (extérieur, bardage, enduit, façade) et ITI (intérieur, doublage, placo).\n"
+    + "- ATTENTION : la VT décrit souvent l'isolation EXISTANTE de chaque paroi (ex. « ITI 60 Polystyrène, plus de 10 ans »). "
+    + "Cette mention décrit l'état ACTUEL, PAS le travail à faire : ne classe JAMAIS une paroi d'après son isolation existante. "
+    + "Classe d'après le TRAVAIL À RÉALISER (une section FAÇADES avec « Surface à isoler » = isolation des murs par l'extérieur = ITE).\n"
+    + (role === 'ite'
+      ? "- CETTE VT EST UNE VT ITE DÉDIÉE (façades) : TOUTES les parois de la section FAÇADES vont dans la catégorie ITE, "
+        + "une ligne par façade (mets l'orientation Nord/Sud/Est/Ouest dans 'piece'), "
+        + "surface_nette = « Surface à isoler », surface_brute = « Surface brute ». "
+        + "La catégorie ITE ne doit PAS être vide si des façades sont listées.\n"
+      : "")
     + "- NE CONFONDS PAS Combles (en haut) et Plancher (en bas).\n"
     + "- Une ligne par instance/pièce, avec description, pièce, surface_nette, surface_brute (nombres en m²).\n"
     + "- Le champ 'piece' : mets le TYPE DE PIÈCE (cuisine, salle de bain, chambre, séjour…) SI la VT l'indique. "
@@ -1257,7 +1266,13 @@ async function extractOne(id){
   if(!vt.text){ vt.error='Texte PDF vide (re-charger le PDF).'; renderStep3(); return; }
   vt.extracting=true; vt.error=null; renderStep3();
   try{
-    vt.extraction = await callAIExtraction(vt.text, vt.hints || detectInstanceHints(vt.text));
+    vt.extraction = await callAIExtraction(vt.text, vt.hints || detectInstanceHints(vt.text), vt.role);
+    // Filet de sécurité VT ITE dédiée : si le modèle a classé les façades en ITI (isolation existante
+    // décrite dans la VT), on les rebascule en ITE — une VT ITE ne porte que de l'ITE.
+    if(vt.role==='ite' && vt.extraction.categories.ITE.length===0 && vt.extraction.categories.ITI.length>0){
+      vt.extraction.categories.ITE = vt.extraction.categories.ITI;
+      vt.extraction.categories.ITI = [];
+    }
     vt.selections = {};
     vt.extractedOk = true;
     if(vt.role==='habitation' && !vt.shab) vt.shab = num(vt.extraction.shab_m2);
