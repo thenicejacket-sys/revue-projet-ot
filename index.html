@@ -291,8 +291,10 @@ main{position:relative;z-index:1}
       <p class="hint">Coût de revient = Σ(surface × Px Achat) + Audit VT + frais VT ITE + Régie %. Marge = Vente − Coût de revient. GO/NO-GO selon le seuil de marge.
         <strong>Cliquez sur un widget</strong> pour corriger sa valeur ou forcer la décision GO/NO-GO (survolez pour voir la formule) — <em>↺ pour revenir au calcul automatique</em>.</p>
       <div id="calcArea"></div>
+      <div id="scanIAResult"></div>
       <div class="actions">
         <button class="btn ghost" data-goto="step2">← Retour</button>
+        <button class="btn ghost" id="scanIA" title="Second regard IA sur la plausibilité métier (ordres de grandeur). Optionnel — ne remplace pas les contrôles automatiques.">🔍 Scan IA de cohérence</button>
         <span style="flex:1"></span>
         <span><small>Les modifications sont sauvegardées automatiquement avec le dossier.</small></span>
         <button class="btn" id="saveDossier">💾 Sauvegarder</button>
@@ -985,6 +987,157 @@ function calcGlobal(){
 }
 
 /* ============================================================================
+   VÉRIFICATEUR DE COHÉRENCE (couche 1) — recalcul indépendant + invariants
+   + AUTOTESTS GOLDEN (couche 2) — scénarios de référence rejoués au chargement
+   ============================================================================ */
+function activeOverridesList(){
+  const out = [];
+  const gov = (state.overrides && state.overrides.global) || {};
+  Object.keys(gov).forEach(k=> out.push('Total · '+k));
+  const vov = (state.overrides && state.overrides.vt) || {};
+  Object.keys(vov).forEach(key=> Object.keys(vov[key]||{}).forEach(k=> out.push(key+' · '+k)));
+  return out;
+}
+
+// Recalcule TOUT par un chemin indépendant et compare aux résultats affichés.
+// Chaque contrôle : {id, label, status:'pass'|'fail'|'manual', detail}
+function verifyIntegrity(){
+  const EPS = 0.02;
+  const near = (a,b)=> Math.abs(num(a)-num(b)) <= EPS;
+  const checks = [];
+  const add = (id,label,status,detail)=> checks.push({id,label,status,detail:detail||''});
+  const g = calcGlobal();
+  const gov = (state.overrides && state.overrides.global) || {};
+  const pct = num(state.settings.regiePct), seuil = num(state.settings.seuilGo);
+
+  // C1 — Totaux = somme exacte des blocs (champ par champ, hors valeurs forcées)
+  let c1fail = [];
+  ['chargesTravaux','venteTravaux','audit','vtIte','regie','coutRevient','prime','reste','marge','margeBrute'].forEach(f=>{
+    if(gov[f]!=null) return;
+    const s = g.blocks.reduce((a,b)=>a+(b.res[f]||0),0);
+    if(!near(s, g.tot[f])) c1fail.push(f+' : Σ blocs '+s.toFixed(2)+' ≠ total '+num(g.tot[f]).toFixed(2));
+  });
+  add('totaux','Totaux = somme des blocs (10 champs)', c1fail.length?'fail':'pass', c1fail.join(' · '));
+
+  // C2..C9 — contrôles par bloc (recalcul indépendant)
+  let c2=[],c3=[],c4=[],c5=[],c6=[],c7=[],c8=[],c9=[];
+  g.blocks.forEach(({vt,res})=>{
+    if(res.distributed) return;   // bloc ITE réparti : coûts transférés, contrôlés via C10
+    const ov = res.ov || {};
+    const sumCR = res.lignes.reduce((a,l)=>a+num(l.cR),0), sumVR = res.lignes.reduce((a,l)=>a+num(l.vR),0);
+    if(!near(sumCR,res.chargesTravaux) || !near(sumVR,res.venteTravaux)) c2.push(vt.label);
+    res.lignes.forEach(l=>{
+      if(l.pc || l.itePart) return;
+      if(!near(l.surf*l.achat, l.cR) || !near(l.surf*l.vente, l.vR)) c3.push(vt.label+' · '+l.label);
+    });
+    if(!near(res.regie, res.chargesTravaux*pct/100)) c4.push(vt.label);
+    if(vt.role==='habitation' && !near(res.audit, vtAudits(vt)*num(state.settings.auditVT))) c5.push(vt.label);
+    if(!near(res.coutRevient, res.chargesTravaux+res.audit+res.vtIte+res.regie)) c6.push(vt.label);
+    if(ov.marge==null && !near(res.marge, res.venteTravaux-res.coutRevient)) c7.push(vt.label);
+    if(ov.margeBrute==null && ov.prime==null && !near(res.margeBrute, res.prime-res.chargesTravaux)) c7.push(vt.label+' (brute)');
+    if(ov.reste==null && ov.prime==null && !near(res.reste, res.venteTravaux-res.prime)) c8.push(vt.label);
+    if(!ov.decision && res.go !== (res.marge >= seuil)) c9.push(vt.label);
+    ['chargesTravaux','venteTravaux','audit','vtIte','regie','coutRevient','prime','reste','marge','margeBrute'].forEach(f=>{
+      if(!isFinite(num(res[f]))) c2.push(vt.label+' · '+f+' non numérique');
+    });
+  });
+  add('lignes-somme','Charges/ventes de chaque bloc = somme de ses lignes', c2.length?'fail':'pass', c2.join(' · '));
+  add('lignes-prix','Chaque ligne : surface × prix barème = montant affiché', c3.length?'fail':'pass', c3.join(' · '));
+  add('regie','Régie commerciale = charges × '+pct+' % (recalcul indépendant)', c4.length?'fail':'pass', c4.join(' · '));
+  add('audit','Audit VT = nb audits × montant paramètre, par habitation', c5.length?'fail':'pass', c5.join(' · '));
+  add('cout','Coût de revient = charges + audit + frais ITE + régie', c6.length?'fail':'pass', c6.join(' · '));
+  add('marges','Marges = vente − coût / prime − achats (hors forcées)', c7.length?'fail':'pass', c7.join(' · '));
+  add('reste','Reste à charge = vente − prime CEE (hors forcées)', c8.length?'fail':'pass', c8.join(' · '));
+  add('decision','Décision GO/NO-GO cohérente avec marge vs seuil', c9.length?'fail':'pass', c9.join(' · '));
+
+  // C10 — Répartition ITE : les parts somment exactement au pool
+  if(iteDistributionActive()){
+    const pool = itePool();
+    const parts = g.blocks.filter(b=>b.res.iteShare).map(b=>b.res.iteShare);
+    const sPct = parts.reduce((a,s)=>a+s.pct,0), sCh = parts.reduce((a,s)=>a+s.charges,0), sFee = parts.reduce((a,s)=>a+s.fee,0);
+    const ok = Math.abs(sPct-1)<=1e-6 && near(sCh,pool.charges) && near(sFee,pool.fee);
+    add('ite','Répartition ITE : parts = 100 % et somment au pool', ok?'pass':'fail',
+        ok?'':('Σ%='+(sPct*100).toFixed(2)+' · Σcharges='+sCh.toFixed(2)+' vs pool '+pool.charges.toFixed(2)));
+  } else {
+    add('ite','Répartition ITE : sans objet (pas de VT ITE active)', 'pass','');
+  }
+
+  // C11 — Prix barème manquants sur lignes calculées
+  const missing = [];
+  g.blocks.forEach(({vt,res})=> res.lignes.forEach(l=>{ if(l.missing) missing.push(vt.label+' · '+l.label); }));
+  add('prix','Aucun prix barème manquant sur une ligne calculée', missing.length?'fail':'pass', missing.join(' · '));
+
+  // C12 — Autotests moteur (scénarios golden rejoués au chargement)
+  const gFail = GOLDEN_RESULTS.filter(r=>!r.pass);
+  add('autotests','Autotests moteur : '+GOLDEN_RESULTS.filter(r=>r.pass).length+'/'+GOLDEN_RESULTS.length+' scénarios de référence exacts',
+      GOLDEN_RESULTS.length===0?'fail':(gFail.length?'fail':'pass'), gFail.map(r=>r.name+' : '+r.detail).join(' · '));
+
+  // Valeurs forcées manuellement : signalées, jamais validées en silence
+  const ovList = activeOverridesList();
+  if(ovList.length) add('overrides', ovList.length+' valeur(s) modifiée(s) manuellement — exclue(s) des contrôles', 'manual', ovList.join(' · '));
+
+  const fails = checks.filter(c=>c.status==='fail');
+  return { checks, fails, manual: checks.filter(c=>c.status==='manual'),
+           passCount: checks.filter(c=>c.status==='pass').length,
+           autoCount: checks.filter(c=>c.status!=='manual').length, ok: fails.length===0 };
+}
+
+// ---- Couche 2 : scénarios golden (résultats calculés à la main, rejoués à chaque chargement) ----
+function _gVt(id, role, shab, cats, extra){
+  return Object.assign({ id, role, fileName:'g'+id+'.pdf', label: role==='ite'?'VT ITE':'Habitation '+id, shab,
+    revenus:'classique', cdp:'oui', sauts:'2', hasIte:'oui', nbAudits:1, pcLines:[], selections:{}, pct:{}, collapsed:{},
+    extraction:{ shab_m2:shab, categories:Object.assign({ITE:[],ITI:[],Combles:[],Plancher:[],Fenetres:[]}, cats) } }, extra||{});
+}
+const GOLDEN_CHARGES = { ITE:{unite:'M2',achat:100,vente:200}, ITI:{unite:'M2',achat:70,vente:210},
+  Combles:{unite:'M2',achat:30,vente:90}, Planchers:{unite:'M2',achat:30,vente:90}, Fenetres:{unite:'M2',achat:550,vente:1500} };
+const GOLDEN_SCENARIOS = [
+  { name:'Cas 1 — habitation simple (ITI 50 m²)', cas:1,
+    vts:[ _gVt(1,'habitation',50,{ITI:[{description:'g',piece:'',surface_nette:50,surface_brute:50}]}) ],
+    expect:{ chargesTravaux:3500, regie:420, audit:450, coutRevient:4370, venteTravaux:10500, marge:6130, margeBrute:-3500, reste:10500 }, expectGo:true },
+  { name:'Cas 2 — ITE 100 m² répartie sur 1 habitation', cas:2,
+    vts:[ _gVt(1,'ite',0,{ITE:[{description:'façade',piece:'',surface_nette:100,surface_brute:100}]}), _gVt(2,'habitation',25,{}) ],
+    expect:{ chargesTravaux:10000, regie:1200, audit:450, vtIte:70, coutRevient:11720, venteTravaux:20000, marge:8280 }, expectGo:true },
+  { name:'Cas 3 — immeuble : ITE 100 m² sur 4 habitations de 25 m²', cas:3,
+    vts:[ _gVt(1,'ite',0,{ITE:[{description:'façade',piece:'',surface_nette:100,surface_brute:100}]}),
+          _gVt(2,'habitation',25,{}), _gVt(3,'habitation',25,{}), _gVt(4,'habitation',25,{}), _gVt(5,'habitation',25,{}) ],
+    expect:{ chargesTravaux:10000, audit:1800, vtIte:70, coutRevient:13070, venteTravaux:20000 }, expectGo:true },
+  { name:'Habitation exclue de l\'ITE (3 participantes)', cas:3,
+    vts:[ _gVt(1,'ite',0,{ITE:[{description:'façade',piece:'',surface_nette:100,surface_brute:100}]}),
+          _gVt(2,'habitation',25,{}), _gVt(3,'habitation',25,{}), _gVt(4,'habitation',25,{}), _gVt(5,'habitation',25,{},{hasIte:'non'}) ],
+    expect:{ chargesTravaux:10000, audit:1800, vtIte:70, coutRevient:13070 } },
+  { name:'Audits variables (2 audits sur une habitation)', cas:1,
+    vts:[ _gVt(1,'habitation',50,{ITI:[{description:'g',piece:'',surface_nette:50,surface_brute:50}]},{nbAudits:2}) ],
+    expect:{ audit:900, coutRevient:4820 } },
+  { name:'Décision forcée NO-GO (override respecté)', cas:1,
+    vts:[ _gVt(1,'habitation',50,{ITI:[{description:'g',piece:'',surface_nette:50,surface_brute:50}]}) ],
+    overrides:{ global:{decision:'nogo'}, vt:{} }, expect:{ coutRevient:4370 }, expectGo:false }
+];
+let GOLDEN_RESULTS = [];
+function runGoldenTests(){
+  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable'];
+  const snap = {}; KEYS.forEach(k=> snap[k] = state[k]);
+  const results = [];
+  try{
+    for(const sc of GOLDEN_SCENARIOS){
+      state.cas = sc.cas; state.vts = sc.vts; state.general = {pollueur:''};
+      state.overrides = sc.overrides ? JSON.parse(JSON.stringify(sc.overrides)) : {global:{},vt:{}};
+      state.settings = Object.assign({}, snap.settings, {auditVT:450, vtIte:70, regiePct:12, seuilGo:1000});
+      state.valoTable = null; state.chargesTable = GOLDEN_CHARGES;
+      const g = calcGlobal();
+      const diffs = [];
+      Object.entries(sc.expect).forEach(([k,v])=>{ if(Math.abs(num(g.tot[k])-v) > 0.02) diffs.push(k+'='+num(g.tot[k]).toFixed(2)+' attendu '+v); });
+      if(sc.expectGo!==undefined && g.tot.go!==sc.expectGo) diffs.push('go='+g.tot.go+' attendu '+sc.expectGo);
+      results.push({ name:sc.name, pass:diffs.length===0, detail:diffs.join(' · ') });
+    }
+  }catch(e){
+    results.push({ name:'Exécution des autotests', pass:false, detail:String(e.message||e) });
+  }finally{
+    KEYS.forEach(k=> state[k] = snap[k]);
+  }
+  return results;
+}
+
+/* ============================================================================
    RENDU — ÉTAPE 1 (chargement + rôles)
    ============================================================================ */
 const CAS_DESC = {
@@ -1326,7 +1479,25 @@ function renderStep4(){
   const {blocks, tot} = calcGlobal();
   const seuil = num(state.settings.seuilGo);
 
-  let html = '';
+  // ── Bouclier de vérification (couche 1+2) : recalcul indépendant, visible pour l'utilisateur ──
+  const integ = verifyIntegrity();
+  const shieldColor = integ.ok ? 'var(--green-tx)' : 'var(--red-tx)';
+  const shieldBg = integ.ok ? 'var(--green-bg)' : '#fdeaea';
+  let html = `<div style="border:2px solid ${shieldColor};background:${shieldBg};border-radius:12px;padding:12px 16px;margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:22px">${integ.ok?'🛡️':'🚨'}</span>
+      <strong style="color:${shieldColor};font-size:15px">${integ.ok
+        ? 'Calculs vérifiés — '+integ.passCount+'/'+integ.autoCount+' contrôles passés'
+        : 'ATTENTION — '+integ.fails.length+' contrôle(s) en échec'}</strong>
+      <span style="flex:1"></span>
+      <small>Recalcul indépendant + autotests moteur, à chaque affichage</small>
+    </div>
+    ${integ.manual.length?`<div style="margin-top:6px"><small>✎ ${esc(integ.manual[0].label)}</small></div>`:''}
+    ${integ.fails.length?`<div style="margin-top:8px">${integ.fails.map(c=>`<div><small><strong>✘ ${esc(c.label)}</strong> — ${esc(c.detail)}</small></div>`).join('')}</div>`:''}
+    <details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--text-muted)">Détail des ${integ.checks.length} contrôles</summary>
+      <div style="margin-top:6px">${integ.checks.map(c=>`<div><small>${c.status==='pass'?'✔':c.status==='manual'?'✎':'✘'} ${esc(c.label)}${c.detail?' — '+esc(c.detail):''}</small></div>`).join('')}</div>
+    </details>
+  </div>`;
   blocks.forEach(({vt,res})=>{
     const badge = vt.role==='ite'
       ? '<span class="badge ite">VT ITE — bloc global'+(res.distributed?', coûts répartis sur les habitations':', pas d\'Audit VT')+'</span>'
@@ -1473,6 +1644,16 @@ function buildReportWorkbook(){
     round2(tot.chargesTravaux), round2(tot.audit), round2(tot.vtIte), round2(tot.regie), round2(tot.coutRevient),
     round2(tot.venteTravaux), round2(tot.prime), round2(tot.margeBrute), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
   ]);
+
+  // ── CONTRÔLES DE COHÉRENCE (couche 1+2) : la même vérification que le bouclier à l'écran,
+  //    rejouée au moment exact de l'export et écrite dans la Synthèse ──
+  const integ = verifyIntegrity();
+  syn.push([]);
+  syn.push(['CONTRÔLES DE COHÉRENCE — recalcul indépendant automatique']);
+  syn.push(['STATUT', integ.ok ? '✔ TOUS CONTRÔLES PASSÉS ('+integ.passCount+'/'+integ.autoCount+')' : '✘ '+integ.fails.length+' CONTRÔLE(S) EN ÉCHEC — chiffres à ne pas diffuser']);
+  integ.checks.forEach(c=> syn.push([c.status==='pass'?'✔':c.status==='manual'?'✎':'✘', c.label, c.detail||'']));
+  syn.push(['Vérifié le', new Date().toLocaleString('fr-FR'), 'Moteur autotesté au chargement : '+GOLDEN_RESULTS.filter(r=>r.pass).length+'/'+GOLDEN_RESULTS.length+' scénarios de référence']);
+
   const wsSyn = XLSX.utils.aoa_to_sheet(syn);
   wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:12},{wch:14},{wch:16},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
@@ -1654,6 +1835,60 @@ $('#saveDossier').addEventListener('click', ()=>{
   $('#saveDossier').textContent = '✅ Sauvegardé';
   setTimeout(()=>$('#saveDossier').textContent = '💾 Sauvegarder', 1500);
 });
+
+// ── Couche 3 : Scan IA de cohérence (plausibilité métier — optionnel, jamais décisionnaire) ──
+async function runScanIA(){
+  const box = $('#scanIAResult');
+  const key = state.settings.apiKey || (document.getElementById('apiKey')?.value || '').trim();
+  if(!key){ box.innerHTML = '<div class="alert err">Clé API OpenRouter manquante (onglet Paramètres) — le Scan IA est optionnel, les contrôles automatiques ci-dessus restent actifs.</div>'; return; }
+  box.innerHTML = '<div class="alert info"><span class="spinner"></span> Scan IA en cours… (plausibilité métier, ~10 s)</div>';
+  try{
+    const g = calcGlobal();
+    const integ = verifyIntegrity();
+    const resume = {
+      cas: state.cas, parametres: { auditVT:num(state.settings.auditVT), fraisVtIte:num(state.settings.vtIte), regiePct:num(state.settings.regiePct), seuilGo:num(state.settings.seuilGo) },
+      blocs: g.blocks.map(({vt,res})=>({ label:vt.label, role:vt.role, shab:num(vt.shab), repartiIte:!!res.distributed,
+        charges:round2(res.chargesTravaux), audit:round2(res.audit), fraisIte:round2(res.vtIte), regie:round2(res.regie),
+        coutRevient:round2(res.coutRevient), vente:round2(res.venteTravaux), primeCee:round2(res.prime),
+        margeBrute:round2(res.margeBrute), resteACharge:round2(res.reste), margeCommerciale:round2(res.marge), decision:res.go?'GO':'NO-GO' })),
+      totaux: { coutRevient:round2(g.tot.coutRevient), vente:round2(g.tot.venteTravaux), primeCee:round2(g.tot.prime),
+        margeBrute:round2(g.tot.margeBrute), resteACharge:round2(g.tot.reste), margeCommerciale:round2(g.tot.marge), decision:g.tot.go?'GO':'NO-GO' },
+      controlesAutomatiques: integ.ok ? 'tous passés ('+integ.passCount+'/'+integ.autoCount+')' : integ.fails.map(c=>c.label),
+      valeursForcees: activeOverridesList()
+    };
+    const body = {
+      model: resolveModel(),
+      messages: [
+        { role:'system', content: "Tu es un contrôleur de gestion senior spécialisé en rénovation énergétique et CEE (Coup de Pouce). "
+          + "On te donne le pré-chiffrage d'un dossier. L'arithmétique est déjà vérifiée par des contrôles déterministes : "
+          + "ton rôle est UNIQUEMENT la plausibilité métier (ordres de grandeur, ratios anormaux, prime CEE incohérente avec la surface, "
+          + "marge irréaliste, reste à charge anormal, paramètre suspect). Réponds UNIQUEMENT en JSON valide : "
+          + '{"verdict":"ok"|"attention","points":[{"niveau":"info"|"alerte","message":"..."}]}. Maximum 6 points, en français, concis.' },
+        { role:'user', content: JSON.stringify(resume) }
+      ],
+      temperature: 0, reasoning: { enabled: false }, response_format: { type: 'json_object' }
+    };
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method:'POST', headers:{ 'Authorization':'Bearer '+key, 'Content-Type':'application/json',
+        'HTTP-Referer':'https://ot-energie.local', 'X-Title':'Revue Projet OT' }, body: JSON.stringify(body) });
+    if(!resp.ok) throw new Error('OpenRouter '+resp.status);
+    const data = await resp.json();
+    let out; try{
+      let s = String(data?.choices?.[0]?.message?.content||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+      const f=s.indexOf('{'), l=s.lastIndexOf('}'); if(f>=0&&l>f) s=s.slice(f,l+1);
+      out = JSON.parse(s);
+    }catch(e){ throw new Error('Réponse IA illisible'); }
+    const ok = out.verdict === 'ok';
+    box.innerHTML = `<div style="border:2px solid ${ok?'var(--green-tx)':'#F5A623'};background:${ok?'var(--green-bg)':'#FFF8E1'};border-radius:12px;padding:12px 16px;margin-bottom:10px">
+      <strong>${ok?'🔍 Scan IA : rien à signaler':'🔍 Scan IA : points d\'attention'}</strong>
+      <span style="float:right"><small>Avis de plausibilité — ne remplace pas les contrôles automatiques</small></span>
+      ${(out.points||[]).map(p=>`<div style="margin-top:5px"><small>${p.niveau==='alerte'?'⚠️':'ℹ️'} ${esc(p.message)}</small></div>`).join('') || '<div style="margin-top:5px"><small>Aucune anomalie de plausibilité détectée.</small></div>'}
+    </div>`;
+  }catch(e){
+    box.innerHTML = '<div class="alert err">Scan IA impossible : '+esc(e.message)+' — les contrôles automatiques restent valides.</div>';
+  }
+}
+$('#scanIA').addEventListener('click', runScanIA);
 $('#saveParams').addEventListener('click', ()=>{
   state.settings.apiKey  = $('#apiKey').value.trim();      // jamais journalisée
   state.settings.model   = $('#model').value;
@@ -1688,6 +1923,7 @@ function hydrateParamsUI(){
   if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
   renderChargesEditor();
 }
+GOLDEN_RESULTS = runGoldenTests();   // couche 2 : le moteur de calcul se re-prouve à chaque chargement
 loadLS();
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 hydrateParamsUI();
