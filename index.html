@@ -929,7 +929,7 @@ function calcVT(vt){
   if(vt.role === 'ite' && iteDistributionActive()){
     return { lignes, chargesTravauxRaw: chargesTravaux, venteTravauxRaw: venteTravaux,
              chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0,
-             prime:0, valoErr:null, reste:0, marge:0, go:true, distributed:true, iteShare:null, ov:{} };
+             prime:0, valoErr:null, reste:0, marge:0, margeBrute:0, go:true, distributed:true, iteShare:null, ov:{} };
   }
 
   // Habitation : part des coûts ITE au prorata de la surface
@@ -960,20 +960,22 @@ function calcVT(vt){
   if(ov.reste !== undefined && ov.reste !== null) reste = num(ov.reste);
   let marge = venteTravaux - coutRevient;
   if(ov.marge !== undefined && ov.marge !== null) marge = num(ov.marge);
+  let margeBrute = prime - chargesTravaux;   // Marge Brute = Prime CEE − prix d'achat des travaux
+  if(ov.margeBrute !== undefined && ov.margeBrute !== null) margeBrute = num(ov.margeBrute);
   let go = marge >= num(state.settings.seuilGo);
   if(ov.decision === 'go') go = true; else if(ov.decision === 'nogo') go = false;
 
-  return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge,
+  return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge, margeBrute,
            go, ov, distributed:false, iteShare:share };
 }
 
 function calcGlobal(){
   const blocks = orderedVts().map(vt=>({ vt, res:calcVT(vt) }));   // VT ITE en tête
-  const tot = { chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0 };
+  const tot = { chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0, margeBrute:0 };
   blocks.forEach(b=>{ for(const k in tot) tot[k]+=b.res[k]||0; });
   // Corrections manuelles globales (widgets du Total projet/immeuble)
   const gov = (state.overrides && state.overrides.global) || {};
-  ['coutRevient','venteTravaux','prime','reste','marge'].forEach(k=>{ if(gov[k] !== undefined && gov[k] !== null) tot[k] = num(gov[k]); });
+  ['coutRevient','venteTravaux','prime','reste','marge','margeBrute'].forEach(k=>{ if(gov[k] !== undefined && gov[k] !== null) tot[k] = num(gov[k]); });
   tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= num(state.settings.seuilGo));
   tot.ov = gov;
   return { blocks, tot };
@@ -1349,10 +1351,12 @@ function renderStep4(){
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
           formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
-          formula:'Marge = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'margeBrute', type:'num', label:'Marge Brute', display:eur(res.margeBrute), rawVal:round2(res.margeBrute), cls:res.margeBrute>=0?'go':'nogo', edited:res.ov.margeBrute!=null,
+          formula:'Marge Brute = Prime CEE − Charges d\'achat travaux = '+eur(res.prime)+' − '+eur(res.chargesTravaux)})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge Commerciale', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
+          formula:'Marge Commerciale = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'decision', type:'dec', label:'Décision', display:res.go?'✅ GO':'⛔ NO-GO', rawVal:res.ov.decision||'auto', cls:res.go?'go':'nogo', edited:!!res.ov.decision,
-          formula:'Décision = GO si Marge ≥ Seuil : '+eur(res.marge)+(res.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
+          formula:'Décision = GO si Marge Commerciale ≥ Seuil : '+eur(res.marge)+(res.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
       </div>`}
       ${ vt.role==='habitation' ? renderPcEditor(vt) : '' }
     </div>`;
@@ -1368,12 +1372,14 @@ function renderStep4(){
         formula:'Prix de vente HT = Σ (surfaces cochées × prix de vente du barème)'})}
       ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), edited:tot.ov.prime!=null,
         formula:'Prime CEE totale = Σ des primes CEE des habitations'})}
+      ${kpiCell({scope:'g', key:'', field:'margeBrute', type:'num', label:'Marge Brute totale', display:eur(tot.margeBrute), rawVal:round2(tot.margeBrute), cls:tot.margeBrute>=0?'go':'nogo', edited:tot.ov.margeBrute!=null,
+        formula:'Marge Brute totale = Prime CEE totale − Charges d\'achat travaux = '+eur(tot.prime)+' − '+eur(tot.chargesTravaux)})}
       ${kpiCell({scope:'g', key:'', field:'reste', type:'num', label:'Reste à charge total', display:eur(tot.reste), rawVal:round2(tot.reste), edited:tot.ov.reste!=null,
         formula:'Reste à charge total = Prix de vente HT − Prime CEE totale = '+eur(tot.venteTravaux)+' − '+eur(tot.prime)})}
-      ${kpiCell({scope:'g', key:'', field:'marge', type:'num', label:'Marge globale', display:eur(tot.marge), rawVal:round2(tot.marge), cls:tot.go?'go':'nogo', edited:tot.ov.marge!=null,
-        formula:'Marge globale = Prix de vente HT − Coût de revient total = '+eur(tot.venteTravaux)+' − '+eur(tot.coutRevient)})}
+      ${kpiCell({scope:'g', key:'', field:'marge', type:'num', label:'Marge Commerciale globale', display:eur(tot.marge), rawVal:round2(tot.marge), cls:tot.go?'go':'nogo', edited:tot.ov.marge!=null,
+        formula:'Marge Commerciale globale = Prix de vente HT − Coût de revient total = '+eur(tot.venteTravaux)+' − '+eur(tot.coutRevient)})}
       ${kpiCell({scope:'g', key:'', field:'decision', type:'dec', label:'Décision (seuil '+eur(seuil)+')', display:tot.go?'✅ GO':'⛔ NO-GO', rawVal:tot.ov.decision||'auto', cls:tot.go?'go':'nogo', edited:!!tot.ov.decision,
-        formula:'Décision = GO si Marge globale ≥ Seuil : '+eur(tot.marge)+(tot.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
+        formula:'Décision = GO si Marge Commerciale globale ≥ Seuil : '+eur(tot.marge)+(tot.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
     </div>
     <table style="margin-top:8px"><tbody>
       <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
@@ -1450,20 +1456,20 @@ function buildReportWorkbook(){
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
     ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', nbAuditsVT(), 'VT ITE (€/VT)', num(state.settings.vtIte)],
     [],
-    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Reste à charge','Marge','Décision']
+    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+'%','Coût de revient total','Prix de vente HT','Prime CEE','Marge Brute','Reste à charge','Marge Commerciale','Décision']
   ];
   blocks.forEach(({vt,res})=> syn.push([
     vt.label, vt.role==='ite'?(res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((vt.hasIte||'oui')==='non'?' (sans ITE)':''),
     round2(res.chargesTravaux), round2(res.audit), round2(res.vtIte), round2(res.regie), round2(res.coutRevient),
-    round2(res.venteTravaux), round2(res.prime), round2(res.reste), round2(res.marge), res.go?'GO':'NO-GO'
+    round2(res.venteTravaux), round2(res.prime), round2(res.margeBrute), round2(res.reste), round2(res.marge), res.go?'GO':'NO-GO'
   ]));
   syn.push([
     'TOTAL '+(state.cas===3?'immeuble':'projet'),'',
     round2(tot.chargesTravaux), round2(tot.audit), round2(tot.vtIte), round2(tot.regie), round2(tot.coutRevient),
-    round2(tot.venteTravaux), round2(tot.prime), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
+    round2(tot.venteTravaux), round2(tot.prime), round2(tot.margeBrute), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
   ]);
   const wsSyn = XLSX.utils.aoa_to_sheet(syn);
-  wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:14},{wch:12},{wch:10}];
+  wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:12},{wch:14},{wch:16},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
 
   // --- Feuille « Détail complet » : TOUTE la granularité (chaque instance/pièce) ---
@@ -1510,8 +1516,9 @@ function buildReportWorkbook(){
     det.push(['  + Régie commerciale '+pct+'%','','','','','','', round2(res.regie), '']);
     det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
     det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
+    det.push(['  MARGE BRUTE (Prime CEE − achats travaux)','','','','','','','', round2(res.margeBrute)]);
     det.push(['  Reste à charge','','','','','','','', round2(res.reste)]);
-    det.push(['  MARGE','','','','','','','', round2(res.marge)]);
+    det.push(['  MARGE COMMERCIALE','','','','','','','', round2(res.marge)]);
     det.push(['  Décision', res.go?'GO':'NO-GO']);
     if(res.valoErr) det.push(['  ⚠️ Valorisation hors barème', res.valoErr]);
     det.push([]);
@@ -1520,8 +1527,9 @@ function buildReportWorkbook(){
   det.push(['Coût de revient total','','','','','','', round2(tot.coutRevient), '']);
   det.push(['Prix de vente HT','','','','','','','', round2(tot.venteTravaux)]);
   det.push(['Prime CEE totale','','','','','','','', round2(tot.prime)]);
+  det.push(['Marge Brute totale (Prime − achats)','','','','','','','', round2(tot.margeBrute)]);
   det.push(['Reste à charge total','','','','','','','', round2(tot.reste)]);
-  det.push(['MARGE GLOBALE','','','','','','','', round2(tot.marge)]);
+  det.push(['MARGE COMMERCIALE GLOBALE','','','','','','','', round2(tot.marge)]);
   det.push(['Décision globale (seuil '+round2(num(state.settings.seuilGo))+' €)', tot.go?'GO':'NO-GO']);
   const wsDet = XLSX.utils.aoa_to_sheet(det);
   wsDet['!cols'] = [{wch:28},{wch:34},{wch:16},{wch:12},{wch:9},{wch:12},{wch:12},{wch:16},{wch:14}];
