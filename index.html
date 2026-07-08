@@ -1288,7 +1288,7 @@ function renderStep4(){
       <div class="kpi-grid">
         ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), edited:res.ov.prime!=null,
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge ménage', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
           formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
           formula:'Marge = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
@@ -1444,7 +1444,7 @@ function buildReportWorkbook(){
     det.push(['  + Régie commerciale '+pct+'%','','','','','','', round2(res.regie), '']);
     det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
     det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
-    det.push(['  Reste à charge ménage','','','','','','','', round2(res.reste)]);
+    det.push(['  Reste à charge','','','','','','','', round2(res.reste)]);
     det.push(['  MARGE','','','','','','','', round2(res.marge)]);
     det.push(['  Décision', res.go?'GO':'NO-GO']);
     if(res.valoErr) det.push(['  ⚠️ Valorisation hors barème', res.valoErr]);
