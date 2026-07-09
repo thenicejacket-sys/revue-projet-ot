@@ -424,10 +424,15 @@ main{position:relative;z-index:1}
   <section class="view" id="history">
     <div class="card">
       <h2>📋 Historique des dossiers</h2>
-      <p class="hint">Chaque génération de rapport Excel enregistre ici le dossier (totaux globaux). Persisté localement (ce navigateur).</p>
+      <p class="hint">Dossiers archivés à l'étape 6, partagés entre tous les utilisateurs. Double-clic sur une ligne pour la consulter en lecture seule.</p>
+      <div class="row" style="align-items:flex-end;gap:10px;margin-bottom:12px">
+        <div class="col" style="min-width:200px"><label class="fld">🔍 Rechercher par nom</label><input type="text" id="histSearch" placeholder="nom du dossier…"></div>
+        <div class="col" style="max-width:170px"><label class="fld">Du (date)</label><input type="date" id="histFrom"></div>
+        <div class="col" style="max-width:170px"><label class="fld">Au (date)</label><input type="date" id="histTo"></div>
+        <div class="col" style="max-width:130px;flex:0 0 auto"><button class="btn ghost small" id="histReset" style="width:100%">↺ Réinitialiser</button></div>
+      </div>
       <div class="flex" style="justify-content:flex-end;margin-bottom:10px">
         <button class="btn success small" id="histExport">📊 Exporter l'historique (.xlsx)</button>
-        <button class="btn danger small" id="histClear">🗑️ Tout effacer</button>
       </div>
       <div id="historyTable"></div>
     </div>
@@ -462,7 +467,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1855,6 +1860,19 @@ const HistoryStore = {
       const rows = await r.json(); return rows[0] && rows[0].snapshot;
     }
     const row = this._lsAll().find(x=>x.id===id); return row && row.snapshot;
+  },
+  async remove(id){
+    if(SUPA_ON()){
+      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id),
+        { method:'DELETE', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON, 'Prefer':'return=representation' } });
+      if(!r.ok) throw new Error('Supabase '+r.status);
+      const rows = await r.json();
+      if(!rows.length) throw new Error('Suppression non activée sur la base. Colle le SQL fourni (fichier « SUPABASE_activer_suppression.sql » sur le bureau) dans Supabase → SQL Editor, puis réessaie.');
+      return true;
+    }
+    const all = this._lsAll().filter(x=>x.id!==id);
+    localStorage.setItem(this._lsKey, JSON.stringify(all));
+    return true;
   }
 };
 
@@ -1904,20 +1922,34 @@ async function archiveDossier(){
 }
 $('#btnArchive').addEventListener('click', archiveDossier);
 
-// ── HISTORIQUE — liste + rejeu figé ──
+// ── HISTORIQUE — liste + recherche + suppression + rejeu figé ──
+let _histRows = [];
 async function renderHistory(){
   const wrap = $('#historyTable');
   wrap.innerHTML = '<div class="alert info"><span class="spinner"></span> Chargement de l\'historique…</div>';
-  let rows;
-  try{ rows = await HistoryStore.list(); }
+  try{ _histRows = await HistoryStore.list(); }
   catch(e){ wrap.innerHTML = '<div class="alert err">Historique inaccessible : '+esc(e.message)+'</div>'; return; }
-  if(!rows.length){
+  filterHistory();
+}
+function filterHistory(){
+  const wrap = $('#historyTable');
+  if(!_histRows.length){
     wrap.innerHTML = '<div class="alert info">Aucun dossier archivé. Complète les 5 étapes puis sauvegarde à l\'étape <strong>6 · Sauvegarde</strong>.</div>';
     return;
   }
-  wrap.innerHTML = `<p class="hint">Double-cliquez sur une ligne pour <strong>rouvrir le dossier en lecture seule</strong> (onglets 1 à 5 figés) et régénérer son rapport Excel.</p>
+  const q = ($('#histSearch').value||'').toLowerCase().trim();
+  const from = $('#histFrom').value, to = $('#histTo').value;   // yyyy-mm-dd
+  const rows = _histRows.filter(h=>{
+    if(q && !(h.nom||'').toLowerCase().includes(q)) return false;
+    const d = (h.created_at||'').slice(0,10);   // yyyy-mm-dd (comparable lexicographiquement)
+    if(from && d < from) return false;
+    if(to && d > to) return false;
+    return true;
+  });
+  if(!rows.length){ wrap.innerHTML = '<div class="alert info">Aucun dossier ne correspond à la recherche.</div>'; return; }
+  wrap.innerHTML = `<p class="hint">${rows.length} dossier(s). <strong>Double-clic</strong> sur une ligne : consulter en lecture seule. Bouton ✕ : supprimer.</p>
     <table><thead><tr>
-      <th>Date</th><th>Nom du dossier</th><th class="num">Coût revient</th><th class="num">Marge</th><th class="num">Prime CEE</th><th>Décision</th>
+      <th>Date</th><th>Nom du dossier</th><th class="num">Coût revient</th><th class="num">Marge</th><th class="num">Prime CEE</th><th>Décision</th><th></th>
     </tr></thead><tbody>
     ${rows.map(h=>{ const r=h.resume||{}; const dt=new Date(h.created_at);
       return `<tr class="histrow" data-histopen="${esc(String(h.id))}" style="cursor:pointer" title="Double-clic : consulter">
@@ -1925,10 +1957,22 @@ async function renderHistory(){
         <td><strong>${esc(h.nom||'(sans nom)')}</strong></td>
         <td class="num">${eur(r.couts)}</td><td class="num">${eur(r.marge)}</td><td class="num">${eur(r.prime)}</td>
         <td>${r.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>
+        <td><button class="btn danger small" data-histdel="${esc(String(h.id))}" title="Supprimer ce dossier">✕</button></td>
       </tr>`; }).join('')}
     </tbody></table>`;
   wrap.querySelectorAll('[data-histopen]').forEach(tr=> tr.addEventListener('dblclick', ()=> openArchived(tr.dataset.histopen)));
+  wrap.querySelectorAll('[data-histdel]').forEach(b=> b.addEventListener('click', async e=>{
+    e.stopPropagation();
+    const id = b.dataset.histdel;
+    const h = _histRows.find(x=>String(x.id)===String(id));
+    if(!confirm('Supprimer définitivement le dossier « '+((h&&h.nom)||'')+' » de l\'historique ?')) return;
+    b.disabled = true; b.textContent = '…';
+    try{ await HistoryStore.remove(id); renderHistory(); }
+    catch(err){ b.disabled=false; b.textContent='✕'; alert(err.message); }
+  }));
 }
+['histSearch','histFrom','histTo'].forEach(id=>{ const el=$('#'+id); if(el) el.addEventListener('input', filterHistory); });
+$('#histReset').addEventListener('click', ()=>{ $('#histSearch').value=''; $('#histFrom').value=''; $('#histTo').value=''; filterHistory(); });
 
 async function openArchived(id){
   let snap;
@@ -1962,10 +2006,6 @@ async function openArchived(id){
   window.scrollTo(0,0);
 }
 
-$('#histClear').addEventListener('click', async ()=>{
-  if(SUPA_ON()){ alert('L\'historique partagé est immuable : les dossiers ne peuvent pas être supprimés.'); return; }
-  if(confirm('Effacer tout l\'historique LOCAL de ce navigateur ?')){ localStorage.removeItem(HistoryStore._lsKey); renderHistory(); }
-});
 $('#histExport').addEventListener('click', async ()=>{
   let rows; try{ rows = await HistoryStore.list(); }catch(e){ alert('Historique inaccessible.'); return; }
   if(!rows.length){ alert('Historique vide.'); return; }
