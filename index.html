@@ -462,7 +462,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1866,6 +1866,7 @@ function renderStep6(){
   if(state.vts.length===0) problems.push('Charge au moins une VT (étape 1).');
   if(!state.chargesTable) problems.push('Charge le barème de charges (Paramètres).');
   const { tot } = calcGlobal();
+  const gov = (state.overrides && state.overrides.global) || {};   // valeurs forcées au niveau du total
   const integ = verifyIntegrity();
   const fichiers = state.vts.map(v=>'• '+esc(v.fileName)+' — '+(v.role==='ite'?'VT ITE':esc(v.label))).join('<br>') || '—';
   area.innerHTML = `
@@ -1877,11 +1878,12 @@ function renderStep6(){
     </div>
     <div style="margin-top:12px"><label class="fld">Fichiers chargés (titres uniquement)</label><div style="font-size:13px">${fichiers}</div></div>
     <div class="kpi-grid" style="margin-top:14px">
-      <div class="kpi"><div class="lab">Coût de revient</div><div class="val">${eur(tot.coutRevient)}</div></div>
-      <div class="kpi"><div class="lab">Marge commerciale</div><div class="val ${tot.go?'':''}">${eur(tot.marge)}</div></div>
-      <div class="kpi"><div class="lab">Prime CEE</div><div class="val">${eur(tot.prime)}</div></div>
-      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Décision</div><div class="val">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
+      <div class="kpi ${gov.coutRevient!=null?'edited':''}"><div class="lab">Coût de revient${gov.coutRevient!=null?' ✎':''}</div><div class="val">${eur(tot.coutRevient)}</div></div>
+      <div class="kpi ${gov.marge!=null?'edited':''}"><div class="lab">Marge commerciale${gov.marge!=null?' ✎':''}</div><div class="val">${eur(tot.marge)}</div></div>
+      <div class="kpi ${gov.prime!=null?'edited':''}"><div class="lab">Prime CEE${gov.prime!=null?' ✎':''}</div><div class="val">${eur(tot.prime)}</div></div>
+      <div class="kpi ${gov.decision?'edited':(tot.go?'go':'nogo')}"><div class="lab">Décision${gov.decision?' ✎':''}</div><div class="val ${tot.go?'go':'nogo'}" style="color:${tot.go?'var(--green-tx)':'var(--red-tx)'}">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
     </div>
+    ${(gov.coutRevient!=null||gov.marge!=null||gov.prime!=null||gov.decision||activeOverridesList().length) ? '<div style="margin-top:8px"><small>✎ = valeur(s) modifiée(s) manuellement (fond rosé). '+activeOverridesList().length+' correction(s) enregistrée(s) sur ce dossier.</small></div>' : ''}
     <div style="margin-top:10px"><small>${integ.ok ? '🛡️ Calculs vérifiés ('+integ.passCount+'/'+integ.autoCount+') — prêt à archiver.' : '🚨 '+integ.fails.length+' contrôle(s) en échec — corrige avant d\'archiver.'}</small></div>`;
   $('#btnArchive').disabled = problems.length>0 || !integ.ok;
 }
