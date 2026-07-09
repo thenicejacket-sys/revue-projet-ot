@@ -481,7 +481,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1945,7 +1945,7 @@ const ICO = {
   x:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>'
 };
 let _histRows = [];
-let _hf = { q:'', dateMode:'single', date:'', from:'', to:'' };
+let _hf = { q:'' };
 
 async function renderHistory(){
   const wrap = $('#historyTable');
@@ -1959,8 +1959,7 @@ async function renderHistory(){
   wrap.innerHTML = `
     <div class="hist-searchbar">
       <div class="hist-field name">${ICO.search}<input type="text" id="hfName" placeholder="Rechercher un dossier…" value="${esc(_hf.q)}"></div>
-      <div class="hist-date-zone" id="histDateZone"></div>
-      <button class="hist-clear-btn" id="hfClear" title="Effacer les filtres">${ICO.trash}</button>
+      <button class="hist-clear-btn" id="hfClear" title="Effacer la recherche">${ICO.trash}</button>
       <span class="hist-count" id="hfCount"></span>
     </div>
     <div class="table-wrap" style="overflow-x:auto"><table>
@@ -1969,37 +1968,14 @@ async function renderHistory(){
       </tr></thead><tbody id="histBody"></tbody>
     </table></div>`;
   $('#hfName').addEventListener('input', e=>{ _hf.q=e.target.value; renderHistBody(); });
-  $('#hfClear').addEventListener('click', ()=>{ _hf={q:'',dateMode:'single',date:'',from:'',to:''}; $('#hfName').value=''; renderHistDateZone(); renderHistBody(); });
-  renderHistDateZone();
+  $('#hfClear').addEventListener('click', ()=>{ _hf.q=''; $('#hfName').value=''; renderHistBody(); });
   renderHistBody();
-}
-
-function renderHistDateZone(){
-  const z = $('#histDateZone'); if(!z) return;
-  if(_hf.dateMode==='single'){
-    z.innerHTML = `<div class="hist-field date">${ICO.calendar}<input type="date" id="hfDate" value="${_hf.date}" title="Filtrer par date"></div>
-      <button class="hist-mode-btn" id="hfMode" title="Rechercher sur une plage de dates">${ICO.calendar}</button>`;
-    $('#hfDate').addEventListener('input', e=>{ _hf.date=e.target.value; renderHistBody(); });
-  } else {
-    z.innerHTML = `<span class="hist-range-lbl">Du</span><div class="hist-field date">${ICO.calendar}<input type="date" id="hfFrom" value="${_hf.from}"></div>
-      <span class="hist-range-lbl">au</span><div class="hist-field date">${ICO.calendar}<input type="date" id="hfTo" value="${_hf.to}"></div>
-      <button class="hist-mode-btn active" id="hfMode" title="Revenir à une date unique">${ICO.x}</button>`;
-    $('#hfFrom').addEventListener('input', e=>{ _hf.from=e.target.value; renderHistBody(); });
-    $('#hfTo').addEventListener('input', e=>{ _hf.to=e.target.value; renderHistBody(); });
-  }
-  $('#hfMode').addEventListener('click', ()=>{ _hf.dateMode = _hf.dateMode==='single'?'range':'single'; renderHistDateZone(); renderHistBody(); });
 }
 
 function renderHistBody(){
   const body = $('#histBody'); if(!body) return;
   const q = _hf.q.toLowerCase().trim();
-  const rows = _histRows.filter(h=>{
-    if(q && !(h.nom||'').toLowerCase().includes(q)) return false;
-    const d = (h.created_at||'').slice(0,10);   // yyyy-mm-dd (comparable lexicographiquement)
-    if(_hf.dateMode==='single'){ if(_hf.date && d!==_hf.date) return false; }
-    else { if(_hf.from && d<_hf.from) return false; if(_hf.to && d>_hf.to) return false; }
-    return true;
-  });
+  const rows = _histRows.filter(h=> !q || (h.nom||'').toLowerCase().includes(q));
   const cnt = $('#hfCount'); if(cnt) cnt.textContent = rows.length + (rows.length===_histRows.length ? ' dossier(s)' : ' / '+_histRows.length+' dossier(s)');
   if(!rows.length){ body.innerHTML = '<tr><td colspan="7"><small>Aucun dossier ne correspond.</small></td></tr>'; return; }
   body.innerHTML = rows.map(h=>{ const r=h.resume||{}; const dt=new Date(h.created_at);
