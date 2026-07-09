@@ -139,7 +139,7 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .kpi.nogo .val{color:var(--red-tx)}
 .kpi.editable{cursor:pointer;position:relative}
 .kpi.editable:hover{border-color:var(--primary)}
-.kpi.edited{border:1.5px dashed var(--primary);background:#f4f8ff}
+.kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
 .kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
 .kpi .ov-reset:hover{color:var(--primary)}
 .kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
@@ -437,7 +437,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-08.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 
 const state = {
