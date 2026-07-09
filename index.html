@@ -140,6 +140,15 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .kpi.editable{cursor:pointer;position:relative}
 .kpi.editable:hover{border-color:var(--primary)}
 .kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
+/* Mode consultation figée (dossier archivé) : main non interactif, sauf éléments .allow-frozen */
+#frozenBar{display:none}
+body.frozen #frozenBar{display:flex;position:sticky;top:0;z-index:50;align-items:center;gap:12px;flex-wrap:wrap;
+  background:linear-gradient(135deg,#12296a,#1B3F8B);color:#fff;padding:11px 18px;box-shadow:0 2px 12px rgba(0,0,0,.18)}
+body.frozen #frozenBar .btn{background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35)}
+body.frozen main{pointer-events:none}
+body.frozen main .allow-frozen{pointer-events:auto}
+body.frozen main input,body.frozen main select,body.frozen main textarea{background:#f4f6fb;color:var(--text)}
+body.frozen #nav [data-view="step6"],body.frozen #btnArchive,body.frozen #saveDossier,body.frozen #scanIA{display:none}
 .kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
 .kpi .ov-reset:hover{color:var(--primary)}
 .kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
@@ -190,10 +199,12 @@ main{position:relative;z-index:1}
   <button data-view="step2"><span class="num">3</span> Valorisation CEE</button>
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
   <button data-view="step5"><span class="num">5</span> Rapport</button>
+  <button data-view="step6"><span class="num">6</span> Sauvegarde</button>
   <span class="spacer"></span>
   <button data-view="history" class="param">📋 Historique</button>
   <button data-view="params" class="param">⚙️ Paramètres</button>
 </nav>
+<div id="frozenBar"></div>
 
 <main>
 
@@ -313,6 +324,20 @@ main{position:relative;z-index:1}
         <button class="btn success" id="downloadExcel">📊 Rapport Excel (.xlsx)</button>
       </div>
       <div id="reportPreview" style="margin-top:16px"></div>
+    </div>
+  </section>
+
+  <!-- ====================================================== ÉTAPE 6 — SAUVEGARDE ====================================================== -->
+  <section class="view" id="step6">
+    <div class="card">
+      <h2>6 · Sauvegarde dans l'historique</h2>
+      <p class="hint">Fige ce dossier et l'archive dans l'<strong>historique partagé</strong> : nom, fichiers chargés (titres uniquement), extraction, valorisation, charges &amp; marges et résultats. Une fois sauvegardé, le dossier est <strong>consultable par tous et non modifiable</strong>.</p>
+      <div id="saveArea"></div>
+      <div class="actions">
+        <button class="btn ghost" data-goto="step5">← Retour</button>
+        <span style="flex:1"></span>
+        <button class="btn success" id="btnArchive">💾 Sauvegarder dans l'historique</button>
+      </div>
     </div>
   </section>
 
@@ -437,8 +462,16 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
+let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
+
+// ── Historique partagé : configuration Supabase (remplie une fois le projet créé via MCP). ──
+// Tant que ces champs sont vides, l'historique fonctionne en LOCAL (ce navigateur uniquement).
+const SUPABASE_URL  = '';   // ex. https://xxxx.supabase.co
+const SUPABASE_ANON = '';   // clé publishable (anon) — sûre à publier, protégée par RLS
+const SUPABASE_TABLE = 'dossiers';
+const SUPA_ON = () => !!(SUPABASE_URL && SUPABASE_ANON);
 
 const state = {
   cas: 1,
@@ -477,6 +510,7 @@ function normPoll(v){ return String(v||'').trim().toLowerCase(); }
    ============================================================================ */
 const LS_KEY = 'revueProjetOT.v1';
 function saveLS(){
+  if(FROZEN) return;   // consultation d'un dossier archivé : ne jamais écraser le dossier de travail
   try{
     // Si la page est encore vierge et qu'un dossier précédent est mis de côté, on le préserve
     // (sinon le chargement d'une page vide écraserait le dossier proposé par « Reprendre »).
@@ -532,6 +566,7 @@ function showView(id){
   if(id==='step2') renderStep2();
   if(id==='step3') renderStep3();
   if(id==='step4') renderStep4();
+  if(id==='step6') renderStep6();
   if(id==='history') renderHistory();
   applyBackground(id);
   window.scrollTo(0,0);
@@ -1466,9 +1501,10 @@ $('#extractAll').addEventListener('click', async ()=>{
 // Widget KPI éditable : clic = éditer, survol = formule (légende type Excel), ↺ = retour au calcul auto
 function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited}
   const id = o.scope + '|' + encodeURIComponent(o.key||'') + '|' + o.field + '|' + o.type;
-  const tip = o.formula + (o.edited ? ' — ✎ valeur modifiée manuellement' : '') + ' (cliquer pour modifier)';
-  return `<div class="kpi editable ${o.cls||''} ${o.edited?'edited':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
-    ${o.edited?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
+  const ro = !!FROZEN;   // dossier archivé : widgets non éditables
+  const tip = o.formula + (o.edited ? ' — ✎ valeur modifiée manuellement' : '') + (ro ? '' : ' (cliquer pour modifier)');
+  return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
+    ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
     <div class="lab">${o.label}${o.edited?' ✎':''}</div><div class="val">${o.display}</div>
   </div>`;
 }
@@ -1753,58 +1789,188 @@ $('#downloadExcel').addEventListener('click', ()=>{
   if(state.vts.length===0){ alert('Aucune VT chargée.'); return; }
   const fname = 'rapport-' + (state.nomDossier.trim().replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) || 'dossier') + '.xlsx';
   XLSX.writeFile(buildReportWorkbook(), fname);
-  addHistoryEntry();
-  $('#reportPreview').innerHTML = '<div class="alert ok">📊 Rapport Excel téléchargé : <strong>'+esc(fname)+'</strong> — dossier ajouté à l\'<strong>Historique</strong>.</div>';
+  $('#reportPreview').innerHTML = '<div class="alert ok">📊 Rapport Excel téléchargé : <strong>'+esc(fname)+'</strong>. Passe à l\'étape <strong>6 · Sauvegarde</strong> pour archiver ce dossier dans l\'historique partagé.</div>';
 });
 
 /* ============================================================================
-   HISTORIQUE — enregistrement des dossiers (totaux globaux), persisté en localStorage
+   HISTORIQUE PARTAGÉ — snapshot de dossier figé, archivé (Supabase si configuré, sinon local),
+   immuable une fois sauvegardé, rejouable en lecture seule.
    ============================================================================ */
-function addHistoryEntry(){
+// Instantané complet et figé du dossier : tout le nécessaire pour ré-afficher les 5 onglets et
+// régénérer le rapport Excel. Le texte brut des PDF et la clé API ne sont JAMAIS inclus.
+function buildDossierSnapshot(){
   const { tot } = calcGlobal();
-  const d = new Date();
-  state.history.unshift({
-    date:  d.toLocaleDateString('fr-FR'),
-    heure: d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'}),
-    nom:   state.nomDossier.trim(),
-    couts: round2(tot.coutRevient),   // coûts (coût de revient total)
-    marge: round2(tot.marge),         // marge vente
-    prime: round2(tot.prime),         // coup de pouce / prime CEE
-    reste: round2(tot.reste),         // reste à charge client
-    go:    tot.go
-  });
-  saveLS();
+  const settingsPub = Object.assign({}, state.settings); delete settingsPub.apiKey;
+  return {
+    schema: 2, buildId: BUILD_ID,
+    nom: state.nomDossier.trim(),
+    cas: state.cas,
+    general: JSON.parse(JSON.stringify(state.general)),
+    overrides: JSON.parse(JSON.stringify(state.overrides || {global:{},vt:{}})),
+    settings: settingsPub,
+    valoTable: state.valoTable,
+    pollueurs: state.pollueurs,
+    chargesTable: state.chargesTable,
+    // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
+    vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false })),
+    resume: { couts:round2(tot.coutRevient), venteHT:round2(tot.venteTravaux), marge:round2(tot.marge),
+              margeBrute:round2(tot.margeBrute), prime:round2(tot.prime), reste:round2(tot.reste),
+              go:tot.go, nbVt:state.vts.length }
+  };
 }
-function renderHistory(){
+
+// Couche de stockage abstraite : Supabase (partagé, immuable) si configuré, sinon localStorage (ce navigateur).
+const HistoryStore = {
+  _lsKey: 'revueProjetOT.hist.v2',
+  _lsAll(){ try{ return JSON.parse(localStorage.getItem(this._lsKey)||'[]'); }catch(_){ return []; } },
+  async save(snap){
+    const created_at = new Date().toISOString();
+    if(SUPA_ON()){
+      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE, {
+        method:'POST', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON,
+          'Content-Type':'application/json', 'Prefer':'return=representation' },
+        body: JSON.stringify({ nom:snap.nom, resume:snap.resume, snapshot:snap, created_at }) });
+      if(!r.ok) throw new Error('Supabase '+r.status+' — '+(await r.text()).slice(0,120));
+      return (await r.json())[0];
+    }
+    const row = { id:'loc-'+Date.now()+'-'+Math.floor(Math.random()*1e4), nom:snap.nom, resume:snap.resume, snapshot:snap, created_at };
+    const all = this._lsAll(); all.unshift(row);
+    localStorage.setItem(this._lsKey, JSON.stringify(all));
+    return row;
+  },
+  async list(){
+    if(SUPA_ON()){
+      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?select=id,nom,resume,created_at&order=created_at.desc',
+        { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
+      if(!r.ok) throw new Error('Supabase '+r.status);
+      return await r.json();
+    }
+    return this._lsAll().map(({id,nom,resume,created_at})=>({id,nom,resume,created_at}));
+  },
+  async get(id){
+    if(SUPA_ON()){
+      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id)+'&select=snapshot',
+        { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
+      if(!r.ok) throw new Error('Supabase '+r.status);
+      const rows = await r.json(); return rows[0] && rows[0].snapshot;
+    }
+    const row = this._lsAll().find(x=>x.id===id); return row && row.snapshot;
+  }
+};
+
+// ── ÉTAPE 6 — récap avant sauvegarde ──
+function renderStep6(){
+  const area = $('#saveArea'); if(!area) return;
+  const problems = [];
+  if(!state.nomDossier.trim()) problems.push('Renseigne le « Nom du dossier » (étape 1).');
+  if(state.vts.length===0) problems.push('Charge au moins une VT (étape 1).');
+  if(!state.chargesTable) problems.push('Charge le barème de charges (Paramètres).');
+  const { tot } = calcGlobal();
+  const integ = verifyIntegrity();
+  const fichiers = state.vts.map(v=>'• '+esc(v.fileName)+' — '+(v.role==='ite'?'VT ITE':esc(v.label))).join('<br>') || '—';
+  area.innerHTML = `
+    ${problems.length ? '<div class="alert err">'+problems.map(esc).join('<br>')+'</div>' : ''}
+    ${!SUPA_ON() ? '<div class="alert info">ℹ️ Historique en mode <strong>local</strong> (ce navigateur). Le partage entre tous les utilisateurs s\'activera dès la connexion à la base Supabase.</div>' : '<div class="alert ok">🌐 Historique <strong>partagé</strong> (Supabase) — visible par tous les utilisateurs, non modifiable une fois sauvegardé.</div>'}
+    <div class="row">
+      <div class="col"><label class="fld">Nom du dossier</label><div style="font-weight:700;font-size:15px">${esc(state.nomDossier||'(sans nom)')}</div></div>
+      <div class="col"><label class="fld">Cas</label><div>${state.cas} — ${esc(CAS_DESC[state.cas]||'')}</div></div>
+    </div>
+    <div style="margin-top:12px"><label class="fld">Fichiers chargés (titres uniquement)</label><div style="font-size:13px">${fichiers}</div></div>
+    <div class="kpi-grid" style="margin-top:14px">
+      <div class="kpi"><div class="lab">Coût de revient</div><div class="val">${eur(tot.coutRevient)}</div></div>
+      <div class="kpi"><div class="lab">Marge commerciale</div><div class="val ${tot.go?'':''}">${eur(tot.marge)}</div></div>
+      <div class="kpi"><div class="lab">Prime CEE</div><div class="val">${eur(tot.prime)}</div></div>
+      <div class="kpi ${tot.go?'go':'nogo'}"><div class="lab">Décision</div><div class="val">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
+    </div>
+    <div style="margin-top:10px"><small>${integ.ok ? '🛡️ Calculs vérifiés ('+integ.passCount+'/'+integ.autoCount+') — prêt à archiver.' : '🚨 '+integ.fails.length+' contrôle(s) en échec — corrige avant d\'archiver.'}</small></div>`;
+  $('#btnArchive').disabled = problems.length>0 || !integ.ok;
+}
+
+async function archiveDossier(){
+  const btn = $('#btnArchive'); const area = $('#saveArea');
+  btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳ Sauvegarde…';
+  try{
+    const snap = buildDossierSnapshot();
+    const row = await HistoryStore.save(snap);
+    area.insertAdjacentHTML('afterbegin', '<div class="alert ok">✅ Dossier <strong>'+esc(snap.nom)+'</strong> archivé dans l\'historique '+(SUPA_ON()?'partagé':'local')+'. Il est désormais consultable et non modifiable. <button class="btn small" data-goto="history">Voir l\'historique →</button></div>');
+    btn.textContent = '✅ Sauvegardé';
+    setTimeout(()=>{ btn.textContent = old; btn.disabled=false; }, 2000);
+  }catch(e){
+    area.insertAdjacentHTML('afterbegin', '<div class="alert err">Sauvegarde impossible : '+esc(e.message)+'</div>');
+    btn.textContent = old; btn.disabled=false;
+  }
+}
+$('#btnArchive').addEventListener('click', archiveDossier);
+
+// ── HISTORIQUE — liste + rejeu figé ──
+async function renderHistory(){
   const wrap = $('#historyTable');
-  if(!state.history.length){
-    wrap.innerHTML = '<div class="alert info">Aucun dossier enregistré. Génère un rapport Excel (étape 5) pour alimenter l\'historique.</div>';
+  wrap.innerHTML = '<div class="alert info"><span class="spinner"></span> Chargement de l\'historique…</div>';
+  let rows;
+  try{ rows = await HistoryStore.list(); }
+  catch(e){ wrap.innerHTML = '<div class="alert err">Historique inaccessible : '+esc(e.message)+'</div>'; return; }
+  if(!rows.length){
+    wrap.innerHTML = '<div class="alert info">Aucun dossier archivé. Complète les 5 étapes puis sauvegarde à l\'étape <strong>6 · Sauvegarde</strong>.</div>';
     return;
   }
-  wrap.innerHTML = `<table><thead><tr>
-      <th>Date</th><th>Heure</th><th>Nom du dossier</th>
-      <th class="num">Coûts</th><th class="num">Marge vente</th><th class="num">Prime CEE (CDP)</th><th class="num">Reste à charge</th><th>Statut</th><th></th>
+  wrap.innerHTML = `<p class="hint">Double-cliquez sur une ligne pour <strong>rouvrir le dossier en lecture seule</strong> (onglets 1 à 5 figés) et régénérer son rapport Excel.</p>
+    <table><thead><tr>
+      <th>Date</th><th>Nom du dossier</th><th class="num">Coût revient</th><th class="num">Marge</th><th class="num">Prime CEE</th><th>Décision</th>
     </tr></thead><tbody>
-    ${state.history.map((h,i)=>`<tr>
-      <td>${esc(h.date)}</td><td>${esc(h.heure)}</td><td><strong>${esc(h.nom)}</strong></td>
-      <td class="num">${eur(h.couts)}</td><td class="num">${eur(h.marge)}</td><td class="num">${eur(h.prime)}</td><td class="num">${eur(h.reste)}</td>
-      <td>${h.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>
-      <td><button class="btn danger small" data-histrm="${i}">✕</button></td>
-    </tr>`).join('')}
+    ${rows.map(h=>{ const r=h.resume||{}; const dt=new Date(h.created_at);
+      return `<tr class="histrow" data-histopen="${esc(String(h.id))}" style="cursor:pointer" title="Double-clic : consulter">
+        <td>${dt.toLocaleDateString('fr-FR')} ${dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
+        <td><strong>${esc(h.nom||'(sans nom)')}</strong></td>
+        <td class="num">${eur(r.couts)}</td><td class="num">${eur(r.marge)}</td><td class="num">${eur(r.prime)}</td>
+        <td>${r.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>
+      </tr>`; }).join('')}
     </tbody></table>`;
-  wrap.querySelectorAll('[data-histrm]').forEach(b=> b.addEventListener('click', e=>{
-    state.history.splice(parseInt(e.target.dataset.histrm), 1); saveLS(); renderHistory();
-  }));
+  wrap.querySelectorAll('[data-histopen]').forEach(tr=> tr.addEventListener('dblclick', ()=> openArchived(tr.dataset.histopen)));
 }
-$('#histClear').addEventListener('click', ()=>{
-  if(state.history.length && confirm('Effacer tout l\'historique ?')){ state.history = []; saveLS(); renderHistory(); }
+
+async function openArchived(id){
+  let snap;
+  try{ snap = await HistoryStore.get(id); }catch(e){ alert('Ouverture impossible : '+e.message); return; }
+  if(!snap){ alert('Dossier introuvable.'); return; }
+  FROZEN = snap;
+  // Charge le snapshot dans l'état (sans persister — saveLS est bloqué tant que FROZEN est actif)
+  state.cas = snap.cas; state.nomDossier = snap.nom;
+  state.general = snap.general || {pollueur:''};
+  state.overrides = snap.overrides || {global:{},vt:{}};
+  state.valoTable = snap.valoTable || null;
+  state.pollueurs = snap.pollueurs || [];
+  state.chargesTable = snap.chargesTable || null;
+  state.vts = snap.vts || [];
+  Object.assign(state.settings, snap.settings || {});
+  document.body.classList.add('frozen');
+  $('#frozenBar').innerHTML = `<span style="font-size:18px">📋</span>
+    <strong>Dossier archivé : ${esc(snap.nom||'(sans nom)')}</strong>
+    <span style="opacity:.8;font-size:13px">— lecture seule, non modifiable</span>
+    <span style="flex:1"></span>
+    <button class="btn small allow-frozen" id="frozenExport">📊 Rapport Excel</button>
+    <button class="btn small allow-frozen" id="frozenExit">← Quitter la consultation</button>`;
+  $('#frozenExport').addEventListener('click', ()=>{
+    const fname = 'rapport-archive-' + (snap.nom||'dossier').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) + '.xlsx';
+    XLSX.writeFile(buildReportWorkbook(), fname);
+  });
+  $('#frozenExit').addEventListener('click', ()=>{ FROZEN=null; location.reload(); });
+  $('#cas').value = state.cas; $('#nomDossier').value = state.nomDossier;
+  renderCasDesc();
+  showView('step1');
+  window.scrollTo(0,0);
+}
+
+$('#histClear').addEventListener('click', async ()=>{
+  if(SUPA_ON()){ alert('L\'historique partagé est immuable : les dossiers ne peuvent pas être supprimés.'); return; }
+  if(confirm('Effacer tout l\'historique LOCAL de ce navigateur ?')){ localStorage.removeItem(HistoryStore._lsKey); renderHistory(); }
 });
-$('#histExport').addEventListener('click', ()=>{
-  if(!state.history.length){ alert('Historique vide.'); return; }
-  const aoa = [['Date','Heure','Nom du dossier','Coûts','Marge vente','Prime CEE (CDP)','Reste à charge','Statut']];
-  state.history.forEach(h=> aoa.push([h.date, h.heure, h.nom, round2(h.couts), round2(h.marge), round2(h.prime), round2(h.reste), h.go?'GO':'NO-GO']));
+$('#histExport').addEventListener('click', async ()=>{
+  let rows; try{ rows = await HistoryStore.list(); }catch(e){ alert('Historique inaccessible.'); return; }
+  if(!rows.length){ alert('Historique vide.'); return; }
+  const aoa = [['Date','Nom du dossier','Coût de revient','Marge commerciale','Prime CEE','Reste à charge','Décision']];
+  rows.forEach(h=>{ const r=h.resume||{}; aoa.push([ new Date(h.created_at).toLocaleString('fr-FR'), h.nom||'', round2(r.couts), round2(r.marge), round2(r.prime), round2(r.reste), r.go?'GO':'NO-GO' ]); });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:11},{wch:7},{wch:28},{wch:14},{wch:14},{wch:16},{wch:14},{wch:8}];
+  ws['!cols'] = [{wch:17},{wch:28},{wch:15},{wch:16},{wch:13},{wch:14},{wch:9}];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Historique');
   XLSX.writeFile(wb, 'historique-revue-projet-ot.xlsx');
 });
