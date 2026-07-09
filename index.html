@@ -462,14 +462,14 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-09.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
 // ── Historique partagé : configuration Supabase (remplie une fois le projet créé via MCP). ──
 // Tant que ces champs sont vides, l'historique fonctionne en LOCAL (ce navigateur uniquement).
-const SUPABASE_URL  = '';   // ex. https://xxxx.supabase.co
-const SUPABASE_ANON = '';   // clé publishable (anon) — sûre à publier, protégée par RLS
+const SUPABASE_URL  = 'https://qyyvhltydpwfyevaysuw.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_F9lxYGIlRmlhacQME0MfgA_AuQNJ61b';   // clé publishable — sûre à publier, protégée par RLS (lecture+ajout publics, aucune modif/suppression)
 const SUPABASE_TABLE = 'dossiers';
 const SUPA_ON = () => !!(SUPABASE_URL && SUPABASE_ANON);
 
