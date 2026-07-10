@@ -493,7 +493,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-10.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-10.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1859,6 +1859,56 @@ function buildReportWorkbook(){
   const wsSyn = XLSX.utils.aoa_to_sheet(syn);
   wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:12},{wch:14},{wch:16},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
+
+  // --- Feuille « Tableau en longueur » : format Master_Suivi Projets_Clients (1 ligne par appartement) ---
+  // Colonnes du Master : montants d'ACHAT par poste ; Total px Achat = SUM(postes) ;
+  // Marge direct = Prime CEE − Total px Achat (formules relevées dans le Master).
+  // « Autres achats » regroupe ce qui n'a pas de colonne dans le Master (Pac Air/Air, ajouts
+  // individuels, éléments personnalisés, frais VT ITE) pour que le total reste exact (= coût de revient).
+  const LONG_ELEM_COLS = [
+    { key:'Radiateurs',    match:['radiateur','radiateurs'] },
+    { key:'Ballon Thermo', match:['ballon thermo'] },
+    { key:'Ballon Hybrid', match:['ballon hybrid','ballon hybride'] },
+    { key:'Toit terrasse', match:['toit terrasse','toit/terasse','toit terasse'] },
+    { key:'VMC',           match:['vmc'] },
+    { key:'Rampants',      match:['rampants'] }
+  ];
+  const normLong = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+  const LONG_HEAD = ['Appartement / VT','ITI','Fenetres','Combles','Rampants','Planchers','Radiateurs','Ballon Thermo','Ballon Hybrid','ITE','Toit terrasse','VMC','AUDIT','Commercial','Autres achats','Total px Achat','Marge direct'];
+  const LONG_COSTS = LONG_HEAD.slice(1, LONG_HEAD.indexOf('Total px Achat'));   // ITI … Autres achats
+  const long = [
+    ['TABLEAU EN LONGUEUR — montants d\'achat HT par appartement (format Master Suivi)'],
+    ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
+    [],
+    LONG_HEAD
+  ];
+  const longTot = {}; LONG_HEAD.slice(1).forEach(k=> longTot[k]=0);
+  blocks.forEach(({vt,res})=>{
+    if(res.distributed) return;   // VT ITE répartie : ses coûts sont déjà dans les lignes des habitations
+    const row = {}; LONG_HEAD.slice(1).forEach(k=> row[k]=0);
+    res.lignes.forEach(l=>{
+      if(l.pc){
+        const n = normLong(l.cat);
+        const col = LONG_ELEM_COLS.find(c=> c.match.indexOf(n) !== -1);
+        row[col ? col.key : 'Autres achats'] += num(l.cR);
+      } else {
+        const map = { ITI:'ITI', Fenetres:'Fenetres', Combles:'Combles', Plancher:'Planchers', ITE:'ITE' };
+        row[map[l.cat] || 'Autres achats'] += num(l.cR);
+      }
+    });
+    row['AUDIT'] = num(res.audit);
+    row['Commercial'] = num(res.regie);
+    row['Autres achats'] += num(res.vtIte);
+    const totalPx = LONG_COSTS.reduce((s,k)=> s + row[k], 0);
+    row['Total px Achat'] = totalPx;
+    row['Marge direct'] = num(res.prime) - totalPx;
+    LONG_HEAD.slice(1).forEach(k=> longTot[k] += row[k]);
+    long.push([vt.label].concat(LONG_HEAD.slice(1).map(k=> round2(row[k]))));
+  });
+  long.push(['TOTAL '+(state.cas===3?'immeuble':'projet')].concat(LONG_HEAD.slice(1).map(k=> round2(longTot[k]))));
+  const wsLong = XLSX.utils.aoa_to_sheet(long);
+  wsLong['!cols'] = [{wch:24}].concat(LONG_HEAD.slice(1).map(()=>({wch:13})));
+  XLSX.utils.book_append_sheet(wb, wsLong, 'Tableau en longueur');
 
   // --- Feuille « Détail complet » : TOUTE la granularité (chaque instance/pièce) ---
   const det = [
