@@ -412,6 +412,13 @@ main{position:relative;z-index:1}
         <tbody id="chargesBody"></tbody></table>
 
       <hr/>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Barème des éléments (achat / vente HT, € / pièce)</h3>
+      <p class="hint">Éléments additionnels ajoutés par habitation (onglet Valorisation) : radiateur, VMC, ballon, PAC… Un élément utilisé <strong>sans prix d'achat ou de vente</strong> bloque le calcul. « ＋ » ajoute une ligne personnalisée ; « Enregistrer » garde tout en mémoire.</p>
+      <table id="elementsTableUI"><thead><tr><th>Élément</th><th class="num">Px achat HT</th><th class="num">Prix vente HT</th><th></th></tr></thead>
+        <tbody id="elementsBody"></tbody></table>
+      <button class="btn small ghost" id="elemAdd" style="margin-top:6px">＋ Ajouter un élément au barème</button>
+
+      <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Paramètres de calcul</h3>
       <div class="row">
         <div class="col">
@@ -463,8 +470,13 @@ const CATS = ['ITE','ITI','Combles','Plancher','Fenetres'];           // catégo
 const CAT_LABEL = {ITE:'ITE',ITI:'ITI',Combles:'Combles',Plancher:'Plancher',Fenetres:'Fenêtres'};
 // Mapping catégorie extraite -> nom de colonne dans Charges.xlsx
 const CHARGE_MAP = {ITE:'ITE',ITI:'ITI',Combles:'Combles',Plancher:'Planchers',Fenetres:'Fenetres'};
-// Catégories en PC (pièce/unité) -> saisie manuelle optionnelle (non auto-extraites)
-const PC_CATS = ['Radiateurs','Ballon Thermo','Ballon Hybrid','VMC','Rampants','Toit Terrasse'];
+// Éléments additionnels à la pièce (ajoutés par habitation, onglet Valorisation).
+// Barème dédié (Paramètres) : prix achat/vente HT à l'unité. 0 € = prix NON renseigné -> erreur bloquante.
+const ELEMENTS_DEFAULT_KEYS = ['Radiateur','VMC','Ballon Thermo','Ballon Hybride','Toit/Terasse','Pac Air/Air'];
+const ELEMENTS_DEFAULT = {};
+ELEMENTS_DEFAULT_KEYS.forEach(k=>{ ELEMENTS_DEFAULT[k] = { unite:'PC', achat:0, vente:0 }; });
+// Alias des anciens noms PC (dossiers sauvegardés avant 2026-07-10)
+const ELEMENT_ALIASES = { 'radiateurs':'radiateur', 'ballon hybrid':'ballon hybride', 'toit terrasse':'toit/terasse' };
 // % de la surface cochée réellement retenu pour le calcul, par catégorie (modifiable par VT).
 const CAT_PCT_DEFAULT = { ITE:25, ITI:25, Combles:100, Plancher:100, Fenetres:25 };
 // Barème de prix par défaut (reprend le fichier Charges.xlsx OT Énergie). Clés = noms de colonnes charges.
@@ -481,7 +493,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-09.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-10.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -502,6 +514,7 @@ const state = {
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   pollueurs: [],
   chargesTable: null,       // { nomCol: {unite, achat, vente, col} }
+  elementsTable: null,      // barème des éléments à la pièce { nom: {unite:'PC', achat, vente} }
   history: []               // [ {date, heure, nom, couts, marge, prime, reste, go} ]
 };
 
@@ -546,6 +559,7 @@ function saveLS(){
       valoTable: state.valoTable,
       pollueurs: state.pollueurs,
       chargesTable: state.chargesTable,
+      elementsTable: state.elementsTable,
       history: state.history
     }, dossier)));
   }catch(e){ console.warn('Persistance impossible', e.message); }
@@ -558,6 +572,7 @@ function loadLS(){
     if(d.valoTable) state.valoTable = d.valoTable;
     if(d.pollueurs) state.pollueurs = d.pollueurs;
     if(d.chargesTable) state.chargesTable = d.chargesTable;
+    if(d.elementsTable) state.elementsTable = d.elementsTable;
     if(d.general) Object.assign(state.general, d.general);
     if(Array.isArray(d.history)) state.history = d.history;
     // Le DOSSIER (VT, réponses, corrections) n'est PAS restauré automatiquement : la page
@@ -883,6 +898,46 @@ function findChargeCol(name){
   return null;
 }
 
+// ── Barème des éléments à la pièce (onglet Valorisation + Paramètres) ──
+function elementNames(){ return Object.keys(state.elementsTable || ELEMENTS_DEFAULT); }
+// Retrouve un élément par nom (insensible casse/accents + alias des anciens noms PC)
+function findElement(name){
+  const src = state.elementsTable || ELEMENTS_DEFAULT;
+  const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+  let target = norm(name);
+  if(ELEMENT_ALIASES[target]) target = ELEMENT_ALIASES[target];
+  for(const k in src){ if(norm(k) === target) return src[k]; }
+  return null;
+}
+// Un élément est « chiffré » si prix d'achat ET prix de vente sont renseignés (> 0)
+function elementPriced(name){
+  const el = findElement(name);
+  return !!(el && num(el.achat) > 0 && num(el.vente) > 0);
+}
+// « Ajout individuel » : ligne libre saisie directement sur l'habitation (description + achat + vente),
+// sans passer par le barème des Paramètres.
+const INDIV_KEY = '__indiv__';
+function isIndivLine(pl){ return !!pl && pl.cat === INDIV_KEY; }
+function lineLabel(pl){ return isIndivLine(pl) ? ('Ajout individuel — ' + (String(pl.desc||'').trim() || '(sans description)')) : pl.cat; }
+function linePrices(pl){
+  if(isIndivLine(pl)) return { achat: num(pl.achat), vente: num(pl.vente) };
+  const el = findElement(pl.cat);
+  return { achat: el ? num(el.achat) : 0, vente: el ? num(el.vente) : 0 };
+}
+// Ligne complète = calculable. Barème : prix renseignés. Individuel : description + achat + vente.
+function lineComplete(pl){
+  if(isIndivLine(pl)) return num(pl.achat) > 0 && num(pl.vente) > 0 && String(pl.desc||'').trim().length > 0;
+  return elementPriced(pl.cat);
+}
+// Éléments utilisés dans le dossier mais incomplets (prix/description manquants) -> BLOQUANT (calcul + archive)
+function unpricedElementIssues(){
+  const issues = [];
+  state.vts.forEach(vt=> (vt.pcLines||[]).forEach(pl=>{
+    if(!lineComplete(pl)) issues.push(vt.label + ' · ' + lineLabel(pl));
+  }));
+  return issues;
+}
+
 /* ============================================================================
    LOGIQUE MÉTIER — CALCULS (§5)
    ============================================================================ */
@@ -958,13 +1013,14 @@ function calcTravaux(vt){
     chargesTravaux += cR; venteTravaux += vR;
     lignes.push({ cat, label:CAT_LABEL[cat], surf, achat, vente, cR, vR, missing: !cc && surf>0 });
   }
-  // Lignes PC saisies manuellement
+  // Éléments additionnels à la pièce (barème éléments OU ajout individuel) — ajout ADDITIONNEL par habitation
   (vt.pcLines||[]).forEach(pl=>{
-    const cc = findChargeCol(pl.cat); const q = num(pl.qty);
-    const achat = cc?cc.achat:0, vente = cc?cc.vente:0;
+    const q = num(pl.qty);
+    const { achat, vente } = linePrices(pl);
     const cR = q*achat, vR = q*vente;
     chargesTravaux += cR; venteTravaux += vR;
-    lignes.push({ cat:pl.cat, label:pl.cat+' (PC×'+q+')', surf:q, achat, vente, cR, vR, pc:true, missing:!cc });
+    lignes.push({ cat: isIndivLine(pl) ? 'Ajout individuel' : pl.cat, label: lineLabel(pl)+' (×'+q+')',
+                  surf:q, achat, vente, cR, vR, pc:true, missing:!lineComplete(pl) });
   });
   return { lignes, chargesTravaux, venteTravaux };
 }
@@ -1309,6 +1365,77 @@ function renderPollueurs(){
     .map(p=>`<option ${p===state.general.pollueur?'selected':''}>${esc(p)}</option>`).join('');
   if(!state.general.pollueur && state.pollueurs.length) state.general.pollueur = state.pollueurs[0];
 }
+// ── Éditeur « Éléments additionnels » d'une habitation (partagé Valorisation & Charges) ──
+// Chaque ligne = un élément du barème (Paramètres) × quantité. Sans prix au barème -> erreur BLOQUANTE.
+function renderElementsEditor(vt){
+  const names = elementNames();
+  const rows = (vt.pcLines||[]).map((pl,i)=>{
+    const indiv = isIndivLine(pl), bad = !lineComplete(pl);
+    const el = indiv ? null : findElement(pl.cat);
+    const opts = names.map(c=>`<option value="${esc(c)}" ${c===pl.cat?'selected':''}>${esc(c)}</option>`).join('')
+      + `<option value="${INDIV_KEY}" ${indiv?'selected':''}>Ajout individuel…</option>`
+      + (indiv || names.some(c=>c===pl.cat) ? '' : `<option selected>${esc(pl.cat)}</option>`);
+    const indivFields = indiv ? `
+      <input type="text" data-el-desc="${vt.id}|${i}" value="${esc(pl.desc||'')}" placeholder="Description (obligatoire)" style="flex:1;min-width:170px">
+      <input type="number" data-el-pa="${vt.id}|${i}" value="${num(pl.achat)||''}" min="0" step="1" style="width:110px" placeholder="Achat € HT" title="Prix d'achat HT">
+      <input type="number" data-el-pv="${vt.id}|${i}" value="${num(pl.vente)||''}" min="0" step="1" style="width:110px" placeholder="Vente € HT" title="Prix de vente HT">` : '';
+    const info = indiv
+      ? (bad ? '<span class="badge ko">⛔ description + prix requis</span>' : `<span class="pill">achat ${eur(pl.achat)} · vente ${eur(pl.vente)} / pièce</span>`)
+      : (bad ? '<span class="badge ko">⛔ prix manquant au barème</span>'
+             : `<span class="pill">achat ${eur(el.achat)} · vente ${eur(el.vente)} / pièce</span>`);
+    return `<div class="flex" style="margin-bottom:6px;align-items:center;gap:8px;flex-wrap:wrap">
+      <select data-el-cat="${vt.id}|${i}">${opts}</select>${indivFields}
+      <input type="number" data-el-qty="${vt.id}|${i}" value="${pl.qty}" min="1" step="1" style="width:80px" title="Quantité">
+      ${info}
+      <button class="btn danger small" data-el-rm="${vt.id}|${i}" title="Supprimer cet élément">✕</button>
+    </div>`;
+  }).join('');
+  const bads = (vt.pcLines||[]).filter(pl=>!lineComplete(pl));
+  return `${rows}
+    <button class="btn small ghost" data-el-add="${vt.id}">＋ Ajouter un élément</button>
+    ${bads.length ? `<div class="alert err" style="margin-top:8px">⛔ <strong>Calcul bloqué</strong> — élément(s) incomplet(s) : prix au <strong>⚙️ Paramètres → Barème des éléments</strong>, ou description + prix d'achat + prix de vente pour un <strong>Ajout individuel</strong>.</div>` : ''}`;
+}
+function bindElementEditors(root, rerender){
+  root.querySelectorAll('[data-el-add]').forEach(b=> b.addEventListener('click', ()=>{
+    const vt = state.vts.find(v=>v.id==b.dataset.elAdd);
+    if(!vt.pcLines) vt.pcLines = [];
+    vt.pcLines.push({ cat: elementNames()[0], qty: 1 });
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-cat]').forEach(s=> s.addEventListener('change', e=>{
+    const [id,i] = e.target.dataset.elCat.split('|');
+    const pl = state.vts.find(v=>v.id==id).pcLines[i];
+    pl.cat = e.target.value;
+    if(pl.cat === INDIV_KEY){ if(pl.desc==null) pl.desc=''; if(pl.achat==null) pl.achat=0; if(pl.vente==null) pl.vente=0; }
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-desc]').forEach(inp=> inp.addEventListener('change', e=>{
+    const [id,i] = e.target.dataset.elDesc.split('|');
+    state.vts.find(v=>v.id==id).pcLines[i].desc = e.target.value;
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-pa]').forEach(inp=> inp.addEventListener('change', e=>{
+    const [id,i] = e.target.dataset.elPa.split('|');
+    state.vts.find(v=>v.id==id).pcLines[i].achat = num(e.target.value);
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-pv]').forEach(inp=> inp.addEventListener('change', e=>{
+    const [id,i] = e.target.dataset.elPv.split('|');
+    state.vts.find(v=>v.id==id).pcLines[i].vente = num(e.target.value);
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-qty]').forEach(inp=> inp.addEventListener('change', e=>{
+    const [id,i] = e.target.dataset.elQty.split('|');
+    state.vts.find(v=>v.id==id).pcLines[i].qty = Math.max(1, Math.round(num(e.target.value)) || 1);
+    saveLS(); rerender();
+  }));
+  root.querySelectorAll('[data-el-rm]').forEach(b=> b.addEventListener('click', e=>{
+    const [id,i] = e.target.dataset.elRm.split('|');
+    state.vts.find(v=>v.id==id).pcLines.splice(i,1);
+    saveLS(); rerender();
+  }));
+}
+
 function renderStep2(){
   saveLS();   // persiste les réponses de valorisation à chaque interaction
   renderPollueurs();
@@ -1347,6 +1474,10 @@ function renderStep2(){
           <input type="number" data-q="shab" data-vt="${vt.id}" value="${vt.shab||''}" step="0.1" placeholder="extraite ou saisie"/>
           <small>Tranche : ${['<35','35–60','60–90','90–110','110–130','>130'][shabToTranche(vt.shab)]}</small></div>
       </div>
+      <hr/>
+      <label class="fld">Éléments additionnels (à la pièce : radiateur, VMC, ballon, PAC…)</label>
+      <small style="display:block;margin-bottom:6px">Demandes spécifiques de cette habitation, comptées en <strong>ajout</strong> dans le coût de revient et le prix de vente. Prix gérés dans ⚙️ Paramètres.</small>
+      ${renderElementsEditor(vt)}
     </div>`;
   }).join('');
 
@@ -1355,6 +1486,7 @@ function renderStep2(){
     vt[e.target.dataset.q] = e.target.dataset.q==='shab' ? num(e.target.value) : e.target.value;
     renderStep2();
   }));
+  bindElementEditors(box, renderStep2);
   $('#pollueur').onchange = e=>{ state.general.pollueur = e.target.value; saveLS(); renderStep2(); };
 }
 
@@ -1554,6 +1686,15 @@ function renderStep4(){
   const area = $('#calcArea');
   if(!state.chargesTable){ area.innerHTML='<div class="alert err">Charges.xlsx non chargé (onglet Paramètres).</div>'; return; }
   if(state.vts.length===0){ area.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
+  // Erreur BLOQUANTE : un élément additionnel utilisé sans prix d'achat/vente au barème
+  const unpriced = unpricedElementIssues();
+  if(unpriced.length){
+    area.innerHTML = `<div class="alert err">⛔ <strong>Calcul bloqué</strong> — élément(s) additionnel(s) incomplet(s) (prix d'achat/vente au barème, ou description + prix pour un ajout individuel) :<br>${unpriced.map(esc).join('<br>')}
+      <div style="margin-top:8px"><button class="btn small" data-goparams="1">→ Renseigner les prix (Paramètres)</button>
+      <button class="btn small ghost" data-goto="step2">← Retirer l'élément (Valorisation)</button></div></div>`;
+    area.querySelectorAll('[data-goparams]').forEach(b=> b.addEventListener('click', ()=>showView('params')));
+    return;
+  }
 
   const {blocks, tot} = calcGlobal();
   const seuil = num(state.settings.seuilGo);
@@ -1662,31 +1803,13 @@ function renderStep4(){
     });
   });
 
-  // PC editors listeners
-  area.querySelectorAll('[data-pc-add]').forEach(b=> b.addEventListener('click', ()=>{
-    const vt=state.vts.find(v=>v.id==b.dataset.pcAdd); vt.pcLines.push({cat:PC_CATS[0],qty:1}); renderStep4();
-  }));
-  area.querySelectorAll('[data-pc-cat]').forEach(s=> s.addEventListener('change', e=>{
-    const [id,i]=e.target.dataset.pcCat.split('|'); state.vts.find(v=>v.id==id).pcLines[i].cat=e.target.value; renderStep4();
-  }));
-  area.querySelectorAll('[data-pc-qty]').forEach(inp=> inp.addEventListener('input', e=>{
-    const [id,i]=e.target.dataset.pcQty.split('|'); state.vts.find(v=>v.id==id).pcLines[i].qty=num(e.target.value); renderStep4();
-  }));
-  area.querySelectorAll('[data-pc-rm]').forEach(b=> b.addEventListener('click', e=>{
-    const [id,i]=e.target.dataset.pcRm.split('|'); state.vts.find(v=>v.id==id).pcLines.splice(i,1); renderStep4();
-  }));
+  // Éditeur des éléments additionnels (même éditeur que l'onglet Valorisation)
+  bindElementEditors(area, renderStep4);
 }
 
 function renderPcEditor(vt){
-  return `<details style="margin-top:6px"><summary><small>+ Lignes optionnelles à l'unité (PC) : radiateurs, ballons, VMC, rampants, toit-terrasse…</small></summary>
-    <div style="padding:8px 0">
-      ${(vt.pcLines||[]).map((pl,i)=>`<div class="flex" style="margin-bottom:6px">
-        <select data-pc-cat="${vt.id}|${i}">${PC_CATS.map(c=>`<option ${c===pl.cat?'selected':''}>${c}</option>`).join('')}</select>
-        <input type="number" data-pc-qty="${vt.id}|${i}" value="${pl.qty}" step="1" style="width:90px" placeholder="Qté">
-        <button class="btn danger small" data-pc-rm="${vt.id}|${i}">✕</button>
-      </div>`).join('')}
-      <button class="btn small ghost" data-pc-add="${vt.id}">+ Ajouter une ligne PC</button>
-    </div></details>`;
+  return `<details style="margin-top:6px" ${(vt.pcLines||[]).length?'open':''}><summary><small>＋ Éléments additionnels (à la pièce) : radiateur, VMC, ballon, PAC… — modifiables aussi à l'étape Valorisation</small></summary>
+    <div style="padding:8px 0">${renderElementsEditor(vt)}</div></details>`;
 }
 
 /* ============================================================================
@@ -1764,9 +1887,8 @@ function buildReportWorkbook(){
       det.push(['  Sous-total '+CAT_LABEL[cat]+' (lignes cochées)', '', '', round2(sSurf), '', '', '', round2(sCout), round2(sVente)]);
     });
     (vt.pcLines||[]).forEach(pl=>{
-      const cc = findChargeCol(pl.cat); const q = num(pl.qty);
-      const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
-      det.push([pl.cat+' (à l\'unité)', 'Quantité saisie', '', q, '✓', achat, vente, round2(q*achat), round2(q*vente)]);
+      const q = num(pl.qty); const { achat, vente } = linePrices(pl);
+      det.push([lineLabel(pl)+' (élément additionnel, à la pièce)', isIndivLine(pl)?'Ajout individuel (hors barème)':'Quantité saisie', '', q, '✓', achat, vente, round2(q*achat), round2(q*vente)]);
     });
     if(res.distributed){
       det.push(['  SOUS-TOTAL TRAVAUX ITE (avant répartition)','','','','','','', round2(res.chargesTravauxRaw), round2(res.venteTravauxRaw)]);
@@ -1806,6 +1928,8 @@ $('#downloadExcel').addEventListener('click', ()=>{
   if(!state.nomDossier.trim()){ alert('Renseigne d\'abord le « Nom du dossier » (étape 1, obligatoire).'); showView('step1'); setTimeout(()=>$('#nomDossier').focus(),60); return; }
   if(!state.chargesTable){ alert('Charge d\'abord Charges.xlsx (onglet Paramètres).'); return; }
   if(state.vts.length===0){ alert('Aucune VT chargée.'); return; }
+  const unpricedForXls = unpricedElementIssues();
+  if(unpricedForXls.length){ alert('⛔ Rapport bloqué — élément(s) additionnel(s) incomplet(s) (prix au barème, ou description + prix pour un ajout individuel) :\n' + unpricedForXls.join('\n')); return; }
   const fname = 'rapport-' + (state.nomDossier.trim().replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) || 'dossier') + '.xlsx';
   XLSX.writeFile(buildReportWorkbook(), fname);
   $('#reportPreview').innerHTML = '<div class="alert ok">📊 Rapport Excel téléchargé : <strong>'+esc(fname)+'</strong>. Passe à l\'étape <strong>6 · Sauvegarde</strong> pour archiver ce dossier dans l\'historique partagé.</div>';
@@ -1830,6 +1954,7 @@ function buildDossierSnapshot(){
     valoTable: state.valoTable,
     pollueurs: state.pollueurs,
     chargesTable: state.chargesTable,
+    elementsTable: state.elementsTable,
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
     vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false })),
     resume: { couts:round2(tot.coutRevient), venteHT:round2(tot.venteTravaux), marge:round2(tot.marge),
@@ -1897,6 +2022,8 @@ function renderStep6(){
   if(!state.nomDossier.trim()) problems.push('Renseigne le « Nom du dossier » (étape 1).');
   if(state.vts.length===0) problems.push('Charge au moins une VT (étape 1).');
   if(!state.chargesTable) problems.push('Charge le barème de charges (Paramètres).');
+  const unpricedEl = unpricedElementIssues();
+  if(unpricedEl.length) problems.push('Élément(s) additionnel(s) incomplet(s) (prix au barème, ou description + prix pour un ajout individuel) : ' + unpricedEl.join(' · '));
   const { tot } = calcGlobal();
   const gov = (state.overrides && state.overrides.global) || {};   // valeurs forcées au niveau du total
   const integ = verifyIntegrity();
@@ -2006,12 +2133,13 @@ function renderHistBody(){
 async function downloadHistoryReport(id){
   let snap; try{ snap = await HistoryStore.get(id); }catch(e){ alert('Ouverture impossible : '+e.message); return; }
   if(!snap) return;
-  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable'];
+  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable','elementsTable'];
   const bak = {}; KEYS.forEach(k=> bak[k]=state[k]);
   try{
     state.cas=snap.cas; state.nomDossier=snap.nom; state.vts=snap.vts||[]; state.general=snap.general||{pollueur:''};
     state.overrides=snap.overrides||{global:{},vt:{}}; state.valoTable=snap.valoTable||null;
     state.pollueurs=snap.pollueurs||[]; state.chargesTable=snap.chargesTable||null;
+    state.elementsTable=snap.elementsTable||state.elementsTable;
     state.settings = Object.assign({}, state.settings, snap.settings||{});
     const fname = 'rapport-'+((snap.nom||'dossier').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40)||'dossier')+'.xlsx';
     XLSX.writeFile(buildReportWorkbook(), fname);
@@ -2030,6 +2158,7 @@ async function openArchived(id){
   state.valoTable = snap.valoTable || null;
   state.pollueurs = snap.pollueurs || [];
   state.chargesTable = snap.chargesTable || null;
+  state.elementsTable = snap.elementsTable || state.elementsTable;
   state.vts = snap.vts || [];
   Object.assign(state.settings, snap.settings || {});
   document.body.classList.add('frozen');
@@ -2093,6 +2222,35 @@ function renderChargesEditor(){
       <td class="num"><input type="number" data-charge="${r.key}|vente" value="${num(v.vente)}" step="1" style="width:120px;text-align:right"> €</td></tr>`;
   }).join('');
 }
+
+// Barème des éléments à la pièce : défauts (nom figé) + lignes personnalisées (nom éditable, supprimables).
+function elementsBaremeRow(key, v, custom){
+  const name = custom
+    ? `<input type="text" data-el-name="1" value="${esc(key)}" placeholder="Nom de l'élément" style="width:170px">`
+    : `<strong>${esc(key)}</strong>`;
+  const del = custom ? `<button class="btn danger small" data-el-del="1" title="Supprimer cette ligne">✕</button>` : '';
+  return `<tr${custom?' data-el-custom="1"':` data-el-key="${esc(key)}"`}>
+    <td>${name}</td>
+    <td class="num"><input type="number" data-el-field="achat" value="${num(v.achat)}" step="1" min="0" style="width:120px;text-align:right"> €</td>
+    <td class="num"><input type="number" data-el-field="vente" value="${num(v.vente)}" step="1" min="0" style="width:120px;text-align:right"> €</td>
+    <td>${del}</td></tr>`;
+}
+function renderElementsBareme(){
+  const src = state.elementsTable || ELEMENTS_DEFAULT;
+  const rows = [];
+  ELEMENTS_DEFAULT_KEYS.forEach(k=> rows.push(elementsBaremeRow(k, src[k] || ELEMENTS_DEFAULT[k], false)));
+  Object.keys(src).filter(k=>!ELEMENTS_DEFAULT_KEYS.includes(k)).forEach(k=> rows.push(elementsBaremeRow(k, src[k], true)));
+  $('#elementsBody').innerHTML = rows.join('');
+  bindElementsBaremeRows();
+}
+function bindElementsBaremeRows(){
+  $$('#elementsBody [data-el-del]').forEach(b=> b.addEventListener('click', ()=> b.closest('tr').remove()));
+}
+$('#elemAdd').addEventListener('click', ()=>{
+  $('#elementsBody').insertAdjacentHTML('beforeend', elementsBaremeRow('', {achat:0,vente:0}, true));
+  bindElementsBaremeRows();
+  const inp = $('#elementsBody tr:last-child [data-el-name]'); if(inp) inp.focus();
+});
 
 $('#model').addEventListener('change', e=>{
   state.settings.model = e.target.value;
@@ -2179,6 +2337,19 @@ $('#saveParams').addEventListener('click', ()=>{
     const [key,field] = inp.dataset.charge.split('|'); ct[key][field] = num(inp.value);
   });
   state.chargesTable = ct;
+  // Barème des éléments : défauts + lignes personnalisées non vides, persistés avec le reste
+  const et = {};
+  ELEMENTS_DEFAULT_KEYS.forEach(k=>{ et[k] = { unite:'PC', achat:0, vente:0 }; });
+  $$('#elementsBody tr').forEach(tr=>{
+    const nameInp = tr.querySelector('[data-el-name]');
+    const key = nameInp ? nameInp.value.trim() : tr.dataset.elKey;
+    if(!key) return;   // ligne personnalisée sans nom -> ignorée
+    et[key] = { unite:'PC',
+      achat: num(tr.querySelector('[data-el-field="achat"]').value),
+      vente: num(tr.querySelector('[data-el-field="vente"]').value) };
+  });
+  state.elementsTable = et;
+  renderElementsBareme();
   saveLS();
   $('#saveParams').textContent='✅ Enregistré'; setTimeout(()=>$('#saveParams').textContent='💾 Enregistrer',1500);
 });
@@ -2198,6 +2369,7 @@ function hydrateParamsUI(){
   $('#nomDossier').value = state.nomDossier || '';
   if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
   renderChargesEditor();
+  renderElementsBareme();
 }
 // ── Anti-cache : le site vérifie s'il existe une version plus récente publiée et se recharge
 //    automatiquement en contournant le cache navigateur. Le dossier sauvegardé (localStorage)
@@ -2244,6 +2416,7 @@ function renderResumeBanner(){
 GOLDEN_RESULTS = runGoldenTests();   // couche 2 : le moteur de calcul se re-prouve à chaque chargement
 loadLS();
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
+if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENTS_DEFAULT)); // barème des éléments (prix à renseigner dans Paramètres)
 hydrateParamsUI();
 renderCasDesc();
 renderVtList();
