@@ -247,13 +247,8 @@ main{position:relative;z-index:1}
 
       <div class="row" style="margin-top:14px">
         <div class="col">
-          <label class="fld">Cas de figure du dossier</label>
-          <select id="cas">
-            <option value="1">Cas 1 — Appartement / logement simple (1 VT)</option>
-            <option value="2">Cas 2 — Maison / pavillon (1 VT ITE + 1 VT intérieure)</option>
-            <option value="3">Cas 3 — Immeuble (1 VT ITE façade + N VT appartements)</option>
-          </select>
-          <small id="casDesc"></small>
+          <label class="fld">Cas de figure du dossier <span style="font-weight:400;text-transform:none">(détecté automatiquement)</span></label>
+          <div id="casAuto" class="pill" style="display:inline-block">Aucune VT chargée — le cas se détecte selon les rôles Habitation / ITE des VT.</div>
         </div>
       </div>
 
@@ -493,7 +488,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-10.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-10.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1265,12 +1260,25 @@ const CAS_DESC = {
   2:"Deux VT : une VT ITE dédiée (extérieur) + une VT intérieure (Habitation).",
   3:"Une VT ITE façade + N VT d'appartements (une par habitation). Ajoute autant d'habitations que nécessaire."
 };
-function renderCasDesc(){ $('#casDesc').textContent = CAS_DESC[state.cas]; }
+// Cas déduit automatiquement des rôles des VT chargées (le sélecteur manuel a été supprimé) :
+// plusieurs habitations -> cas 3 (immeuble) ; 1 habitation + VT ITE -> cas 2 ; sinon cas 1.
+function casAuto(){
+  const h = habitations().length, i = iteVts().length;
+  return h > 1 ? 3 : (i > 0 ? 2 : 1);
+}
+function refreshCas(){
+  state.cas = casAuto();
+  const el = $('#casAuto');
+  if(!el) return;
+  el.textContent = state.vts.length === 0
+    ? 'Aucune VT chargée — le cas se détecte selon les rôles Habitation / ITE des VT.'
+    : 'Cas ' + state.cas + ' — ' + (CAS_DESC[state.cas] || '');
+}
 
-function defaultRoleForNewVt(){
-  // Cas 2/3 : la 1ère VT proposée en ITE, les suivantes en habitation ; cas 1 : habitation
-  if(state.cas === 1) return 'habitation';
-  return iteVts().length === 0 ? 'ite' : 'habitation';
+function defaultRoleForNewVt(fileName){
+  // Rôle deviné depuis le nom du fichier : « ITE » isolé -> VT ITE, sinon habitation.
+  // Toujours modifiable sur la ligne de la VT (le tag reste la source de vérité).
+  return /(^|[^a-zà-ÿ])ite([^a-zà-ÿ]|$)/i.test(String(fileName||'')) ? 'ite' : 'habitation';
 }
 
 // Numérotation stable des VT : basée sur la POSITION dans la liste (VT ITE en tête → habitations 2, 3, 4…),
@@ -1285,6 +1293,7 @@ function renumberVts(){
 
 function renderVtList(){
   renumberVts();
+  refreshCas();           // le cas (1/2/3) suit automatiquement les rôles des VT
   renderResumeBanner();   // masque l'offre « Reprendre » dès qu'un dossier est en cours
   saveLS();   // persiste le dossier (VT, rôles, labels) à chaque interaction
   const wrap = $('#vtList');
@@ -1328,7 +1337,7 @@ async function handleFiles(fileList){
   for(const file of fileList){
     if(!/\.pdf$/i.test(file.name)) continue;
     const id = ++_vtSeq;
-    const role = defaultRoleForNewVt();
+    const role = defaultRoleForNewVt(file.name);
     const vt = { id, fileName:file.name, role, text:'', hints:null,
                  extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0, hasIte:'oui', nbAudits:1,
                  selections:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
@@ -1351,7 +1360,6 @@ async function handleFiles(fileList){
   dz.addEventListener('dragleave', ()=>dz.classList.remove('drag'));
   dz.addEventListener('drop', e=>{ e.preventDefault(); dz.classList.remove('drag'); handleFiles(e.dataTransfer.files); });
   fi.addEventListener('change', e=>{ handleFiles(e.target.files); fi.value=''; });
-  $('#cas').addEventListener('change', e=>{ state.cas = parseInt(e.target.value); renderCasDesc(); saveLS(); });
   $('#nomDossier').addEventListener('input', e=>{ state.nomDossier = e.target.value; saveLS(); });
 })();
 
@@ -2239,8 +2247,8 @@ async function openArchived(id){
     XLSX.writeFile(buildReportWorkbook(), fname);
   });
   $('#frozenExit').addEventListener('click', ()=>{ FROZEN=null; location.reload(); });
-  $('#cas').value = state.cas; $('#nomDossier').value = state.nomDossier;
-  renderCasDesc();
+  $('#nomDossier').value = state.nomDossier;
+  refreshCas();
   showView('step1');
   window.scrollTo(0,0);
 }
@@ -2431,7 +2439,7 @@ function hydrateParamsUI(){
   $('#vtIte').value = state.settings.vtIte;
   $('#regiePct').value = state.settings.regiePct;
   $('#seuilGo').value = state.settings.seuilGo;
-  $('#cas').value = state.cas;
+  refreshCas();
   $('#nomDossier').value = state.nomDossier || '';
   if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
   renderChargesEditor();
@@ -2473,8 +2481,8 @@ function renderResumeBanner(){
     state.overrides = Object.assign({global:{},vt:{}}, d.overrides);
     Object.assign(state.general, d.general||{});
     _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
-    $('#cas').value = state.cas; $('#nomDossier').value = state.nomDossier;
-    renderCasDesc(); renderResumeBanner(); renderVtList(); saveLS();
+    $('#nomDossier').value = state.nomDossier;
+    renderResumeBanner(); renderVtList(); saveLS();
   });
   $('#discardDossier').addEventListener('click', ()=>{ SAVED_DOSSIER = null; renderResumeBanner(); saveLS(); });
 }
@@ -2484,7 +2492,6 @@ loadLS();
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENTS_DEFAULT)); // barème des éléments (prix à renseigner dans Paramètres)
 hydrateParamsUI();
-renderCasDesc();
 renderVtList();
 renderResumeBanner();
 renderPollueurs();
