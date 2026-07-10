@@ -488,7 +488,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-10.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-10.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1842,18 +1842,7 @@ function buildReportWorkbook(){
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
     ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', totalAudits(), 'VT ITE (€/VT)', num(state.settings.vtIte)],
     [],
-    ['Habitation / VT','Rôle',
-     'Charges travaux HT (= Σ surfaces cochées × Px achat + Σ éléments qté × Px achat)',
-     'Audit VT (= nb audits × montant Audit)',
-     'Frais VT ITE (= montant fixe par VT ITE, réparti au prorata Shab)',
-     'Régie '+pct+' % (= Charges travaux × '+pct+' %)',
-     'Coût de revient total (= Charges travaux + Audit VT + Frais VT ITE + Régie)',
-     'Prix de vente HT (= Σ surfaces × Px vente + Σ éléments qté × Px vente)',
-     'Prime CEE (= lookup barème : pollueur · revenus · CDP · sauts · tranche Shab)',
-     'Marge Brute (= Prime CEE − Charges travaux)',
-     'Reste à charge (= Prix de vente − Prime CEE)',
-     'Marge Commerciale (= Prix de vente − Coût de revient)',
-     'Décision (= GO si Marge Commerciale ≥ Seuil)']
+    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+' %','Coût de revient total','Prix de vente HT','Prime CEE','Marge Brute','Reste à charge','Marge Commerciale','Décision']
   ];
   blocks.forEach(({vt,res})=> syn.push([
     vt.label, vt.role==='ite'?(res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((vt.hasIte||'oui')==='non'?' (sans ITE)':''),
@@ -1866,7 +1855,44 @@ function buildReportWorkbook(){
     round2(tot.venteTravaux), round2(tot.prime), round2(tot.margeBrute), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
   ]);
 
+  // ── Légendes au survol : la formule de chaque champ calculé est posée en COMMENTAIRE de cellule
+  //    (note Excel classique, visible en passant la souris) — l'intitulé reste la seule désignation. ──
+  function applyTips(ws, tips){
+    if(!ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for(let r=range.s.r; r<=range.e.r; r++) for(let c=range.s.c; c<=range.e.c; c++){
+      const cell = ws[XLSX.utils.encode_cell({r,c})];
+      if(!cell || typeof cell.v !== 'string') continue;
+      const txt = cell.v.trim();
+      const hit = tips.find(t=> t[0] instanceof RegExp ? t[0].test(txt) : txt === t[0]);
+      if(hit){ cell.c = [{ a:'Revue Projet OT', t:hit[1] }]; cell.c.hidden = true; }
+    }
+  }
+  // Séparateur de milliers sur les montants (rendu selon la locale Excel : 1 234,56 en français)
+  function applyMoneyFmt(ws, cols, fromRow){
+    if(!ws['!ref']) return;
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for(let r=fromRow; r<=range.e.r; r++) for(const c of cols){
+      const cell = ws[XLSX.utils.encode_cell({r,c})];
+      if(cell && cell.t === 'n') cell.z = '#,##0.00';
+    }
+  }
+  const TIPS_SYN = [
+    ['Charges travaux HT', 'Σ (surfaces cochées × Px achat) + Σ éléments (qté × Px achat)'],
+    ['Audit VT', 'Nb audits × montant fixe Audit VT'],
+    ['Frais VT ITE', 'Montant fixe par VT ITE, réparti au prorata des surfaces Shab'],
+    [new RegExp('^Régie '), 'Charges travaux × '+pct+' %'],
+    ['Coût de revient total', 'Charges travaux + Audit VT + Frais VT ITE + Régie'],
+    ['Prix de vente HT', 'Σ (surfaces × Px vente) + Σ éléments (qté × Px vente)'],
+    ['Prime CEE', 'Lookup barème : pollueur · revenus · CDP · sauts de classe · tranche Shab'],
+    ['Marge Brute', 'Prime CEE − Charges travaux'],
+    ['Reste à charge', 'Prix de vente HT − Prime CEE'],
+    ['Marge Commerciale', 'Prix de vente HT − Coût de revient'],
+    ['Décision', 'GO si Marge Commerciale ≥ Seuil']
+  ];
   const wsSyn = XLSX.utils.aoa_to_sheet(syn);
+  applyTips(wsSyn, TIPS_SYN);
+  applyMoneyFmt(wsSyn, [2,3,4,5,6,7,8,9,10,11], 6);   // colonnes € des lignes habitations + TOTAL
   wsSyn['!cols'] = [{wch:22},{wch:12},{wch:17},{wch:10},{wch:12},{wch:12},{wch:19},{wch:16},{wch:12},{wch:12},{wch:14},{wch:16},{wch:10}];
   XLSX.utils.book_append_sheet(wb, wsSyn, 'Synthèse');
 
@@ -1886,23 +1912,23 @@ function buildReportWorkbook(){
   const normLong = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
   const LONG_HEAD = ['Appartement / VT','ITI','Fenetres','Combles','Rampants','Planchers','Radiateurs','Ballon Thermo','Ballon Hybrid','ITE','Toit terrasse','VMC','AUDIT','Commercial','Autres achats','Total px Achat','Marge direct'];
   const LONG_COSTS = LONG_HEAD.slice(1, LONG_HEAD.indexOf('Total px Achat'));   // ITI … Autres achats
-  // Légendes affichées : chaque champ calculé porte sa formule dans l'intitulé
-  const LONG_LABELS = {
-    'ITI':'ITI (= m² × Px achat)', 'Fenetres':'Fenetres (= m² × Px achat)', 'Combles':'Combles (= m² × Px achat)',
-    'Rampants':'Rampants (= qté × Px achat)', 'Planchers':'Planchers (= m² × Px achat)',
-    'Radiateurs':'Radiateurs (= qté × Px achat)', 'Ballon Thermo':'Ballon Thermo (= qté × Px achat)',
-    'Ballon Hybrid':'Ballon Hybrid (= qté × Px achat)', 'ITE':'ITE (= m² × Px achat, part répartie incluse)',
-    'Toit terrasse':'Toit terrasse (= qté × Px achat)', 'VMC':'VMC (= qté × Px achat)',
-    'AUDIT':'AUDIT (= nb audits × montant Audit)', 'Commercial':'Commercial (= Charges travaux × régie %)',
-    'Autres achats':'Autres achats (PAC, ajouts individuels, frais VT ITE)',
-    'Total px Achat':'Total px Achat (= Σ colonnes ITI → Autres achats)',
-    'Marge direct':'Marge direct (= Prime CEE − Total px Achat)'
-  };
+  // Légendes posées en commentaire de cellule (survol souris) — l'intitulé reste la désignation seule
+  const TIPS_LONG = [
+    ['ITI','m² retenus × Px achat'], ['Fenetres','m² retenus × Px achat'], ['Combles','m² retenus × Px achat'],
+    ['Rampants','Quantité × Px achat (barème éléments)'], ['Planchers','m² retenus × Px achat'],
+    ['Radiateurs','Quantité × Px achat (barème éléments)'], ['Ballon Thermo','Quantité × Px achat (barème éléments)'],
+    ['Ballon Hybrid','Quantité × Px achat (barème éléments)'], ['ITE','m² × Px achat, part ITE répartie incluse'],
+    ['Toit terrasse','Quantité × Px achat (barème éléments)'], ['VMC','Quantité × Px achat (barème éléments)'],
+    ['AUDIT','Nb audits × montant fixe Audit VT'], ['Commercial','Charges travaux × régie %'],
+    ['Autres achats','PAC Air/Air, ajouts individuels, éléments personnalisés, frais VT ITE'],
+    ['Total px Achat','Σ des colonnes ITI → Autres achats (= coût de revient)'],
+    ['Marge direct','Prime CEE − Total px Achat']
+  ];
   const long = [
     ['RÉCAPITULATIF — montants d\'achat HT par appartement (format Master Suivi)'],
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     [],
-    LONG_HEAD.map(k=> LONG_LABELS[k] || k)
+    LONG_HEAD.slice()
   ];
   const longTot = {}; LONG_HEAD.slice(1).forEach(k=> longTot[k]=0);
   blocks.forEach(({vt,res})=>{
@@ -1929,7 +1955,9 @@ function buildReportWorkbook(){
   });
   long.push(['TOTAL '+(state.cas===3?'immeuble':'projet')].concat(LONG_HEAD.slice(1).map(k=> round2(longTot[k]))));
   const wsLong = XLSX.utils.aoa_to_sheet(long);
-  wsLong['!cols'] = [{wch:24}].concat(LONG_HEAD.slice(1).map(()=>({wch:16})));
+  applyTips(wsLong, TIPS_LONG);
+  applyMoneyFmt(wsLong, LONG_HEAD.slice(1).map((_,i)=>i+1), 4);   // toutes les colonnes de montants
+  wsLong['!cols'] = [{wch:24}].concat(LONG_HEAD.slice(1).map(()=>({wch:14})));
   // (ajouté au classeur APRÈS la feuille Détails — ordre : Synthèse, Détails, Récapitulatif)
 
   // --- Feuille « Détails » : TOUTE la granularité (chaque instance/pièce) ---
@@ -1938,7 +1966,7 @@ function buildReportWorkbook(){
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     []
   ];
-  const COLS = ['Catégorie','Description','Pièce','Surface (m²)','Inclus','Px achat HT','Px vente HT','Coût de revient (= Surface × Px achat)','Vente HT (= Surface × Px vente)'];
+  const COLS = ['Catégorie','Description','Pièce','Surface (m²)','Inclus','Px achat HT','Px vente HT','Coût de revient','Vente HT'];
   blocks.forEach(({vt,res})=>{
     det.push(['■ ' + vt.label + ' — ' + (vt.role==='ite'?'VT ITE dédiée':'Habitation')]);
     det.push(COLS.slice());
@@ -1972,27 +2000,48 @@ function buildReportWorkbook(){
     det.push(['  SOUS-TOTAL TRAVAUX','','','','','','', round2(res.chargesTravaux), round2(res.venteTravaux)]);
     if(vt.role==='habitation' && res.audit>0) det.push(['  + Audit VT ('+vtAudits(vt)+' × '+round2(num(state.settings.auditVT))+' €)','','','','','','', round2(res.audit), '']);
     if(res.vtIte>0) det.push(['  + Frais VT ITE '+(vt.role==='ite'?'(fixe)':'(part)'),'','','','','','', round2(res.vtIte), '']);
-    det.push(['  + Régie commerciale '+pct+' % (= Charges travaux × '+pct+' %)','','','','','','', round2(res.regie), '']);
-    det.push(['  = COÛT DE REVIENT TOTAL (= Sous-total travaux + Audit + Frais VT ITE + Régie)','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
-    det.push(['  Prime CEE (Coup de Pouce, lookup barème)','','','','','','','', round2(res.prime)]);
-    det.push(['  MARGE BRUTE (= Prime CEE − achats travaux)','','','','','','','', round2(res.margeBrute)]);
-    det.push(['  Reste à charge (= Prix de vente − Prime CEE)','','','','','','','', round2(res.reste)]);
-    det.push(['  MARGE COMMERCIALE (= Prix de vente − Coût de revient)','','','','','','','', round2(res.marge)]);
+    det.push(['  + Régie commerciale '+pct+' %','','','','','','', round2(res.regie), '']);
+    det.push(['  = COÛT DE REVIENT TOTAL','','','','','','', round2(res.coutRevient), round2(res.venteTravaux)]);
+    det.push(['  Prime CEE (Coup de Pouce)','','','','','','','', round2(res.prime)]);
+    det.push(['  MARGE BRUTE','','','','','','','', round2(res.margeBrute)]);
+    det.push(['  Reste à charge','','','','','','','', round2(res.reste)]);
+    det.push(['  MARGE COMMERCIALE','','','','','','','', round2(res.marge)]);
     det.push(['  Décision', res.go?'GO':'NO-GO']);
     if(res.valoErr) det.push(['  ⚠️ Valorisation hors barème', res.valoErr]);
     det.push([]);
   });
   // Bloc TOTAL : intitulés en colonne A, montants en colonne B (lecture directe, différent du tableau ci-dessus)
   det.push(['★ TOTAL '+(state.cas===3?'IMMEUBLE':'PROJET')]);
-  det.push(['Coût de revient total (= Charges travaux + Audit VT + Frais VT ITE + Régie)', round2(tot.coutRevient)]);
-  det.push(['Prix de vente HT (= Σ surfaces × Px vente + Σ éléments qté × Px vente)', round2(tot.venteTravaux)]);
-  det.push(['Prime CEE totale (= Σ primes des habitations)', round2(tot.prime)]);
-  det.push(['Marge Brute totale (= Prime CEE − achats travaux)', round2(tot.margeBrute)]);
-  det.push(['Reste à charge total (= Prix de vente − Prime CEE)', round2(tot.reste)]);
-  det.push(['MARGE COMMERCIALE GLOBALE (= Prix de vente − Coût de revient)', round2(tot.marge)]);
-  det.push(['Décision globale (= GO si Marge ≥ seuil '+round2(num(state.settings.seuilGo))+' €)', tot.go?'GO':'NO-GO']);
+  det.push(['Coût de revient total', round2(tot.coutRevient)]);
+  det.push(['Prix de vente HT', round2(tot.venteTravaux)]);
+  det.push(['Prime CEE totale', round2(tot.prime)]);
+  det.push(['Marge Brute totale', round2(tot.margeBrute)]);
+  det.push(['Reste à charge total', round2(tot.reste)]);
+  det.push(['MARGE COMMERCIALE GLOBALE', round2(tot.marge)]);
+  det.push(['Décision globale (seuil '+round2(num(state.settings.seuilGo))+' €)', tot.go?'GO':'NO-GO']);
+  const TIPS_DET = [
+    ['Coût de revient', 'Surface × Px achat'],
+    ['Vente HT', 'Surface × Px vente'],
+    [new RegExp('^\\+ Audit VT'), 'Nb audits × montant fixe Audit VT'],
+    [new RegExp('^\\+ Frais VT ITE'), 'Montant fixe par VT ITE (ou part au prorata Shab)'],
+    [new RegExp('^\\+ Régie commerciale'), 'Charges travaux × '+pct+' %'],
+    ['= COÛT DE REVIENT TOTAL', 'Sous-total travaux + Audit VT + Frais VT ITE + Régie'],
+    ['Prime CEE (Coup de Pouce)', 'Lookup barème : pollueur · revenus · CDP · sauts de classe · tranche Shab'],
+    ['MARGE BRUTE', 'Prime CEE − Charges d\'achat travaux'],
+    ['Reste à charge', 'Prix de vente HT − Prime CEE'],
+    ['MARGE COMMERCIALE', 'Prix de vente HT − Coût de revient'],
+    ['Coût de revient total', 'Charges travaux + Audit VT + Frais VT ITE + Régie'],
+    ['Prix de vente HT', 'Σ (surfaces × Px vente) + Σ éléments (qté × Px vente)'],
+    ['Prime CEE totale', 'Σ des primes CEE des habitations'],
+    ['Marge Brute totale', 'Prime CEE totale − Charges d\'achat travaux'],
+    ['Reste à charge total', 'Prix de vente HT − Prime CEE totale'],
+    ['MARGE COMMERCIALE GLOBALE', 'Prix de vente HT − Coût de revient total'],
+    [new RegExp('^Décision globale'), 'GO si Marge Commerciale globale ≥ Seuil']
+  ];
   const wsDet = XLSX.utils.aoa_to_sheet(det);
-  wsDet['!cols'] = [{wch:62},{wch:34},{wch:16},{wch:12},{wch:9},{wch:12},{wch:12},{wch:22},{wch:20}];
+  applyTips(wsDet, TIPS_DET);
+  applyMoneyFmt(wsDet, [1,5,6,7,8], 3);   // Px achat/vente, coût, vente + montants du bloc TOTAL (col B)
+  wsDet['!cols'] = [{wch:30},{wch:34},{wch:16},{wch:12},{wch:9},{wch:12},{wch:12},{wch:16},{wch:14}];
   XLSX.utils.book_append_sheet(wb, wsDet, 'Détails');
   XLSX.utils.book_append_sheet(wb, wsLong, 'Récapitulatif');
 
