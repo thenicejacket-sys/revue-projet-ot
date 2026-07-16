@@ -141,6 +141,11 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .kpi.editable:hover{border-color:var(--primary)}
 .kpi.locked{cursor:default;background:#f3f5f9}   /* Prime CEE : non éditable (issue du barème) */
 .kpi.locked .lab{color:var(--text-muted)}
+/* Prix achat/vente éditables sur la fiche calcul (étape Charges & marges). */
+.price-cell{cursor:pointer;position:relative}
+.price-cell:hover{outline:1.5px solid var(--primary);outline-offset:-1px;border-radius:4px}
+.price-cell.price-edited{background:#fdecf1}   /* rosé = prix modifié manuellement sur la fiche calcul */
+.price-cell input{width:92px;text-align:right;font-family:inherit;font-size:13px;padding:2px 5px;border:1.5px solid var(--primary);border-radius:5px;box-sizing:border-box}
 .kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
 .hist-searchbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
@@ -574,7 +579,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.11';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.12';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -597,6 +602,7 @@ const state = {
   valoDirty: false,         // chargé mais pas encore enregistré (session-only, jamais persisté)
   pollueurs: [],
   chargesTable: null,       // { nomCol: {unite, achat, vente, col} }
+  chargesEdited: {},        // { 'ITE|achat': true, ... } — prix édités depuis la fiche calcul (affichage rosé)
   elementsTable: null,      // barème des éléments à la pièce { nom: {unite:'PC', achat, vente} }
   history: []               // [ {date, heure, nom, couts, marge, prime, reste, go} ]
 };
@@ -704,6 +710,7 @@ function saveLS(){
     localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({
       settings: state.settings,
       chargesTable: state.chargesTable,
+      chargesEdited: state.chargesEdited,
       elementsTable: state.elementsTable,
       history: state.history
     }, dossier)));
@@ -721,6 +728,7 @@ function loadLS(){
     // bridait le menu « Type de revenus » à 2 options. On purge au passage ce résidu.
     if(d.valoTable || d.pollueurs){ delete d.valoTable; delete d.pollueurs; localStorage.setItem(LS_KEY, JSON.stringify(d)); }
     if(d.chargesTable) state.chargesTable = d.chargesTable;
+    if(d.chargesEdited) state.chargesEdited = d.chargesEdited;
     if(d.elementsTable) state.elementsTable = d.elementsTable;
     if(d.general) Object.assign(state.general, d.general);
     if(Array.isArray(d.history)) state.history = d.history;
@@ -749,6 +757,8 @@ function showView(id){
   if(id==='step2') renderStep2();
   if(id==='step3') renderStep3();
   if(id==='step4') renderStep4();
+  // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
+  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); }
   if(id==='step6') renderStep6();
   if(id==='history') renderHistory();
   applyBackground(id);
@@ -1097,6 +1107,32 @@ function findChargeCol(name){
   const target = norm(name);
   for(const k in state.chargesTable){ if(norm(k) === target) return state.chargesTable[k]; }
   return null;
+}
+
+/* ── Édition des prix achat/vente depuis la fiche calcul ───────────────────────
+   Une catégorie (ITE/ITI/Combles/Plancher/Fenêtres) mappe vers une clé du barème.
+   Éditer un prix ici met à jour le barème (donc les Paramètres) et recalcule TOUTES
+   les habitations pour cette catégorie. Le champ passe en rosé (édité manuellement). */
+function chargeBaremeKey(cat){                       // clé réelle dans state.chargesTable
+  const target = CHARGE_MAP[cat] || cat;
+  if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));
+  const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
+  const t = norm(target);
+  for(const k in state.chargesTable){ if(norm(k) === t) return k; }
+  state.chargesTable[target] = { unite:'M2', achat:0, vente:0 };
+  return target;
+}
+function chargeEditKey(cat, field){ return (CHARGE_MAP[cat] || cat) + '|' + field; }
+function isChargeEdited(cat, field){ return !!(state.chargesEdited && state.chargesEdited[chargeEditKey(cat, field)]); }
+// Ligne de la fiche calcul éditable ? (catégorie du barème, hors éléments à la pièce)
+function isEditablePriceLine(l){ return !!(l && !l.pc && CHARGE_MAP[l.cat]); }
+function applyChargePrice(cat, field, val){
+  const key = chargeBaremeKey(cat);
+  if(!state.chargesTable[key]) state.chargesTable[key] = { unite:'M2', achat:0, vente:0 };
+  state.chargesTable[key][field] = num(val);
+  if(!state.chargesEdited) state.chargesEdited = {};
+  state.chargesEdited[chargeEditKey(cat, field)] = true;
+  saveLS();
 }
 
 // ── Barème des éléments à la pièce (onglet Valorisation + Paramètres) ──
@@ -2055,6 +2091,30 @@ function openKpiEditor(kpi){
     inp.addEventListener('blur', ()=> fin(true));
   }
 }
+// Éditeur d'un prix achat/vente sur la fiche calcul : saisie -> pop-up de confirmation
+// -> mise à jour du barème + recalcul de toutes les habitations + cellule rosée.
+function openPriceEditor(td){
+  if(td.querySelector('input')) return;
+  const [cat, field] = td.dataset.price.split('|');
+  const cur = num(td.dataset.val);
+  const label = CAT_LABEL[cat] || cat;
+  td.innerHTML = `<input type="number" step="1" min="0" value="${cur}">`;
+  const inp = td.querySelector('input'); inp.focus(); inp.select();
+  let done = false;
+  const finish = save => {
+    if(done) return; done = true;
+    const val = num(inp.value);
+    if(save && val !== cur){
+      const q = 'Mettre à jour le prix '+(field==='achat'?"d'achat":'de vente')+' HT de « '+label+' » de '+eur(cur)+' à '+eur(val)+' ?\n\n'
+              + 'Le barème (Paramètres) sera mis à jour et toutes les habitations recalculées pour cette catégorie.';
+      if(confirm(q)) applyChargePrice(cat, field, val);
+    }
+    renderStep4();
+  };
+  inp.addEventListener('keydown', e=>{ if(e.key==='Enter') finish(true); if(e.key==='Escape') finish(false); });
+  inp.addEventListener('blur', ()=> finish(true));
+}
+
 function renderStep4(){
   saveLS();   // persiste le dossier (dont corrections de widgets) à chaque interaction
   const area = $('#calcArea');
@@ -2102,10 +2162,13 @@ function renderStep4(){
     const badge = vt.role==='ite'
       ? '<span class="badge ite">VT ITE — bloc global'+(res.distributed?', coûts répartis sur les habitations':', pas d\'Audit VT')+'</span>'
       : '<span class="badge hab">Habitation'+((vt.hasIte||'oui')==='non'?' — sans ITE':'')+'</span>';
+    const priceTd = (l, field, val)=> isEditablePriceLine(l) && !FROZEN
+      ? `<td class="num price-cell ${isChargeEdited(l.cat,field)?'price-edited':''}" data-price="${esc(l.cat)}|${field}" data-val="${round2(val)}" title="Cliquer pour éditer ce prix — met à jour le barème (Paramètres) et recalcule toutes les habitations de cette catégorie">${eur(val)}</td>`
+      : `<td class="num ${isChargeEdited(l.cat,field)?'price-edited':''}">${eur(val)}</td>`;
     const lignesHtml = res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
           <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
           <td class="num">${l.pc?l.surf:m2(l.surf)}</td>
-          <td class="num">${eur(l.achat)}</td><td class="num">${eur(l.vente)}</td>
+          ${priceTd(l,'achat',l.achat)}${priceTd(l,'vente',l.vente)}
           <td class="num">${eur(l.cR)}</td><td class="num">${eur(l.vR)}</td></tr>`).join('') || '<tr><td colspan="6"><small>Aucune ligne.</small></td></tr>';
     const bodyRows = res.distributed
       ? `<tr><td>Sous-total travaux ITE</td><td></td><td></td><td></td><td class="num">${eur(res.chargesTravauxRaw)}</td><td class="num">${eur(res.venteTravauxRaw)}</td></tr>
@@ -2181,6 +2244,11 @@ function renderStep4(){
       applyOv(p[0], decodeURIComponent(p[1]), p[2], null);
       renderStep4();
     });
+  });
+
+  // Prix achat/vente éditables sur la fiche calcul (clic = éditer)
+  area.querySelectorAll('.price-cell').forEach(td=>{
+    td.addEventListener('click', ()=>{ if(!td.querySelector('input')) openPriceEditor(td); });
   });
 
   // Éditeur des éléments additionnels (même éditeur que l'onglet Valorisation)
