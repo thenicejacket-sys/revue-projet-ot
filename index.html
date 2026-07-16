@@ -574,7 +574,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.10';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.11';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -714,11 +714,12 @@ function loadLS(){
     const raw = localStorage.getItem(LS_KEY); if(!raw) return;
     const d = JSON.parse(raw);
     if(d.settings) Object.assign(state.settings, d.settings);
-    // valoTable / pollueurs sont restaurés depuis leur stockage dédié (loadValoTemplate),
-    // pas depuis ce blob. On garde une compat ascendante pour les anciennes sauvegardes
-    // qui les contenaient encore.
-    if(d.valoTable && !state.valoTable) state.valoTable = d.valoTable;
-    if(d.pollueurs && !state.pollueurs.length) state.pollueurs = d.pollueurs;
+    // Le template de valorisation vient UNIQUEMENT de son stockage dédié (loadValoTemplate).
+    // On NE restaure PLUS valoTable/pollueurs depuis ce blob : les anciennes sauvegardes
+    // (< 2026-07-16) le contenaient dans un format normalisé à 2 valeurs CEE (Classique /
+    // CEE Précaire) — le ressusciter masquait le fait qu'il faut recharger le fichier, et
+    // bridait le menu « Type de revenus » à 2 options. On purge au passage ce résidu.
+    if(d.valoTable || d.pollueurs){ delete d.valoTable; delete d.pollueurs; localStorage.setItem(LS_KEY, JSON.stringify(d)); }
     if(d.chargesTable) state.chargesTable = d.chargesTable;
     if(d.elementsTable) state.elementsTable = d.elementsTable;
     if(d.general) Object.assign(state.general, d.general);
@@ -2718,7 +2719,10 @@ function renderValoInfo(){
   }
   const name  = state.valoFileName ? '<strong>'+esc(state.valoFileName)+'</strong> · ' : '';
   const dirty = state.valoDirty;
-  info.innerHTML = `<div class="alert ${dirty?'warn':'ok'}">${name}${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')||'—'} · `
+  // Nombre d'options CEE distinctes = ce que proposera le menu « Type de revenus ».
+  // Signal direct : si tu attends 6 options et que tu en vois 2, le fichier chargé n'est pas le bon.
+  const cee = valoCeeOptions();
+  info.innerHTML = `<div class="alert ${dirty?'warn':'ok'}">${name}${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')||'—'} · <strong>${cee.length} option(s) CEE</strong> : ${cee.map(esc).join(', ')||'—'} · `
     + (dirty ? '<strong>⚠️ non enregistré</strong> — clique « Enregistrer le template »'
              : '✅ enregistré, repris à la prochaine ouverture')
     + `</div>`;
