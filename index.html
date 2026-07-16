@@ -574,7 +574,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.9';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.10';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1136,6 +1136,41 @@ function unpricedElementIssues(){
     if(!lineComplete(pl)) issues.push(vt.label + ' · ' + lineLabel(pl));
   }));
   return issues;
+}
+
+/* ── Warning « fenêtre unitaire < 750 € » ──────────────────────────────────────
+   Pour chaque fenêtre COMPTÉE dans le calcul (active + cochée), on calcule son prix
+   unitaire = sa surface × prix/m² du barème. Si l'achat OU la vente est sous 750 €,
+   on la signale (non bloquant) : à l'écran (étape Charges & marges) et dans le résumé
+   du 1er onglet Excel. Un prix/m² à 0 (barème non renseigné) n'est pas évalué. */
+const WINDOW_MIN_PRICE = 750;
+function windowPriceWarnings(){
+  const out = [];
+  const col = findChargeCol(CHARGE_MAP.Fenetres);
+  const pxAchat = col ? num(col.achat) : 0, pxVente = col ? num(col.vente) : 0;
+  habitations().forEach(vt=>{
+    effectiveInstances(vt, 'Fenetres').forEach((it, i)=>{
+      if(isDisabled(vt,'Fenetres',i) || !isChecked(vt,'Fenetres',i)) return;   // seulement les fenêtres comptées
+      const surf = num(it.surface_nette);
+      if(surf <= 0) return;
+      const achat = surf * pxAchat, vente = surf * pxVente;
+      const lowAchat = pxAchat > 0 && achat < WINDOW_MIN_PRICE;
+      const lowVente = pxVente > 0 && vente < WINDOW_MIN_PRICE;
+      if(lowAchat || lowVente){
+        out.push({ label: vt.label, i, desc: String(it.description||'').trim(), dims: String(it.dimensions||'').trim(),
+                   surf, achat, vente, lowAchat, lowVente });
+      }
+    });
+  });
+  return out;
+}
+// Libellé court d'une fenêtre signalée (pour l'écran et l'Excel)
+function windowWarnText(w){
+  const nom = w.dims || w.desc || ('fenêtre #'+(w.i+1));
+  const bases = [];
+  if(w.lowVente) bases.push('vente '+eur(w.vente));
+  if(w.lowAchat) bases.push('achat '+eur(w.achat));
+  return w.label+' · '+nom+' ('+m2(w.surf)+') — '+bases.join(' · ')+' < '+eur(WINDOW_MIN_PRICE);
 }
 
 /* ============================================================================
@@ -2056,6 +2091,12 @@ function renderStep4(){
       <div style="margin-top:6px">${integ.checks.map(c=>`<div><small>${c.status==='pass'?'✔':c.status==='manual'?'✎':'✘'} ${esc(c.label)}${c.detail?' — '+esc(c.detail):''}</small></div>`).join('')}</div>
     </details>
   </div>`;
+  // Warning non bloquant : fenêtre unitaire dont le prix (achat OU vente) est < 750 €.
+  const winWarns = windowPriceWarnings();
+  if(winWarns.length){
+    html += `<div class="alert warn">⚠️ <strong>${winWarns.length} fenêtre(s)</strong> à un prix unitaire inférieur à ${eur(WINDOW_MIN_PRICE)} (achat ou vente) — à vérifier :
+      <ul style="margin:6px 0 0;padding-left:20px">${winWarns.map(w=>`<li>${esc(windowWarnText(w))}</li>`).join('')}</ul></div>`;
+  }
   blocks.forEach(({vt,res})=>{
     const badge = vt.role==='ite'
       ? '<span class="badge ite">VT ITE — bloc global'+(res.distributed?', coûts répartis sur les habitations':', pas d\'Audit VT')+'</span>'
@@ -2170,10 +2211,17 @@ function buildReportWorkbook(){
     ['Revue Projet OT — Rapport de pré-chiffrage'],
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
-    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', totalAudits(), 'VT ITE (€/VT)', num(state.settings.vtIte)],
-    [],
-    ['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+' %','Coût de revient total','Prix de vente HT','Prime CEE','Marge Brute','Reste à charge','Marge Commerciale','Décision']
+    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', totalAudits(), 'VT ITE (€/VT)', num(state.settings.vtIte)]
   ];
+  // Résumé du 1er onglet : warning fenêtre unitaire < 750 € (achat ou vente).
+  const winWarns = windowPriceWarnings();
+  if(winWarns.length){
+    syn.push([]);
+    syn.push(['⚠️ '+winWarns.length+' fenêtre(s) à un prix unitaire < '+round2(WINDOW_MIN_PRICE)+' € (achat ou vente) — à vérifier']);
+    winWarns.forEach(w=> syn.push(['', windowWarnText(w)]));
+  }
+  syn.push([]);
+  syn.push(['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+' %','Coût de revient total','Prix de vente HT','Prime CEE','Marge Brute','Reste à charge','Marge Commerciale','Décision']);
   blocks.forEach(({vt,res})=> syn.push([
     vt.label, vt.role==='ite'?(res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((vt.hasIte||'oui')==='non'?' (sans ITE)':''),
     round2(res.chargesTravaux), round2(res.audit), round2(res.vtIte), round2(res.regie), round2(res.coutRevient),
