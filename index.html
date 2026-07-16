@@ -488,7 +488,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-10.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -632,35 +632,87 @@ async function extractPdfText(arrayBuffer){
 }
 
 /* ============================================================================
-   DÉTECTION D'INSTANCES / PAROIS  (instanceHints — repris/adapté d'AuditVT)
+   DÉTECTION D'INSTANCES / PAROIS  (instanceHints)
    ----------------------------------------------------------------------------
    On repère, dans le texte de la VT, les indices de présence de chaque paroi.
-   Anti-cross-talk : ITE (extérieur) vs ITI (intérieur), combles vs plancher…
-   Ces indices : (1) guident le prompt IA, (2) permettent l'assertion
-   « toutes parois détectées » qui alerte si une paroi attendue manque.
+   Ces indices : (1) guident le prompt IA, (2) alimentent l'alerte
+   « paroi vue dans le texte mais absente de l'extraction ».
+
+   BUG HISTORIQUE (corrigé le 2026-07-16) — la détection faisait `low.includes(k)`,
+   donc un match de SOUS-CHAÎNE : « ite » matchait dans « visite / construite /
+   architecture », « iti » dans « répétitives / proposition / positive ». Résultat :
+   n'importe quel PDF français déclenchait « paroi ITE/ITI repérée » puis, l'IA
+   n'ayant rien extrait, l'alerte jaune « paroi absente de l'extraction ».
+   Trois garde-fous remplacent le includes() :
+     1. MOT ENTIER — regex bornée, pluriels tolérés (fenêtre/fenêtres, mur/murs).
+     2. ACCENTS NORMALISÉS — « fenetre » == « fenêtre », une seule règle par clé.
+     3. FORT vs FAIBLE — un terme métier non ambigu (bardage, plancher bas,
+        double vitrage) vaut 2 points et suffit. Un terme polysémique (façade,
+        plancher, fenêtre, cave) vaut 1 point ET ne compte que s'il est entouré
+        de vocabulaire de VT (« fenêtres d'envoi » d'un mail ne compte pas,
+        « fenêtre » près de « surface / m² / menuiserie » compte).
+   Seuil de détection : 2 points.
    ============================================================================ */
 const INSTANCE_HINTS = {
-  ITE:      { keys:['isolation extérieure','isolation par l\'extérieur','i.t.e','ite','bardage','enduit extérieur','façade','polystyrène extérieur','mur extérieur'],
-              anti:['intérieure','par l\'intérieur','doublage'] },
-  ITI:      { keys:['isolation intérieure','isolation par l\'intérieur','i.t.i','iti','doublage','contre-cloison','contre cloison','placo','mur intérieur'],
-              anti:['extérieure','par l\'extérieur','bardage','façade'] },
-  Combles:  { keys:['comble','combles perdus','comble aménagé','soufflage','laine soufflée','isolation toiture','rampant','plafond sous toiture'],
-              anti:[] },
-  Plancher: { keys:['plancher bas','plancher','vide sanitaire','vide-sanitaire','sous-sol','cave','dalle','isolation sous dalle'],
-              anti:['plafond'] },
-  Fenetres: { keys:['fenêtre','fenetre','menuiserie','porte-fenêtre','porte fenetre','baie vitrée','double vitrage','vitrage','volet roulant'],
-              anti:[] }
+  ITE:      { strong:['isolation extérieure','isolation par l\'extérieur','i.t.e','ite','bardage','enduit extérieur','polystyrène extérieur','mur extérieur'],
+              weak:['façade'] },
+  ITI:      { strong:['isolation intérieure','isolation par l\'intérieur','i.t.i','iti','doublage','contre-cloison','contre cloison','placo','mur intérieur'],
+              weak:[] },
+  Combles:  { strong:['comble','combles perdus','comble aménagé','soufflage','laine soufflée','isolation toiture','plafond sous toiture'],
+              weak:['rampant'] },
+  Plancher: { strong:['plancher bas','vide sanitaire','vide-sanitaire','isolation sous dalle'],
+              weak:['plancher','sous-sol','cave','dalle'] },
+  Fenetres: { strong:['menuiserie','porte-fenêtre','porte fenetre','baie vitrée','double vitrage','vitrage','volet roulant'],
+              weak:['fenêtre','fenetre'] }
 };
 
+/* Vocabulaire « on est bien dans une VT » : sert à valider les termes polysémiques. */
+const VT_CONTEXT_WORDS = ['isolation','isoler','isolant','surface','m2','m²','paroi','menuiserie','vitrage',
+  'logement','habitation','travaux','épaisseur','résistance thermique','combles','plancher','mur',
+  'toiture','visite technique','vt','dépose','pose','hauteur','largeur','laine','polystyrène'];
+
+/* minuscules + accents retirés : « Fenêtres » -> « fenetres ». */
+function normalizeVtText(s){
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+}
+
+/* Regex « mot entier » pour une clé, pluriels tolérés sur chaque mot de 4+ lettres. */
+const HINT_RE_CACHE = new Map();
+function hintRegex(key){
+  if(HINT_RE_CACHE.has(key)) return HINT_RE_CACHE.get(key);
+  const body = normalizeVtText(key).split(/\s+/)
+    .map(w => w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + (w.length >= 4 ? 's?' : ''))
+    .join('\\s+');
+  const re = new RegExp('(?<![a-z0-9])' + body + '(?:s|es|x)?(?![a-z0-9])','g');
+  HINT_RE_CACHE.set(key, re);
+  return re;
+}
+function hintHits(lowNorm, key){
+  const re = hintRegex(key); re.lastIndex = 0;
+  const at = []; let m;
+  while((m = re.exec(lowNorm))){ at.push(m.index); if(re.lastIndex === m.index) re.lastIndex++; }
+  return at;
+}
+function hasVtContextNear(lowNorm, idx){
+  const win = lowNorm.slice(Math.max(0, idx - 120), idx + 120);
+  return VT_CONTEXT_WORDS.some(w => hintHits(win, w).length > 0);
+}
+
 function detectInstanceHints(text){
-  const low = (text||'').toLowerCase();
+  const low = normalizeVtText(text);
   const out = { detected:{}, matched:{} };
   for(const cat of CATS){
     const def = INSTANCE_HINTS[cat];
-    const found = def.keys.filter(k => low.includes(k));
-    // anti-cross-talk : on ne « tue » pas la détection, on la pondère.
-    out.matched[cat] = found;
-    out.detected[cat] = found.length > 0;
+    const matched = [];
+    let score = 0;
+    for(const k of def.strong){
+      if(hintHits(low, k).length){ matched.push(k); score += 2; }
+    }
+    for(const k of def.weak){
+      if(hintHits(low, k).some(i => hasVtContextNear(low, i))){ matched.push(k); score += 1; }
+    }
+    out.matched[cat] = matched;
+    out.detected[cat] = score >= 2;
   }
   return out;
 }
@@ -957,6 +1009,15 @@ function totalAudits(){ return habitations().reduce((s,h)=>s+vtAudits(h), 0); }
 // Tri stable -> utilisé pour tous les affichages, calculs et rapports.
 function orderedVts(){ return [...state.vts].sort((a,b)=> (a.role==='ite'?0:1) - (b.role==='ite'?0:1)); }
 function hasDedicatedIte(){ return iteVts().length > 0; }
+
+// Catégories ATTENDUES pour une VT. Source unique du dénominateur : l'affichage de
+// l'étape 3 ET le rapport d'extraction lisent cette fonction, ils ne peuvent pas diverger.
+//  - VT ITE dédiée -> UNIQUEMENT l'ITE (l'ITE est globale)                  -> 1 catégorie
+//  - Habitation    -> ITI/Combles/Plancher/Fenêtres ; l'ITE est OMISE dès
+//    qu'une VT ITE dédiée existe (sinon l'habitation porte sa propre ITE)   -> 4 ou 5
+function catsForVt(vt){
+  return vt.role==='ite' ? ['ITE'] : (hasDedicatedIte() ? ['ITI','Combles','Plancher','Fenetres'] : CATS);
+}
 
 // Instances effectives d'une catégorie pour une VT donnée (gère la règle ITE)
 function effectiveInstances(vt, cat){
@@ -1501,12 +1562,53 @@ function renderStep2(){
 /* ============================================================================
    RENDU — ÉTAPE 3 (extraction + sélection des instances)
    ============================================================================ */
+/* ----------------------------------------------------------------------------
+   RAPPORT D'EXTRACTION — en-tête de l'étape 3.
+   Une ligne par VT : combien de catégories ATTENDUES ont au moins une instance.
+   Le dénominateur vient de catsForVt() : 1 pour une VT ITE, 4 pour une habitation
+   quand une VT ITE dédiée existe, 5 sinon. Se recalcule à chaque rendu, donc une
+   ligne saisie à la main fait passer la catégorie de « manquante » à « extraite ».
+   ---------------------------------------------------------------------------- */
+function renderExtractionReport(){
+  let got = 0, expected = 0, waiting = 0, failed = 0;
+  const rows = orderedVts().map(vt=>{
+    const cats  = catsForVt(vt);
+    const badge = vt.role==='ite' ? '<span class="badge ite">VT ITE</span>' : '<span class="badge hab">Habitation</span>';
+    const name  = `<strong>${esc(vt.label)}</strong> ${badge}`;
+    const cell  = 'padding:3px 10px 3px 0;vertical-align:top';
+    if(vt.extracting){ waiting++; return `<tr><td style="${cell}">${name}</td><td style="${cell}">—</td><td style="${cell}"><span class="spinner"></span> extraction en cours…</td></tr>`; }
+    if(vt.error){      failed++;  return `<tr><td style="${cell}">${name}</td><td style="${cell}">0/${cats.length}</td><td style="${cell};color:var(--red-tx)">⛔ extraction en échec</td></tr>`; }
+    if(!vt.extractedOk){ waiting++; return `<tr><td style="${cell}">${name}</td><td style="${cell}">—</td><td style="${cell};color:var(--text-muted)">pas encore extrait</td></tr>`; }
+    const ok      = cats.filter(c => effectiveInstances(vt, c).length >  0);
+    const missing = cats.filter(c => effectiveInstances(vt, c).length === 0);
+    got += ok.length; expected += cats.length;
+    const status = missing.length
+      ? `<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missing.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`
+      : `<span style="color:var(--green-tx)">✅ complet</span>`;
+    return `<tr><td style="${cell}">${name}</td><td style="${cell}"><strong>${ok.length}/${cats.length}</strong></td><td style="${cell}">${status}</td></tr>`;
+  }).join('');
+
+  // Un échec ou une paroi manquante passe le bandeau en orange : le bleu « info » ne
+  // doit jamais servir à annoncer un problème.
+  const complete = expected > 0 && got === expected;
+  const tone = (failed || (expected > 0 && !complete)) ? 'warn' : (waiting ? 'info' : (complete ? 'ok' : 'info'));
+  const head = expected === 0 && !failed
+    ? 'aucune VT extraite pour l’instant'
+    : `<strong>${got}/${expected}</strong> catégorie(s) extraite(s)`
+      + (failed  ? ` · <strong>${failed} en échec</strong>` : '')
+      + (waiting ? ` · ${waiting} VT en attente` : '');
+  return `<div class="alert ${tone}" style="margin-bottom:14px">
+      <div style="margin-bottom:6px">📊 <strong>Rapport d’extraction</strong> — ${head}</div>
+      <table style="border-collapse:collapse;font-size:13px">${rows}</table>
+    </div>`;
+}
+
 function renderStep3(){
   saveLS();   // persiste extraction + sélections à chaque interaction
   const wrap = $('#extractList');
   if(state.vts.length===0){ wrap.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
 
-  wrap.innerHTML = orderedVts().map(vt=>{
+  wrap.innerHTML = renderExtractionReport() + orderedVts().map(vt=>{
     const badge = vt.role==='ite' ? '<span class="badge ite">VT ITE</span>' : '<span class="badge hab">Habitation</span>';
     let inner;
     if(vt.extracting){ inner = '<div class="alert info"><span class="spinner"></span> Extraction IA en cours…</div>'; }
@@ -1518,19 +1620,16 @@ function renderStep3(){
         ? `<div class="alert err">${esc(vt.error)} <button class="btn small" data-goparams="1">→ Renseigner la clé (Paramètres)</button>
              <div style="margin-top:4px"><small>Astuce : tu peux aussi saisir les surfaces manuellement ci-dessous.</small></div></div>`
         : (!vt.extractedOk ? `<div class="alert info">Pas encore extrait — clique « Extraire » ci-dessus, ou saisis les surfaces à la main.</div>` : '');
-      // Catégories à afficher :
-      //  - VT ITE dédiée  -> UNIQUEMENT l'ITE (l'ITE est globale).
-      //  - Habitation     -> les 4 catégories (ITI/Combles/Plancher/Fenêtres) ;
-      //    l'ITE est OMISE dès qu'une VT ITE dédiée existe (sinon l'habitation porte sa propre ITE).
-      const catsToShow = vt.role==='ite'
-        ? ['ITE']
-        : (hasDedicatedIte() ? ['ITI','Combles','Plancher','Fenetres'] : CATS);
+      // Catégories à afficher = catégories attendues (cf. catsForVt).
+      const catsToShow = catsForVt(vt);
       // Alerte « paroi manquante » limitée aux catégories réellement affichées pour cette VT
       const warns = vt.extractedOk ? catsToShow.filter(cat =>
         (vt.hints && vt.hints.detected && vt.hints.detected[cat]) &&
         ((vt.extraction.categories[cat]||[]).length === 0)
       ) : [];
-      const warnHtml = warns.length ? `<div class="alert warn">⚠️ Paroi(s) repérée(s) dans le texte mais absente(s) de l'extraction : <strong>${warns.map(c=>CAT_LABEL[c]).join(', ')}</strong>. Vérifier / saisir manuellement.</div>` : '';
+      // Le tooltip expose les termes qui ont déclenché l'alerte : un doute sur l'alerte
+      // se tranche en survolant, sans rouvrir la VT.
+      const warnHtml = warns.length ? `<div class="alert warn" title="${esc(warns.map(c=>CAT_LABEL[c]+' ← '+((vt.hints&&vt.hints.matched&&vt.hints.matched[c])||[]).join(', ')).join(' | '))}">⚠️ Paroi(s) repérée(s) dans le texte mais absente(s) de l'extraction : <strong>${warns.map(c=>CAT_LABEL[c]).join(', ')}</strong>. Vérifier / saisir manuellement. <small>(survoler pour voir les termes détectés)</small></div>` : '';
       const cats = catsToShow.map(cat=>{
         const inst = effectiveInstances(vt, cat);
         const collapsed = catCollapsed(vt, cat);
