@@ -184,6 +184,9 @@ body.frozen #nav [data-view="step6"],body.frozen #btnArchive,body.frozen #saveDo
 tr.row-off{background:#b9c0cc;filter:grayscale(1)}
 tr.row-off input{background:transparent;border-color:#8d97a6;color:#41495a}
 tr.row-off input::placeholder{color:#5d6675}
+/* Aperçu du template de valorisation : en-tête figé pendant le défilement. */
+table.valo-preview thead th{position:sticky;top:0;z-index:2;background:#eef2fb;box-shadow:inset 0 -1px 0 var(--border)}
+table.valo-preview tbody td{border-bottom:1px solid var(--border)}
 
 .dropzone{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--text-muted);cursor:pointer;transition:.15s;background:#fbfcff}
 .dropzone:hover,.dropzone.drag{border-color:var(--primary);background:#eef2fb;color:var(--text-dark)}
@@ -499,7 +502,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -541,6 +544,30 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;',
 
 // Normalisations pour le lookup déterministe
 function normCee(v){ const s=String(v||'').toLowerCase(); return /pr[ée]c/.test(s) ? 'CEE Précaire' : 'Classique'; }
+/* CEE — le menu « Type de revenus » et le lookup s'appuient désormais sur les valeurs
+   BRUTES de la colonne CEE du template (plus de choix figés). ceeKey normalise pour la
+   comparaison (accents, casse, espaces) ; ceeMatch compare deux valeurs avec une
+   compatibilité ascendante pour les anciens dossiers qui stockaient les codes
+   'classique'/'precaire' au lieu du libellé exact. */
+function ceeKey(s){ return String(s||'').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function ceeMatch(templateCee, chosen){
+  const t = ceeKey(templateCee), c = ceeKey(chosen);
+  if(t === c) return true;
+  // Compat : anciens codes 'classique'/'precaire' -> on rabat sur le bucket précaire / non-précaire.
+  if(c === 'classique' || c === 'precaire') return /prec/.test(t) === /prec/.test(c);
+  return false;
+}
+/* Valeurs CEE distinctes du template, dans l'ordre d'apparition — source unique des
+   options du menu « Type de revenus ». Vide si aucun template chargé. */
+function valoCeeOptions(){
+  if(!state.valoTable) return [];
+  const seen = new Set(), out = [];
+  for(const r of state.valoTable){
+    const v = String(r.cee||'').trim();
+    if(v && !seen.has(ceeKey(v))){ seen.add(ceeKey(v)); out.push(v); }
+  }
+  return out;
+}
 function normCdp(v){ return /oui|^o$|true|1/i.test(String(v||'').trim()) ? 'OUI' : 'NON'; }
 function normSauts(v){ const m=String(v||'').match(/\d/); return m ? m[0] : '2'; }   // "4 et +" -> "4"
 function normPoll(v){ return String(v||'').trim().toLowerCase(); }
@@ -922,7 +949,7 @@ function parseValorisation(workbook){
       shabLabel: String(r[VCOL.D]||''),
       pollueur:  String(r[VCOL.G]||'').trim(),
       cdp:       normCdp(r[VCOL.J]),
-      cee:       normCee(r[VCOL.K]),
+      cee:       String(r[VCOL.K]||'').trim(),   // valeur BRUTE de la colonne CEE (alimente le menu Type de revenus)
       kwhcFinal: num(r[VCOL.L]),
       valo:      num(r[VCOL.N]),
       valoCee:   num(r[VCOL.O])
@@ -960,7 +987,7 @@ function lookupValo(p){   // p = {pollueur, cee, cdp, sauts, shab}
   const tranche = shabToTranche(p.shab);
   const cands = state.valoTable.filter(r =>
     normPoll(r.pollueur) === normPoll(p.pollueur) &&
-    r.cee === normCee(p.cee) &&
+    ceeMatch(r.cee, p.cee) &&
     normCdp(r.cdp) === normCdp(p.cdp) &&
     normSauts(r.sauts) === normSauts(p.sauts) &&
     trancheOfLabel(r.shabLabel) === tranche
@@ -1605,10 +1632,16 @@ function renderStep2(){
       <div class="head"><strong>${esc(vt.label)}</strong> <span class="pill">${esc(vt.fileName)}</span><span style="flex:1"></span>${valoTxt}</div>
       <div class="row">
         <div class="col"><label class="fld">Type de revenus</label>
-          <select data-q="revenus" data-vt="${vt.id}">
-            <option value="classique" ${vt.revenus==='classique'?'selected':''}>Classique</option>
-            <option value="precaire" ${vt.revenus==='precaire'?'selected':''}>Précaire (CEE Précaire)</option>
-          </select></div>
+          ${(()=>{
+            // Options = valeurs distinctes de la colonne CEE du template (fallback si aucun template).
+            const opts = valoCeeOptions();
+            const revenusOptions = opts.length ? opts : ['Classique','CEE Précaire'];
+            // Valeur courante ramenée à une option existante (compat anciens codes 'classique'/'precaire').
+            const current = revenusOptions.find(o => ceeMatch(o, vt.revenus)) || revenusOptions[0];
+            return `<select data-q="revenus" data-vt="${vt.id}"${opts.length?'':' title="Charge un template pour lister les vraies options CEE"'}>
+            ${revenusOptions.map(o=>`<option value="${esc(o)}" ${o===current?'selected':''}>${esc(o)}</option>`).join('')}
+          </select>`;
+          })()}</div>
         <div class="col"><label class="fld">Coup de Pouce (CDP)</label>
           <select data-q="cdp" data-vt="${vt.id}">
             <option value="oui" ${vt.cdp==='oui'?'selected':''}>Oui</option>
@@ -2578,10 +2611,11 @@ function renderValoPreview(){
   const more = rows.length > MAX
     ? `<div style="padding:6px 10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border)">… et ${rows.length-MAX} autre(s) ligne(s) non affichée(s)</div>`
     : '';
+  // Hauteur ≈ 7 lignes visibles (en-tête figé + ~7×32px), le reste se déroule.
   return `<div style="margin-top:10px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Aperçu du template — ${rows.length} ligne(s)</div>
-      <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px">
-        <table style="font-size:12px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Aperçu du template — ${rows.length} ligne(s) · défile pour voir le détail</div>
+      <div style="max-height:264px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <table style="font-size:12px" class="valo-preview">
           <thead><tr>
             <th>Pollueur</th><th class="num">Sauts</th><th>Shab</th><th>CEE</th><th>CDP</th>
             <th class="num">kWhc</th><th class="num">kWhc final</th><th class="num">Valo</th><th class="num">Valo CEE</th>
