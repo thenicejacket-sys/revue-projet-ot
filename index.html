@@ -179,6 +179,11 @@ body.frozen #nav [data-view="step6"],body.frozen #btnArchive,body.frozen #saveDo
 .alert.err{background:#fdecea;border-color:#f5b5b0;color:var(--red-tx)}
 .alert.info{background:#eef4ff;border-color:#c7d8f5;color:var(--primary)}
 .alert.ok{background:#eaf7ee;border-color:#b4e3c2;color:var(--green-tx)}
+/* Ligne d'instance DÉSACTIVÉE (croix rouge) : grisée franchement, champs fondus dans
+   le gris — la ligne doit se lire comme morte au premier coup d'œil. ↺ la réactive. */
+tr.row-off{background:#b9c0cc;filter:grayscale(1)}
+tr.row-off input{background:transparent;border-color:#8d97a6;color:#41495a}
+tr.row-off input::placeholder{color:#5d6675}
 
 .dropzone{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--text-muted);cursor:pointer;transition:.15s;background:#fbfcff}
 .dropzone:hover,.dropzone.drag{border-color:var(--primary);background:#eef2fb;color:var(--text-dark)}
@@ -488,7 +493,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1668,8 +1673,8 @@ function renderStep3(){
             <strong>${collapsed?'➕':'➖'} ${CAT_LABEL[cat]}</strong>
             <span class="pill">${activeCount(vt,cat)} instance(s)${nOff?` · ${nOff} désactivée${nOff>1?'s':''}`:''}</span></div>`;
         // Barre TOTAL : % indicatif à GAUCHE, les deux totaux à DROITE.
-        //  - Total actif (bleu)  : toutes les lignes actives, cochées ou non. Fixe.
-        //  - Total coché (vert)  : les lignes cochées. C'est lui qui alimente le calcul.
+        //  - Total initial (bleu) : toutes les lignes actives, cochées ou non. Fixe.
+        //  - Total coché (vert)   : les lignes cochées. SEUL total qui alimente le calcul.
         // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
             <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — % appliqué au total actif. N'entre PAS dans le calcul.">
@@ -1677,8 +1682,8 @@ function renderStep3(){
               <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:70px;text-align:right">
               <span class="pill">≈ ${m2(retainedSurface(vt,cat))}</span></label>
             <span class="flex" style="gap:8px">
-              <span class="pill" style="background:var(--blue-bg);color:var(--blue-tx)" title="Toutes les lignes actives, cochées ou non. Ne bouge pas quand on coche/décoche — seule la croix rouge le fait varier.">Total actif : <strong>${m2(sumActive(vt,cat))}</strong></span>
-              <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — surface utilisée dans le calcul">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+              <span class="pill" style="background:var(--blue-bg);color:var(--blue-tx)" title="Toutes les lignes actives, cochées ou non. Ne bouge pas quand on coche/décoche — seule la croix rouge le fait varier. N'entre PAS dans le calcul.">Total initial : <strong>${m2(sumActive(vt,cat))}</strong></span>
+              <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
             </span>
           </div>` : '';
         // Replié : en-tête + total seulement (détail masqué)
@@ -1692,9 +1697,8 @@ function renderStep3(){
                ${inst.map((it,i)=>{
                  // Ligne désactivée : grisée, décochée, verrouillée. Seul ↺ la ramène.
                  const off = isDisabled(vt,cat,i);
-                 const dim = off ? ' style="opacity:.45"' : '';
                  const lock = off ? ' disabled' : '';
-                 return `<tr${dim} title="${off?'Ligne désactivée — exclue des totaux et du calcul. ↺ pour la réactiver.':''}">
+                 return `<tr${off?' class="row-off"':''} title="${off?'Ligne désactivée — exclue des totaux et du calcul. ↺ pour la réactiver.':''}">
                  <td><input type="checkbox" data-chk="${vt.id}|${cat}|${i}" ${(!off && isChecked(vt,cat,i))?'checked':''}${lock}></td>
                  <td><input type="text" value="${esc(it.description)}" data-edit="${vt.id}|${cat}|${i}|description"${lock}></td>
                  <td><input type="text" value="${esc(it.piece)}" data-edit="${vt.id}|${cat}|${i}|piece" placeholder="pièce ou orientation" style="width:120px"${lock}></td>
