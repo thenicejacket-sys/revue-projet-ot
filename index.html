@@ -488,7 +488,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1033,11 +1033,37 @@ function effectiveInstances(vt, cat){
 
 function surfaceOf(inst){ return num(inst.surface_nette); }   // surface nette uniquement
 
-// Somme des surfaces cochées d'une catégorie
+/* Ligne DÉSACTIVÉE (croix rouge) : la ligne reste affichée, grisée, pour garder la trace
+   de ce que la VT contenait — mais elle sort de TOUS les totaux et du calcul, et n'est
+   plus cochable. Le bouton ↺ la réinitialise (réactivée + recochée, son état d'origine).
+   La désactivation ne supprime jamais la ligne : les index restent stables, donc les
+   cases cochées des autres lignes ne bougent pas. */
+function isDisabled(vt, cat, i){ return !!(vt.disabled && vt.disabled[cat] && vt.disabled[cat][i]); }
+function setDisabled(vt, cat, i, val){
+  if(!vt.disabled) vt.disabled = {};
+  if(!vt.disabled[cat]) vt.disabled[cat] = {};
+  vt.disabled[cat][i] = !!val;
+}
+// Nombre de lignes ACTIVES d'une catégorie (une catégorie dont tout est désactivé est vide)
+function activeCount(vt, cat){
+  return effectiveInstances(vt, cat).filter((_,i)=> !isDisabled(vt,cat,i)).length;
+}
+
+/* TOTAL GÉNÉRAL — toutes les lignes ACTIVES, cochées ou non.
+   Ne bouge pas quand on coche/décoche : seule la croix rouge le fait varier.
+   C'est la base du % indicatif. */
+function sumActive(vt, cat){
+  const inst = effectiveInstances(vt, cat);
+  let s = 0;
+  inst.forEach((it,i)=>{ if(!isDisabled(vt,cat,i)) s += surfaceOf(it); });
+  return s;
+}
+
+// TOTAL COCHÉ — lignes actives ET cochées. C'est ce qui alimente le calcul (cf. calcTravaux).
 function sumChecked(vt, cat){
   const inst = effectiveInstances(vt, cat);
   let s = 0;
-  inst.forEach((it,i)=>{ if(isChecked(vt,cat,i)) s += surfaceOf(it); });
+  inst.forEach((it,i)=>{ if(!isDisabled(vt,cat,i) && isChecked(vt,cat,i)) s += surfaceOf(it); });
   return s;
 }
 function isChecked(vt, cat, i){
@@ -1051,8 +1077,9 @@ function catPct(vt, cat){
   if(vt.pct[cat] === undefined) vt.pct[cat] = (CAT_PCT_DEFAULT[cat] != null ? CAT_PCT_DEFAULT[cat] : 100);
   return num(vt.pct[cat]);
 }
-// Surface réellement retenue pour le calcul = surface cochée × % retenu
-function retainedSurface(vt, cat){ return sumChecked(vt, cat) * catPct(vt, cat) / 100; }
+// % indicatif appliqué au TOTAL GÉNÉRAL (lignes actives, cochées ou non) — purement
+// indicatif, n'entre PAS dans le calcul (le calcul suit les lignes cochées, cf. calcTravaux).
+function retainedSurface(vt, cat){ return sumActive(vt, cat) * catPct(vt, cat) / 100; }
 // État plié/déplié d'une catégorie (par VT), déplié par défaut
 function catCollapsed(vt, cat){ return !!(vt.collapsed && vt.collapsed[cat]); }
 
@@ -1261,7 +1288,7 @@ function verifyIntegrity(){
 // ---- Couche 2 : scénarios golden (résultats calculés à la main, rejoués à chaque chargement) ----
 function _gVt(id, role, shab, cats, extra){
   return Object.assign({ id, role, fileName:'g'+id+'.pdf', label: role==='ite'?'VT ITE':'Habitation '+id, shab,
-    revenus:'classique', cdp:'oui', sauts:'2', hasIte:'oui', nbAudits:1, pcLines:[], selections:{}, pct:{}, collapsed:{},
+    revenus:'classique', cdp:'oui', sauts:'2', hasIte:'oui', nbAudits:1, pcLines:[], selections:{}, disabled:{}, pct:{}, collapsed:{},
     extraction:{ shab_m2:shab, categories:Object.assign({ITE:[],ITI:[],Combles:[],Plancher:[],Fenetres:[]}, cats) } }, extra||{});
 }
 const GOLDEN_CHARGES = { ITE:{unite:'M2',achat:100,vente:200}, ITI:{unite:'M2',achat:70,vente:210},
@@ -1401,7 +1428,7 @@ async function handleFiles(fileList){
     const role = defaultRoleForNewVt(file.name);
     const vt = { id, fileName:file.name, role, text:'', hints:null,
                  extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0, hasIte:'oui', nbAudits:1,
-                 selections:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
+                 selections:{}, disabled:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
                  label:'', labelCustom:false, extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
     renderVtList();   // renumberVts() y attribue 'VT ITE' / 'Habitation N' selon la position
@@ -1579,8 +1606,10 @@ function renderExtractionReport(){
     if(vt.extracting){ waiting++; return `<tr><td style="${cell}">${name}</td><td style="${cell}">—</td><td style="${cell}"><span class="spinner"></span> extraction en cours…</td></tr>`; }
     if(vt.error){      failed++;  return `<tr><td style="${cell}">${name}</td><td style="${cell}">0/${cats.length}</td><td style="${cell};color:var(--red-tx)">⛔ extraction en échec</td></tr>`; }
     if(!vt.extractedOk){ waiting++; return `<tr><td style="${cell}">${name}</td><td style="${cell}">—</td><td style="${cell};color:var(--text-muted)">pas encore extrait</td></tr>`; }
-    const ok      = cats.filter(c => effectiveInstances(vt, c).length >  0);
-    const missing = cats.filter(c => effectiveInstances(vt, c).length === 0);
+    // Une catégorie dont toutes les lignes ont été désactivées n'a plus rien d'exploitable :
+    // elle compte comme manquante, pas comme extraite.
+    const ok      = cats.filter(c => activeCount(vt, c) >  0);
+    const missing = cats.filter(c => activeCount(vt, c) === 0);
     got += ok.length; expected += cats.length;
     const status = missing.length
       ? `<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missing.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`
@@ -1625,7 +1654,7 @@ function renderStep3(){
       // Alerte « paroi manquante » limitée aux catégories réellement affichées pour cette VT
       const warns = vt.extractedOk ? catsToShow.filter(cat =>
         (vt.hints && vt.hints.detected && vt.hints.detected[cat]) &&
-        ((vt.extraction.categories[cat]||[]).length === 0)
+        (activeCount(vt, cat) === 0)
       ) : [];
       // Le tooltip expose les termes qui ont déclenché l'alerte : un doute sur l'alerte
       // se tranche en survolant, sans rouvrir la VT.
@@ -1634,17 +1663,23 @@ function renderStep3(){
         const inst = effectiveInstances(vt, cat);
         const collapsed = catCollapsed(vt, cat);
         // En-tête cliquable : + / − pour plier/déplier (déplié par défaut)
+        const nOff = inst.length - activeCount(vt, cat);
         const head = `<div class="cat-head" data-toggle="${vt.id}|${cat}" style="cursor:pointer">
             <strong>${collapsed?'➕':'➖'} ${CAT_LABEL[cat]}</strong>
-            <span class="pill">${inst.length} instance(s)</span></div>`;
-        // Barre TOTAL : % indicatif à GAUCHE, total réel (calcul) à DROITE.
+            <span class="pill">${activeCount(vt,cat)} instance(s)${nOff?` · ${nOff} désactivée${nOff>1?'s':''}`:''}</span></div>`;
+        // Barre TOTAL : % indicatif à GAUCHE, les deux totaux à DROITE.
+        //  - Total actif (bleu)  : toutes les lignes actives, cochées ou non. Fixe.
+        //  - Total coché (vert)  : les lignes cochées. C'est lui qui alimente le calcul.
         // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
-            <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — n'entre PAS dans le calcul">
+            <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — % appliqué au total actif. N'entre PAS dans le calcul.">
               <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Indicatif %</span>
               <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:70px;text-align:right">
               <span class="pill">≈ ${m2(retainedSurface(vt,cat))}</span></label>
-            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Surface utilisée dans le calcul">Total réel : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+            <span class="flex" style="gap:8px">
+              <span class="pill" style="background:var(--blue-bg);color:var(--blue-tx)" title="Toutes les lignes actives, cochées ou non. Ne bouge pas quand on coche/décoche — seule la croix rouge le fait varier.">Total actif : <strong>${m2(sumActive(vt,cat))}</strong></span>
+              <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — surface utilisée dans le calcul">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+            </span>
           </div>` : '';
         // Replié : en-tête + total seulement (détail masqué)
         if(collapsed) return `<div class="cat-block">${head}${totalBar}</div>`;
@@ -1654,14 +1689,22 @@ function renderStep3(){
                <th style="width:30px"></th><th>Description</th><th>Pièce (type)</th>
                ${cat==='Fenetres'?'<th>Dimensions</th>':''}
                <th class="num">Surface (m²)</th><th></th></tr></thead><tbody>
-               ${inst.map((it,i)=>`<tr>
-                 <td><input type="checkbox" data-chk="${vt.id}|${cat}|${i}" ${isChecked(vt,cat,i)?'checked':''}></td>
-                 <td><input type="text" value="${esc(it.description)}" data-edit="${vt.id}|${cat}|${i}|description"></td>
-                 <td><input type="text" value="${esc(it.piece)}" data-edit="${vt.id}|${cat}|${i}|piece" placeholder="pièce ou orientation" style="width:120px"></td>
-                 ${cat==='Fenetres'?`<td><input type="text" value="${esc(it.dimensions||'')}" data-edit="${vt.id}|${cat}|${i}|dimensions" placeholder="ex. 1,20 × 1,00" style="width:130px"></td>`:''}
-                 <td class="num"><input type="number" value="${it.surface_nette}" step="0.1" data-edit="${vt.id}|${cat}|${i}|surface_nette" style="width:90px;text-align:right"></td>
-                 <td><button class="btn danger small" data-rm="${vt.id}|${cat}|${i}">✕</button></td>
-               </tr>`).join('')}
+               ${inst.map((it,i)=>{
+                 // Ligne désactivée : grisée, décochée, verrouillée. Seul ↺ la ramène.
+                 const off = isDisabled(vt,cat,i);
+                 const dim = off ? ' style="opacity:.45"' : '';
+                 const lock = off ? ' disabled' : '';
+                 return `<tr${dim} title="${off?'Ligne désactivée — exclue des totaux et du calcul. ↺ pour la réactiver.':''}">
+                 <td><input type="checkbox" data-chk="${vt.id}|${cat}|${i}" ${(!off && isChecked(vt,cat,i))?'checked':''}${lock}></td>
+                 <td><input type="text" value="${esc(it.description)}" data-edit="${vt.id}|${cat}|${i}|description"${lock}></td>
+                 <td><input type="text" value="${esc(it.piece)}" data-edit="${vt.id}|${cat}|${i}|piece" placeholder="pièce ou orientation" style="width:120px"${lock}></td>
+                 ${cat==='Fenetres'?`<td><input type="text" value="${esc(it.dimensions||'')}" data-edit="${vt.id}|${cat}|${i}|dimensions" placeholder="ex. 1,20 × 1,00" style="width:130px"${lock}></td>`:''}
+                 <td class="num"><input type="number" value="${it.surface_nette}" step="0.1" data-edit="${vt.id}|${cat}|${i}|surface_nette" style="width:90px;text-align:right"${lock}></td>
+                 <td style="white-space:nowrap">
+                   <button class="btn danger small" data-off="${vt.id}|${cat}|${i}"${off?' disabled':''} title="Désactiver : la ligne est décochée, grisée, et sort des totaux">✕</button>
+                   <button class="btn small ghost" data-on="${vt.id}|${cat}|${i}"${off?'':' disabled'} title="Réinitialiser : réactive la ligne et la recoche">↺</button>
+                 </td>
+               </tr>`; }).join('')}
                </tbody></table>
                <button class="btn small ghost" data-add="${vt.id}|${cat}" style="margin-top:6px">+ Ajouter une ligne</button>
                ${totalBar}</div>`;
@@ -1708,9 +1751,23 @@ function renderStep3(){
     vt.extraction.categories[cat][i][field]=v;
     if(field.startsWith('surface')) renderStep3();
   }));
-  wrap.querySelectorAll('[data-rm]').forEach(b=> b.addEventListener('click', e=>{
-    const [id,cat,i]=e.target.dataset.rm.split('|'); const vt=state.vts.find(v=>v.id==id);
-    vt.extraction.categories[cat].splice(i,1); vt.selections[cat]={}; renderStep3();
+  // ✕ — désactive la ligne : décochée + grisée, exclue des totaux et du calcul.
+  // La ligne n'est PAS supprimée : les index restent stables, donc les cases cochées
+  // des autres lignes ne bougent pas.
+  wrap.querySelectorAll('[data-off]').forEach(b=> b.addEventListener('click', e=>{
+    const [id,cat,i]=e.currentTarget.dataset.off.split('|'); const vt=state.vts.find(v=>v.id==id);
+    setDisabled(vt, cat, i, true);
+    if(!vt.selections[cat]) vt.selections[cat]={};
+    vt.selections[cat][i] = false;
+    renderStep3();
+  }));
+  // ↺ — réinitialise la ligne dans son état d'origine : réactivée ET recochée.
+  wrap.querySelectorAll('[data-on]').forEach(b=> b.addEventListener('click', e=>{
+    const [id,cat,i]=e.currentTarget.dataset.on.split('|'); const vt=state.vts.find(v=>v.id==id);
+    setDisabled(vt, cat, i, false);
+    if(!vt.selections[cat]) vt.selections[cat]={};
+    vt.selections[cat][i] = true;
+    renderStep3();
   }));
   wrap.querySelectorAll('[data-add]').forEach(b=> b.addEventListener('click', e=>{
     const [id,cat]=e.target.dataset.add.split('|'); const vt=state.vts.find(v=>v.id==id);
@@ -1743,7 +1800,11 @@ async function extractOne(id){
       vt.extraction.categories.ITE = vt.extraction.categories.ITI;
       vt.extraction.categories.ITI = [];
     }
+    // Ré-extraction : nouvelles lignes, donc nouveaux index. Les sélections ET les
+    // désactivations de l'extraction précédente doivent partir, sinon elles
+    // s'appliqueraient à des lignes qui n'ont plus rien à voir.
     vt.selections = {};
+    vt.disabled = {};
     vt.extractedOk = true;
     if(vt.role==='habitation' && !vt.shab) vt.shab = num(vt.extraction.shab_m2);
   }catch(e){ vt.error = 'Extraction échouée : '+e.message; vt.extractedOk = false; }
