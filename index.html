@@ -499,7 +499,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1966,10 +1966,10 @@ function renderStep4(){
       ${res.distributed ? '' : `<div class="kpi-grid">
         ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), edited:res.ov.prime!=null,
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
-          formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'margeBrute', type:'num', label:'Marge Brute', display:eur(res.margeBrute), rawVal:round2(res.margeBrute), cls:res.margeBrute>=0?'go':'nogo', edited:res.ov.margeBrute!=null,
           formula:'Marge Brute = Prime CEE − Charges d\'achat travaux = '+eur(res.prime)+' − '+eur(res.chargesTravaux)})}
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
+          formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge Commerciale', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
           formula:'Marge Commerciale = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'decision', type:'dec', label:'Décision', display:res.go?'✅ GO':'⛔ NO-GO', rawVal:res.ov.decision||'auto', cls:res.go?'go':'nogo', edited:!!res.ov.decision,
