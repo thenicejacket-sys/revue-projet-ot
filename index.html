@@ -139,6 +139,8 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .kpi.nogo .val{color:var(--red-tx)}
 .kpi.editable{cursor:pointer;position:relative}
 .kpi.editable:hover{border-color:var(--primary)}
+.kpi.locked{cursor:default;background:#f3f5f9}   /* Prime CEE : non éditable (issue du barème) */
+.kpi.locked .lab{color:var(--text-muted)}
 .kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
 .hist-searchbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
@@ -502,7 +504,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1242,17 +1244,15 @@ function calcVT(vt){
     const r = lookupValo({ pollueur:state.general.pollueur, cee:vt.revenus, cdp:vt.cdp, sauts:vt.sauts, shab:vt.shab });
     if(r.error) valoErr = r.error; else prime = r.valoCee;
   }
-  // Corrections manuelles (widgets éditables de l'étape 4)
+  // Corrections manuelles (widgets éditables de l'étape 4).
+  // Prime CEE = TOUJOURS le barème, jamais éditable (aucun ov.prime appliqué).
+  // Chaque widget est évalué de haut en bas : un override sert d'ENTRÉE, les widgets
+  // qui en dépendent se recalculent avec — sauf s'ils ont eux-mêmes un override.
   const ov = vtOv(vt);
-  if(ov.prime !== undefined && ov.prime !== null){ prime = num(ov.prime); valoErr = null; }
-  let reste = venteTravaux - prime;
-  if(ov.reste !== undefined && ov.reste !== null) reste = num(ov.reste);
-  let marge = venteTravaux - coutRevient;
-  if(ov.marge !== undefined && ov.marge !== null) marge = num(ov.marge);
-  let margeBrute = prime - chargesTravaux;   // Marge Brute = Prime CEE − prix d'achat des travaux
-  if(ov.margeBrute !== undefined && ov.margeBrute !== null) margeBrute = num(ov.margeBrute);
-  let go = marge >= num(state.settings.seuilGo);
-  if(ov.decision === 'go') go = true; else if(ov.decision === 'nogo') go = false;
+  let reste = (ov.reste !== undefined && ov.reste !== null) ? num(ov.reste) : venteTravaux - prime;
+  let marge = (ov.marge !== undefined && ov.marge !== null) ? num(ov.marge) : venteTravaux - coutRevient;
+  let margeBrute = (ov.margeBrute !== undefined && ov.margeBrute !== null) ? num(ov.margeBrute) : prime - chargesTravaux;
+  let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= num(state.settings.seuilGo));
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge, margeBrute,
            go, ov, distributed:false, iteShare:share };
@@ -1262,9 +1262,18 @@ function calcGlobal(){
   const blocks = orderedVts().map(vt=>({ vt, res:calcVT(vt) }));   // VT ITE en tête
   const tot = { chargesTravaux:0, venteTravaux:0, audit:0, vtIte:0, regie:0, coutRevient:0, prime:0, reste:0, marge:0, margeBrute:0 };
   blocks.forEach(b=>{ for(const k in tot) tot[k]+=b.res[k]||0; });
-  // Corrections manuelles globales (widgets du Total projet/immeuble)
+  // Corrections manuelles globales (widgets du Total projet/immeuble).
+  // PROPAGATION : un override d'entrée (Prix de vente, Coût de revient) recalcule les
+  // widgets qui en dépendent. Prime CEE = non éditable (jamais d'override). Un widget
+  // dérivé (reste/marge/margeBrute) garde sa somme sauf s'il a son propre override OU
+  // si une entrée dont il dépend a été modifiée.
   const gov = (state.overrides && state.overrides.global) || {};
-  ['coutRevient','venteTravaux','prime','reste','marge','margeBrute'].forEach(k=>{ if(gov[k] !== undefined && gov[k] !== null) tot[k] = num(gov[k]); });
+  const has = k => gov[k] !== undefined && gov[k] !== null;
+  if(has('coutRevient'))  tot.coutRevient  = num(gov.coutRevient);
+  if(has('venteTravaux')) tot.venteTravaux = num(gov.venteTravaux);
+  tot.reste      = has('reste')      ? num(gov.reste)      : (has('venteTravaux')                 ? tot.venteTravaux - tot.prime        : tot.reste);
+  tot.marge      = has('marge')      ? num(gov.marge)      : ((has('venteTravaux')||has('coutRevient')) ? tot.venteTravaux - tot.coutRevient : tot.marge);
+  tot.margeBrute = has('margeBrute') ? num(gov.margeBrute) : tot.margeBrute;   // prime & charges non éditables -> pas de déclencheur
   tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= num(state.settings.seuilGo));
   tot.ov = gov;
   return { blocks, tot };
@@ -1904,13 +1913,16 @@ $('#extractAll').addEventListener('click', async ()=>{
    RENDU — ÉTAPE 4 (charges & marges) + PC manuelles
    ============================================================================ */
 // Widget KPI éditable : clic = éditer, survol = formule (légende type Excel), ↺ = retour au calcul auto
-function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited}
+function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited, locked}
   const id = o.scope + '|' + encodeURIComponent(o.key||'') + '|' + o.field + '|' + o.type;
-  const ro = !!FROZEN;   // dossier archivé : widgets non éditables
-  const tip = o.formula + (o.edited ? ' — ✎ valeur modifiée manuellement' : '') + (ro ? '' : ' (cliquer pour modifier)');
-  return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
+  // locked = jamais éditable (ex. Prime CEE : issue du barème, aucune saisie manuelle).
+  const ro = !!FROZEN || !!o.locked;
+  const tip = o.formula
+    + (o.edited ? ' — ✎ valeur modifiée manuellement' : '')
+    + (o.locked ? ' — 🔒 non éditable (calculée automatiquement depuis le barème)' : (ro ? '' : ' (cliquer pour modifier)'));
+  return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
     ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
-    <div class="lab">${o.label}${o.edited?' ✎':''}</div><div class="val">${o.display}</div>
+    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}</div><div class="val">${o.display}</div>
   </div>`;
 }
 function openKpiEditor(kpi){
@@ -1997,7 +2009,7 @@ function renderStep4(){
         ${bodyRows}
       </tbody></table>
       ${res.distributed ? '' : `<div class="kpi-grid">
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), edited:res.ov.prime!=null,
+        ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), locked:true,
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'margeBrute', type:'num', label:'Marge Brute', display:eur(res.margeBrute), rawVal:round2(res.margeBrute), cls:res.margeBrute>=0?'go':'nogo', edited:res.ov.margeBrute!=null,
           formula:'Marge Brute = Prime CEE − Charges d\'achat travaux = '+eur(res.prime)+' − '+eur(res.chargesTravaux)})}
@@ -2020,7 +2032,7 @@ function renderStep4(){
         formula:'Coût de revient total = Σ des VT (charges travaux + Audit VT + frais VT ITE + régie)'})}
       ${kpiCell({scope:'g', key:'', field:'venteTravaux', type:'num', label:'Prix de vente HT', display:eur(tot.venteTravaux), rawVal:round2(tot.venteTravaux), edited:tot.ov.venteTravaux!=null,
         formula:'Prix de vente HT = Σ (surfaces cochées × prix de vente du barème)'})}
-      ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), edited:tot.ov.prime!=null,
+      ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), locked:true,
         formula:'Prime CEE totale = Σ des primes CEE des habitations'})}
       ${kpiCell({scope:'g', key:'', field:'margeBrute', type:'num', label:'Marge Brute totale', display:eur(tot.margeBrute), rawVal:round2(tot.margeBrute), cls:tot.margeBrute>=0?'go':'nogo', edited:tot.ov.margeBrute!=null,
         formula:'Marge Brute totale = Prime CEE totale − Charges d\'achat travaux = '+eur(tot.prime)+' − '+eur(tot.chargesTravaux)})}
