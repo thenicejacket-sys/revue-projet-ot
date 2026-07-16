@@ -579,7 +579,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.12';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.13';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -600,6 +600,7 @@ const state = {
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   valoFileName: '',         // nom du .xlsx chargé (affiché dans l'aperçu)
   valoDirty: false,         // chargé mais pas encore enregistré (session-only, jamais persisté)
+  valoStale: null,          // template périmé (ancien format CEE) détecté au chargement -> à recharger
   pollueurs: [],
   chargesTable: null,       // { nomCol: {unite, achat, vente, col} }
   chargesEdited: {},        // { 'ITE|achat': true, ... } — prix édités depuis la fiche calcul (affichage rosé)
@@ -664,10 +665,15 @@ const LS_KEY = 'revueProjetOT.v1';
    pas le template, et charger un fichier ne le persiste pas tant qu'on n'a pas cliqué.
    ---------------------------------------------------------------------------- */
 const VALO_KEY = 'revueProjetOT.valoTemplate';
+// v2 (2026-07-16) = colonne CEE stockée en valeurs BRUTES. Les templates sauvegardés
+// avant (v1) avaient la CEE réduite à 2 buckets (Classique / CEE Précaire) par normCee :
+// les vraies options sont perdues et irrécupérables sans recharger le .xlsx.
+const VALO_SCHEMA = 2;
 function saveValoTemplate(){
   try{
     if(!state.valoTable || !state.valoTable.length){ localStorage.removeItem(VALO_KEY); return; }
     localStorage.setItem(VALO_KEY, JSON.stringify({
+      schemaVersion: VALO_SCHEMA,
       fileName: state.valoFileName || '',
       savedAt:  new Date().toISOString(),
       table:    state.valoTable,
@@ -679,6 +685,14 @@ function loadValoTemplate(){
   try{
     const raw = localStorage.getItem(VALO_KEY); if(!raw) return;
     const d = JSON.parse(raw);
+    // Template dans un ANCIEN format (CEE normalisée à 2 valeurs) : on ne le sert PAS en
+    // douce — on le purge et on signalera qu'il faut recharger le fichier pour récupérer
+    // toutes les options CEE. Sinon le menu « Type de revenus » resterait bridé à 2.
+    if(d.schemaVersion !== VALO_SCHEMA){
+      state.valoStale = { fileName: d.fileName || '' };
+      localStorage.removeItem(VALO_KEY);
+      return;
+    }
     if(Array.isArray(d.table) && d.table.length){
       state.valoTable    = d.table;
       state.pollueurs    = (Array.isArray(d.pollueurs) && d.pollueurs.length) ? d.pollueurs : [...new Set(d.table.map(r=>r.pollueur).filter(Boolean))];
@@ -2781,7 +2795,13 @@ function renderValoInfo(){
   if(save) save.disabled = !has;
   if(del)  del.disabled  = !(has || valoTemplateSaved());
   if(!has){
-    info.innerHTML = '<div class="alert info">Aucun template chargé. Charge un .xlsx ci-dessus (les calculs de valorisation en dépendent).</div>';
+    // Template périmé détecté (ancien format 2 valeurs CEE) : message clair pour recharger.
+    if(state.valoStale){
+      const f = state.valoStale.fileName ? ' (« '+esc(state.valoStale.fileName)+' »)' : '';
+      info.innerHTML = `<div class="alert warn">⚠️ Ton template enregistré${f} était dans un <strong>ancien format</strong> : la colonne CEE y était réduite à 2 valeurs, les autres options étaient perdues. <strong>Recharge le fichier .xlsx</strong> ci-dessus puis clique « Enregistrer le template » pour récupérer toutes les options CEE.</div>`;
+    } else {
+      info.innerHTML = '<div class="alert info">Aucun template chargé. Charge un .xlsx ci-dessus (les calculs de valorisation en dépendent).</div>';
+    }
     if(prev) prev.innerHTML = '';
     return;
   }
@@ -2846,6 +2866,7 @@ $('#valoFile').addEventListener('change', async e=>{
     state.pollueurs    = [...new Set(table.map(r=>r.pollueur).filter(Boolean))];
     state.valoFileName = f.name;
     state.valoDirty    = true;
+    state.valoStale    = null;   // un nouvel upload lève l'alerte « ancien format »
     if(!state.general.pollueur && state.pollueurs.length) state.general.pollueur = state.pollueurs[0];
     renderValoInfo();
     renderPollueurs();
@@ -2862,7 +2883,7 @@ $('#valoSave').addEventListener('click', ()=>{
 $('#valoDelete').addEventListener('click', ()=>{
   if(!(state.valoTable && state.valoTable.length) && !valoTemplateSaved()) return;
   if(!confirm('Supprimer le template de valorisation ?\nLes calculs de valorisation seront impossibles tant qu\'un nouveau template n\'est pas chargé.')) return;
-  state.valoTable = null; state.pollueurs = []; state.valoFileName = ''; state.valoDirty = false;
+  state.valoTable = null; state.pollueurs = []; state.valoFileName = ''; state.valoDirty = false; state.valoStale = null;
   localStorage.removeItem(VALO_KEY);
   saveLS();
   renderValoInfo();
