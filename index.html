@@ -172,6 +172,20 @@ body.frozen main{pointer-events:none}
 body.frozen main .allow-frozen{pointer-events:auto}
 body.frozen main input,body.frozen main select,body.frozen main textarea{background:#f4f6fb;color:var(--text)}
 body.frozen #nav [data-view="step6"],body.frozen #btnArchive,body.frozen #saveDossier,body.frozen #scanIA{display:none}
+/* Porte d'accès (login). NB : garde-fou cosmétique côté client, PAS une vraie sécurité. */
+#loginGate{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--primary-dark),var(--primary));padding:20px}
+body.locked{overflow:hidden}
+body.locked #loginGate{display:flex}
+.login-card{background:#fff;border-radius:14px;padding:28px 26px;width:100%;max-width:360px;box-shadow:0 12px 48px rgba(0,0,0,.32);text-align:center}
+.login-card .login-logo{width:52px;height:52px;border-radius:12px;background:var(--primary);color:#fff;font-weight:800;font-size:20px;display:flex;align-items:center;justify-content:center;margin:0 auto 12px;font-family:'Montserrat',sans-serif}
+.login-card h2{margin:0 0 2px;color:var(--primary);font-size:20px}
+.login-card .login-sub{color:var(--text-muted);font-size:13px;margin:0 0 18px}
+.login-card .fld{display:block;text-align:left;margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em}
+.login-card input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:8px;box-sizing:border-box;font-family:inherit;font-size:14px}
+.login-card input:focus{border-color:var(--primary);outline:none}
+.login-err{color:var(--red-tx);font-size:13px;min-height:18px;margin:8px 0 4px;font-weight:600}
+#logoutBtn{margin-left:auto;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:7px 12px;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700;cursor:pointer}
+#logoutBtn:hover{background:rgba(255,255,255,.28)}
 .kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
 .kpi .ov-reset:hover{color:var(--primary)}
 .kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
@@ -216,12 +230,68 @@ main{position:relative;z-index:1}
 <body>
 <div id="bgLayer" aria-hidden="true"></div>
 
+<!-- ====================================================== PORTE D'ACCÈS (login) ======================================================
+     ⚠️ Garde-fou CLIENT uniquement : le contrôle se fait dans le navigateur. Sur un site
+     statique public, ce n'est pas une vraie sécurité (mot de passe haché ci-dessous,
+     mais le code reste inspectable). Dissuade les visiteurs occasionnels, rien de plus. -->
+<div id="loginGate" role="dialog" aria-modal="true" aria-label="Connexion">
+  <form id="loginForm" class="login-card" autocomplete="off">
+    <div class="login-logo">OT</div>
+    <h2>Revue Projet OT</h2>
+    <div class="login-sub">Accès réservé</div>
+    <label class="fld" for="loginUser">Nom d'utilisateur</label>
+    <input type="text" id="loginUser" autocomplete="username" autocapitalize="off" spellcheck="false">
+    <label class="fld" for="loginPass">Mot de passe</label>
+    <input type="password" id="loginPass" autocomplete="current-password">
+    <div id="loginErr" class="login-err"></div>
+    <button type="submit" class="btn" style="width:100%">Se connecter</button>
+  </form>
+</div>
+<script>
+/* Auth minimaliste, autonome. Le mot de passe n'est jamais en clair dans le code :
+   on compare l'empreinte SHA-256. La session (sessionStorage) fait re-demander le
+   login à chaque nouvelle session navigateur. */
+(function(){
+  var GATE_KEY = 'revueProjetOT.auth';
+  var USER = 'Admi';
+  var HASH = 'd1ce8e59800a381563ef4309db5edd48c817a29eeb6996de955d4a98db3f1b45';  // empreinte SHA-256 du mot de passe
+  if(sessionStorage.getItem(GATE_KEY) !== '1') document.body.classList.add('locked');
+  async function sha256(s){
+    var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return Array.from(new Uint8Array(buf)).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+  }
+  var form = document.getElementById('loginForm');
+  var passIn = document.getElementById('loginPass');
+  var err = document.getElementById('loginErr');
+  form.addEventListener('submit', async function(e){
+    e.preventDefault();
+    err.textContent = '';
+    var u = document.getElementById('loginUser').value.trim();
+    var ok = (u === USER) && ((await sha256(passIn.value)) === HASH);
+    if(ok){
+      sessionStorage.setItem(GATE_KEY, '1');
+      document.body.classList.remove('locked');
+      passIn.value = '';
+    } else {
+      err.textContent = 'Identifiants incorrects.';
+      passIn.value = '';
+      passIn.focus();
+    }
+  });
+  // Déconnexion : appelée par le bouton du header.
+  window.__logout = function(){ sessionStorage.removeItem(GATE_KEY); location.reload(); };
+  // Focus initial sur le champ utilisateur quand la porte est visible.
+  if(document.body.classList.contains('locked')){ setTimeout(function(){ document.getElementById('loginUser').focus(); }, 60); }
+})();
+</script>
+
 <header>
   <div class="logo">OT</div>
   <div>
     <h1>Revue Projet OT</h1>
     <div class="sub">Pré-chiffrage CEE / Coup de Pouce — extraction VT, valorisation, charges &amp; marges, GO / NO-GO<span id="buildTag" style="opacity:.65"></span></div>
   </div>
+  <button id="logoutBtn" type="button" title="Se déconnecter" onclick="window.__logout&&window.__logout()">🔓 Déconnexion</button>
 </header>
 
 <nav id="nav">
@@ -504,7 +574,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.9';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
