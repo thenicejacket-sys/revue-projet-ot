@@ -397,11 +397,17 @@ main{position:relative;z-index:1}
 
       <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Template de valorisation (.xlsx)</h3>
+      <p class="hint">Charge le fichier VALORISATION_TEMPLATE, vérifie l'aperçu, puis « Enregistrer le template » pour qu'il soit gardé en mémoire et repris à la prochaine ouverture. « Supprimer » l'efface définitivement.</p>
       <div class="row">
         <div class="col">
-          <label class="fld">VALORISATION_TEMPLATE.xlsx</label>
+          <label class="fld">Fichier .xlsx</label>
           <input type="file" id="valoFile" accept=".xlsx,.xls" />
-          <div id="valoInfo"></div>
+          <div id="valoInfo" style="margin-top:8px"></div>
+          <div class="flex" style="gap:8px;margin-top:8px">
+            <button class="btn success small" id="valoSave">💾 Enregistrer le template</button>
+            <button class="btn danger small" id="valoDelete">🗑️ Supprimer</button>
+          </div>
+          <div id="valoPreview"></div>
         </div>
       </div>
 
@@ -493,7 +499,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -512,6 +518,8 @@ const state = {
   overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0 },
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
+  valoFileName: '',         // nom du .xlsx chargé (affiché dans l'aperçu)
+  valoDirty: false,         // chargé mais pas encore enregistré (session-only, jamais persisté)
   pollueurs: [],
   chargesTable: null,       // { nomCol: {unite, achat, vente, col} }
   elementsTable: null,      // barème des éléments à la pièce { nom: {unite:'PC', achat, vente} }
@@ -541,6 +549,42 @@ function normPoll(v){ return String(v||'').trim().toLowerCase(); }
    PERSISTANCE (localStorage)
    ============================================================================ */
 const LS_KEY = 'revueProjetOT.v1';
+
+/* ----------------------------------------------------------------------------
+   TEMPLATE DE VALORISATION — stockage dédié, indépendant du dossier de travail.
+   Pattern repris d'AuditVT : on ne garde JAMAIS le .xlsx brut, seulement les lignes
+   parsées (+ nom de fichier). Commit explicite via « Enregistrer le template », donc
+   il survit d'une ouverture à l'autre pour la personne suivante — et il est
+   supprimable d'un clic. Séparé du blob dossier : réinitialiser un dossier ne touche
+   pas le template, et charger un fichier ne le persiste pas tant qu'on n'a pas cliqué.
+   ---------------------------------------------------------------------------- */
+const VALO_KEY = 'revueProjetOT.valoTemplate';
+function saveValoTemplate(){
+  try{
+    if(!state.valoTable || !state.valoTable.length){ localStorage.removeItem(VALO_KEY); return; }
+    localStorage.setItem(VALO_KEY, JSON.stringify({
+      fileName: state.valoFileName || '',
+      savedAt:  new Date().toISOString(),
+      table:    state.valoTable,
+      pollueurs: state.pollueurs
+    }));
+  }catch(e){ console.warn('Enregistrement template impossible', e.message); }
+}
+function loadValoTemplate(){
+  try{
+    const raw = localStorage.getItem(VALO_KEY); if(!raw) return;
+    const d = JSON.parse(raw);
+    if(Array.isArray(d.table) && d.table.length){
+      state.valoTable    = d.table;
+      state.pollueurs    = (Array.isArray(d.pollueurs) && d.pollueurs.length) ? d.pollueurs : [...new Set(d.table.map(r=>r.pollueur).filter(Boolean))];
+      state.valoFileName = d.fileName || '';
+      state.valoDirty    = false;
+      if(!state.general.pollueur && state.pollueurs.length) state.general.pollueur = state.pollueurs[0];
+    }
+  }catch(e){ console.warn('Template valo illisible', e.message); }
+}
+function valoTemplateSaved(){ return !!localStorage.getItem(VALO_KEY); }
+
 function saveLS(){
   if(FROZEN) return;   // consultation d'un dossier archivé : ne jamais écraser le dossier de travail
   try{
@@ -554,10 +598,12 @@ function saveLS(){
           overrides: state.overrides,
           // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
           vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false})) };
+    // NB : le template de valorisation (valoTable/pollueurs) N'est PAS dans ce blob.
+    // Il a son propre stockage dédié (VALO_KEY) commité explicitement via « Enregistrer
+    // le template » — c'est ce qui donne un vrai contrôle : charger un fichier ne le
+    // persiste pas tant qu'on n'a pas cliqué Enregistrer.
     localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({
       settings: state.settings,
-      valoTable: state.valoTable,
-      pollueurs: state.pollueurs,
       chargesTable: state.chargesTable,
       elementsTable: state.elementsTable,
       history: state.history
@@ -569,8 +615,11 @@ function loadLS(){
     const raw = localStorage.getItem(LS_KEY); if(!raw) return;
     const d = JSON.parse(raw);
     if(d.settings) Object.assign(state.settings, d.settings);
-    if(d.valoTable) state.valoTable = d.valoTable;
-    if(d.pollueurs) state.pollueurs = d.pollueurs;
+    // valoTable / pollueurs sont restaurés depuis leur stockage dédié (loadValoTemplate),
+    // pas depuis ce blob. On garde une compat ascendante pour les anciennes sauvegardes
+    // qui les contenaient encore.
+    if(d.valoTable && !state.valoTable) state.valoTable = d.valoTable;
+    if(d.pollueurs && !state.pollueurs.length) state.pollueurs = d.pollueurs;
     if(d.chargesTable) state.chargesTable = d.chargesTable;
     if(d.elementsTable) state.elementsTable = d.elementsTable;
     if(d.general) Object.assign(state.general, d.general);
@@ -2488,16 +2537,98 @@ function readWorkbook(file){
     r.readAsArrayBuffer(file);
   });
 }
+/* ── Template de valorisation : info + aperçu (tableau reconstruit depuis les lignes
+   parsées, pattern AuditVT) ─────────────────────────────────────────────────── */
+function renderValoInfo(){
+  const info = $('#valoInfo'), prev = $('#valoPreview');
+  const save = $('#valoSave'), del = $('#valoDelete');
+  if(!info) return;
+  const has = !!(state.valoTable && state.valoTable.length);
+  if(save) save.disabled = !has;
+  if(del)  del.disabled  = !(has || valoTemplateSaved());
+  if(!has){
+    info.innerHTML = '<div class="alert info">Aucun template chargé. Charge un .xlsx ci-dessus (les calculs de valorisation en dépendent).</div>';
+    if(prev) prev.innerHTML = '';
+    return;
+  }
+  const name  = state.valoFileName ? '<strong>'+esc(state.valoFileName)+'</strong> · ' : '';
+  const dirty = state.valoDirty;
+  info.innerHTML = `<div class="alert ${dirty?'warn':'ok'}">${name}${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')||'—'} · `
+    + (dirty ? '<strong>⚠️ non enregistré</strong> — clique « Enregistrer le template »'
+             : '✅ enregistré, repris à la prochaine ouverture')
+    + `</div>`;
+  if(prev) prev.innerHTML = renderValoPreview();
+}
+function renderValoPreview(){
+  const rows = state.valoTable || [];
+  const MAX = 200;                       // aperçu borné : au-delà, on résume
+  const shown = rows.slice(0, MAX);
+  const fnum = v => num(v) ? num(v).toLocaleString('fr-FR', {maximumFractionDigits:2}) : '<span style="color:var(--text-muted)">—</span>';
+  const body = shown.map(r=>`<tr>
+      <td>${esc(r.pollueur)}</td>
+      <td class="num">${esc(r.sauts)}</td>
+      <td>${esc(r.shabLabel)}</td>
+      <td>${esc(r.cee)}</td>
+      <td>${esc(r.cdp)}</td>
+      <td class="num">${fnum(r.kwhc)}</td>
+      <td class="num">${fnum(r.kwhcFinal)}</td>
+      <td class="num">${num(r.valo)?eur(r.valo):'<span style="color:var(--text-muted)">—</span>'}</td>
+      <td class="num">${num(r.valoCee)?eur(r.valoCee):'<span style="color:var(--text-muted)">—</span>'}</td>
+    </tr>`).join('');
+  const more = rows.length > MAX
+    ? `<div style="padding:6px 10px;font-size:11px;color:var(--text-muted);border-top:1px solid var(--border)">… et ${rows.length-MAX} autre(s) ligne(s) non affichée(s)</div>`
+    : '';
+  return `<div style="margin-top:10px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Aperçu du template — ${rows.length} ligne(s)</div>
+      <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <table style="font-size:12px">
+          <thead><tr>
+            <th>Pollueur</th><th class="num">Sauts</th><th>Shab</th><th>CEE</th><th>CDP</th>
+            <th class="num">kWhc</th><th class="num">kWhc final</th><th class="num">Valo</th><th class="num">Valo CEE</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+        ${more}
+      </div>
+    </div>`;
+}
+
 $('#valoFile').addEventListener('change', async e=>{
   const f=e.target.files[0]; if(!f) return;
   try{
     const wb = await readWorkbook(f);
-    state.valoTable = parseValorisation(wb);
-    state.pollueurs = [...new Set(state.valoTable.map(r=>r.pollueur).filter(Boolean))];
+    const table = parseValorisation(wb);
+    if(!table.length){
+      $('#valoInfo').innerHTML = `<div class="alert err">Aucune ligne exploitable dans « ${esc(f.name)} ». Vérifie que c'est bien le VALORISATION_TEMPLATE (colonnes Nb sauts / Pollueur…).</div>`;
+      return;
+    }
+    // Chargé = disponible tout de suite pour cette session, mais PAS encore persisté :
+    // il faut « Enregistrer le template » pour qu'il survive à la fermeture.
+    state.valoTable    = table;
+    state.pollueurs    = [...new Set(table.map(r=>r.pollueur).filter(Boolean))];
+    state.valoFileName = f.name;
+    state.valoDirty    = true;
     if(!state.general.pollueur && state.pollueurs.length) state.general.pollueur = state.pollueurs[0];
-    $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
-    saveLS();
+    renderValoInfo();
+    renderPollueurs();
   }catch(err){ $('#valoInfo').innerHTML = `<div class="alert err">${esc(err.message)}</div>`; }
+  finally{ e.target.value = ''; }   // réautorise le rechargement du même fichier
+});
+$('#valoSave').addEventListener('click', ()=>{
+  if(!state.valoTable || !state.valoTable.length) return;
+  saveValoTemplate();
+  state.valoDirty = false;
+  renderValoInfo();
+  const b = $('#valoSave'); b.textContent = '✅ Enregistré'; setTimeout(()=>b.textContent='💾 Enregistrer le template', 1500);
+});
+$('#valoDelete').addEventListener('click', ()=>{
+  if(!(state.valoTable && state.valoTable.length) && !valoTemplateSaved()) return;
+  if(!confirm('Supprimer le template de valorisation ?\nLes calculs de valorisation seront impossibles tant qu\'un nouveau template n\'est pas chargé.')) return;
+  state.valoTable = null; state.pollueurs = []; state.valoFileName = ''; state.valoDirty = false;
+  localStorage.removeItem(VALO_KEY);
+  saveLS();
+  renderValoInfo();
+  renderPollueurs();
 });
 // Barème de prix éditable (remplace l'upload Charges.xlsx). Pré-rempli depuis state.chargesTable / défauts.
 function renderChargesEditor(){
@@ -2654,7 +2785,7 @@ function hydrateParamsUI(){
   $('#seuilGo').value = state.settings.seuilGo;
   refreshCas();
   $('#nomDossier').value = state.nomDossier || '';
-  if(state.valoTable) $('#valoInfo').innerHTML = `<div class="alert ok">${state.valoTable.length} ligne(s) en mémoire · Pollueurs : ${state.pollueurs.map(esc).join(', ')}</div>`;
+  renderValoInfo();
   renderChargesEditor();
   renderElementsBareme();
 }
@@ -2702,6 +2833,7 @@ function renderResumeBanner(){
 
 GOLDEN_RESULTS = runGoldenTests();   // couche 2 : le moteur de calcul se re-prouve à chaque chargement
 loadLS();
+loadValoTemplate();   // template de valorisation depuis son stockage dédié (VALO_KEY)
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENTS_DEFAULT)); // barème des éléments (prix à renseigner dans Paramètres)
 hydrateParamsUI();
