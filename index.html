@@ -504,7 +504,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-16.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1251,7 +1251,9 @@ function calcVT(vt){
   const ov = vtOv(vt);
   let reste = (ov.reste !== undefined && ov.reste !== null) ? num(ov.reste) : venteTravaux - prime;
   let marge = (ov.marge !== undefined && ov.marge !== null) ? num(ov.marge) : venteTravaux - coutRevient;
-  let margeBrute = (ov.margeBrute !== undefined && ov.margeBrute !== null) ? num(ov.margeBrute) : prime - chargesTravaux;
+  // Marge Brute = Prime CEE − (charges d'achat travaux + Audit VT + frais VT ITE).
+  // L'Audit VT et la VT ITE sont des charges a deduire de la prime pour la marge brute.
+  let margeBrute = (ov.margeBrute !== undefined && ov.margeBrute !== null) ? num(ov.margeBrute) : prime - chargesTravaux - audit - vtIte;
   let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= num(state.settings.seuilGo));
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge, margeBrute,
@@ -1327,7 +1329,7 @@ function verifyIntegrity(){
     if(vt.role==='habitation' && !near(res.audit, vtAudits(vt)*num(state.settings.auditVT))) c5.push(vt.label);
     if(!near(res.coutRevient, res.chargesTravaux+res.audit+res.vtIte+res.regie)) c6.push(vt.label);
     if(ov.marge==null && !near(res.marge, res.venteTravaux-res.coutRevient)) c7.push(vt.label);
-    if(ov.margeBrute==null && ov.prime==null && !near(res.margeBrute, res.prime-res.chargesTravaux)) c7.push(vt.label+' (brute)');
+    if(ov.margeBrute==null && ov.prime==null && !near(res.margeBrute, res.prime-res.chargesTravaux-res.audit-res.vtIte)) c7.push(vt.label+' (brute)');
     if(ov.reste==null && ov.prime==null && !near(res.reste, res.venteTravaux-res.prime)) c8.push(vt.label);
     if(!ov.decision && res.go !== (res.marge >= seuil)) c9.push(vt.label);
     ['chargesTravaux','venteTravaux','audit','vtIte','regie','coutRevient','prime','reste','marge','margeBrute'].forEach(f=>{
@@ -1386,7 +1388,7 @@ const GOLDEN_CHARGES = { ITE:{unite:'M2',achat:100,vente:200}, ITI:{unite:'M2',a
 const GOLDEN_SCENARIOS = [
   { name:'Cas 1 — habitation simple (ITI 50 m²)', cas:1,
     vts:[ _gVt(1,'habitation',50,{ITI:[{description:'g',piece:'',surface_nette:50,surface_brute:50}]}) ],
-    expect:{ chargesTravaux:3500, regie:420, audit:450, coutRevient:4370, venteTravaux:10500, marge:6130, margeBrute:-3500, reste:10500 }, expectGo:true },
+    expect:{ chargesTravaux:3500, regie:420, audit:450, coutRevient:4370, venteTravaux:10500, marge:6130, margeBrute:-3950, reste:10500 }, expectGo:true },
   { name:'Cas 2 — ITE 100 m² répartie sur 1 habitation', cas:2,
     vts:[ _gVt(1,'ite',0,{ITE:[{description:'façade',piece:'',surface_nette:100,surface_brute:100}]}), _gVt(2,'habitation',25,{}) ],
     expect:{ chargesTravaux:10000, regie:1200, audit:450, vtIte:70, coutRevient:11720, venteTravaux:20000, marge:8280 }, expectGo:true },
@@ -2012,7 +2014,7 @@ function renderStep4(){
         ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), locked:true,
           formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'margeBrute', type:'num', label:'Marge Brute', display:eur(res.margeBrute), rawVal:round2(res.margeBrute), cls:res.margeBrute>=0?'go':'nogo', edited:res.ov.margeBrute!=null,
-          formula:'Marge Brute = Prime CEE − Charges d\'achat travaux = '+eur(res.prime)+' − '+eur(res.chargesTravaux)})}
+          formula:'Marge Brute = Prime CEE − (Charges d\'achat travaux + Audit VT + frais VT ITE) = '+eur(res.prime)+' − ('+eur(res.chargesTravaux)+' + '+eur(res.audit)+' + '+eur(res.vtIte)+')'})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
           formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
         ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge Commerciale', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
@@ -2035,7 +2037,7 @@ function renderStep4(){
       ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), locked:true,
         formula:'Prime CEE totale = Σ des primes CEE des habitations'})}
       ${kpiCell({scope:'g', key:'', field:'margeBrute', type:'num', label:'Marge Brute totale', display:eur(tot.margeBrute), rawVal:round2(tot.margeBrute), cls:tot.margeBrute>=0?'go':'nogo', edited:tot.ov.margeBrute!=null,
-        formula:'Marge Brute totale = Prime CEE totale − Charges d\'achat travaux = '+eur(tot.prime)+' − '+eur(tot.chargesTravaux)})}
+        formula:'Marge Brute totale = Prime CEE totale − (Charges d\'achat travaux + Audit VT + frais VT ITE) = '+eur(tot.prime)+' − ('+eur(tot.chargesTravaux)+' + '+eur(tot.audit)+' + '+eur(tot.vtIte)+')'})}
       ${kpiCell({scope:'g', key:'', field:'reste', type:'num', label:'Reste à charge total', display:eur(tot.reste), rawVal:round2(tot.reste), edited:tot.ov.reste!=null,
         formula:'Reste à charge total = Prix de vente HT − Prime CEE totale = '+eur(tot.venteTravaux)+' − '+eur(tot.prime)})}
       ${kpiCell({scope:'g', key:'', field:'marge', type:'num', label:'Marge Commerciale globale', display:eur(tot.marge), rawVal:round2(tot.marge), cls:tot.go?'go':'nogo', edited:tot.ov.marge!=null,
@@ -2143,7 +2145,7 @@ function buildReportWorkbook(){
     ['Coût de revient total', 'Charges travaux + Audit VT + Frais VT ITE + Régie'],
     ['Prix de vente HT', 'Σ (surfaces × Px vente) + Σ éléments (qté × Px vente)'],
     ['Prime CEE', 'Lookup barème : pollueur · revenus · CDP · sauts de classe · tranche Shab'],
-    ['Marge Brute', 'Prime CEE − Charges travaux'],
+    ['Marge Brute', 'Prime CEE − (Charges travaux + Audit VT + Frais VT ITE)'],
     ['Reste à charge', 'Prix de vente HT − Prime CEE'],
     ['Marge Commerciale', 'Prix de vente HT − Coût de revient'],
     ['Décision', 'GO si Marge Commerciale ≥ Seuil']
@@ -2285,13 +2287,13 @@ function buildReportWorkbook(){
     [new RegExp('^\\+ Régie commerciale'), 'Charges travaux × '+pct+' %'],
     ['= COÛT DE REVIENT TOTAL', 'Sous-total travaux + Audit VT + Frais VT ITE + Régie'],
     ['Prime CEE (Coup de Pouce)', 'Lookup barème : pollueur · revenus · CDP · sauts de classe · tranche Shab'],
-    ['MARGE BRUTE', 'Prime CEE − Charges d\'achat travaux'],
+    ['MARGE BRUTE', 'Prime CEE − (Charges d\'achat travaux + Audit VT + Frais VT ITE)'],
     ['Reste à charge', 'Prix de vente HT − Prime CEE'],
     ['MARGE COMMERCIALE', 'Prix de vente HT − Coût de revient'],
     ['Coût de revient total', 'Charges travaux + Audit VT + Frais VT ITE + Régie'],
     ['Prix de vente HT', 'Σ (surfaces × Px vente) + Σ éléments (qté × Px vente)'],
     ['Prime CEE totale', 'Σ des primes CEE des habitations'],
-    ['Marge Brute totale', 'Prime CEE totale − Charges d\'achat travaux'],
+    ['Marge Brute totale', 'Prime CEE totale − (Charges d\'achat travaux + Audit VT + Frais VT ITE)'],
     ['Reste à charge total', 'Prix de vente HT − Prime CEE totale'],
     ['MARGE COMMERCIALE GLOBALE', 'Prix de vente HT − Coût de revient total'],
     [new RegExp('^Décision globale'), 'GO si Marge Commerciale globale ≥ Seuil']
