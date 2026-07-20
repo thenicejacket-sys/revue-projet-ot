@@ -580,7 +580,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-16.13';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-20.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -934,7 +934,8 @@ function resolveModel(){
     : state.settings.model;
 }
 
-async function callAIExtraction(vtText, hints, role){
+async function callAIExtraction(vtText, hints, role, opts){
+  opts = opts || {};
   // Lecture LIVE : on prend la clé en mémoire, sinon directement le champ (même sans clic « Enregistrer »).
   const fieldKey = (document.getElementById('apiKey')?.value || '').trim();
   const key = state.settings.apiKey || fieldKey;
@@ -963,7 +964,13 @@ async function callAIExtraction(vtText, hints, role){
         + "une ligne par façade (mets l'orientation Nord/Sud/Est/Ouest dans 'piece'), "
         + "surface_nette = « Surface à isoler », surface_brute = « Surface brute ». "
         + "La catégorie ITE ne doit PAS être vide si des façades sont listées.\n"
-      : "")
+      : (hasDedicatedIte()
+          ? "- CETTE VT EST UNE HABITATION, PAS une façade globale : une VT ITE dédiée traite les façades à part. "
+            + "N'utilise donc JAMAIS la catégorie ITE ici — laisse-la vide []. Les murs décrits pièce par pièce "
+            + "(chambre, séjour, cuisine, salle de bain, couloir…) sont de l'isolation par l'INTÉRIEUR = catégorie ITI, "
+            + "même si la VT mentionne une orientation (Nord/Sud/Est/Ouest) ou le mot « extérieur ». "
+            + "Renseigne les catégories ITI, Combles, Plancher, Fenetres dès qu'un travail apparaît dans le texte.\n"
+          : ""))
     + "- NE CONFONDS PAS Combles (en haut) et Plancher (en bas).\n"
     + "- Une ligne par instance/pièce, avec description, pièce, surface_nette, surface_brute (nombres en m²).\n"
     + "- Le champ 'piece' : mets le TYPE DE PIÈCE (cuisine, salle de bain, chambre, séjour…) SI la VT l'indique. "
@@ -971,8 +978,17 @@ async function callAIExtraction(vtText, hints, role){
     + "- Pour Fenetres UNIQUEMENT : renseigne 'dimensions' = dimensions de la menuiserie telles qu'écrites sur la VT "
     + "(ex. « 1,20 x 1,00 »), sinon laisse vide. Ne déduis pas la pièce si elle n'est pas écrite.\n"
     + "- Catégorie absente => tableau vide [].\n"
-    + "- Parois repérées dans le texte (indice, à vérifier) : " + detectedList + ".\n\n"
-    + "TEXTE DE LA VT :\n\"\"\"\n" + vtText.slice(0, 24000) + "\n\"\"\"";
+    + "- Parois repérées dans le texte (indice, à vérifier) : " + detectedList + ".\n"
+    + ((opts.focusCats && opts.focusCats.length)
+        ? "- PRIORITÉ : ces catégories ont été repérées dans le texte mais manquaient à une première extraction. "
+          + "Relis attentivement et extrais-les si un travail est décrit — "
+          + opts.focusCats.map(c=>CAT_LABEL[c]).join(', ')
+          + ". Si elles sont réellement absentes, laisse [].\n"
+        : "")
+    + "\n"
+    // 60 000 car. : une VT longue (plusieurs logements, tableaux) ne doit pas être tronquée
+    // avant ses dernières sections (ITI/Combles/Plancher arrivent souvent en fin de document).
+    + "TEXTE DE LA VT :\n\"\"\"\n" + vtText.slice(0, 60000) + "\n\"\"\"";
 
   const body = {
     model: resolveModel(),
@@ -1852,7 +1868,7 @@ function renderStep2(){
    ligne saisie à la main fait passer la catégorie de « manquante » à « extraite ».
    ---------------------------------------------------------------------------- */
 function renderExtractionReport(){
-  let got = 0, expected = 0, waiting = 0, failed = 0;
+  let got = 0, expected = 0, waiting = 0, failed = 0, realMissing = 0;
   const rows = orderedVts().map(vt=>{
     const cats  = catsForVt(vt);
     const badge = vt.role==='ite' ? '<span class="badge ite">VT ITE</span>' : '<span class="badge hab">Habitation</span>';
@@ -1865,17 +1881,31 @@ function renderExtractionReport(){
     // elle compte comme manquante, pas comme extraite.
     const ok      = cats.filter(c => activeCount(vt, c) >  0);
     const missing = cats.filter(c => activeCount(vt, c) === 0);
-    got += ok.length; expected += cats.length;
-    const status = missing.length
-      ? `<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missing.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`
-      : `<span style="color:var(--green-tx)">✅ complet</span>`;
-    return `<tr><td style="${cell}">${name}</td><td style="${cell}"><strong>${ok.length}/${cats.length}</strong></td><td style="${cell}">${status}</td></tr>`;
+    // On sépare « vraiment manquant » (paroi repérée dans le texte mais absente de l'extraction
+    // = anomalie à corriger) de « non repéré » (le détecteur n'a rien vu dans la VT = normal,
+    // ex. pas de combles sur un logement d'étage intermédiaire). hints absent (dossier archivé)
+    // => on retombe sur l'ancien comportement : tout manquant est traité comme une anomalie.
+    const det        = vt.hints && vt.hints.detected;
+    const missReal   = det ? missing.filter(c =>  det[c]) : missing;
+    const missAbsent = det ? missing.filter(c => !det[c]) : [];
+    const applicable = cats.length - missAbsent.length;
+    got += ok.length; expected += applicable; realMissing += missReal.length;
+    let status;
+    if(!missing.length){
+      status = `<span style="color:var(--green-tx)">✅ complet</span>`;
+    }else{
+      const segs = [];
+      if(missReal.length)   segs.push(`<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missReal.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`);
+      if(missAbsent.length) segs.push(`<span style="color:var(--text-muted)">non repéré dans la VT : ${missAbsent.map(c=>CAT_LABEL[c]).join(', ')}</span>`);
+      status = segs.join(' · ');
+    }
+    return `<tr><td style="${cell}">${name}</td><td style="${cell}"><strong>${ok.length}/${applicable}</strong></td><td style="${cell}">${status}</td></tr>`;
   }).join('');
 
   // Un échec ou une paroi manquante passe le bandeau en orange : le bleu « info » ne
   // doit jamais servir à annoncer un problème.
   const complete = expected > 0 && got === expected;
-  const tone = (failed || (expected > 0 && !complete)) ? 'warn' : (waiting ? 'info' : (complete ? 'ok' : 'info'));
+  const tone = (failed || realMissing > 0) ? 'warn' : (waiting ? 'info' : (complete ? 'ok' : 'info'));
   const head = expected === 0 && !failed
     ? 'aucune VT extraite pour l’instant'
     : `<strong>${got}/${expected}</strong> catégorie(s) extraite(s)`
@@ -2042,6 +2072,53 @@ function renderStep3(){
   }));
 }
 
+/* Déduplication d'instances (description + pièce + surfaces) : évite les doublons quand on
+   fusionne deux buckets (ex. repli ITE -> ITI) ou après une ré-extraction ciblée. */
+function dedupeInstances(list){
+  const seen = new Set();
+  return (list||[]).filter(it=>{
+    const k = [(it.description||'').trim().toLowerCase(), (it.piece||'').trim().toLowerCase(),
+               num(it.surface_nette), num(it.surface_brute)].join('|');
+    if(seen.has(k)) return false; seen.add(k); return true;
+  });
+}
+
+/* INVARIANT MÉTIER : une habitation ne porte JAMAIS d'ITE quand une VT ITE dédiée existe
+   (la façade est traitée globalement par cette VT ITE). Toute ligne que le modèle a classée
+   ITE sur une habitation est donc de l'isolation intérieure décrite pièce par pièce -> ITI.
+   On la replie au lieu de la laisser jeter en silence par effectiveInstances (cause racine
+   du faux « manque : ITI »). Idempotent : sans lignes ITE, ne fait rien. */
+function foldHabitationIteIntoIti(vt){
+  if(!vt || vt.role!=='habitation' || !hasDedicatedIte()) return;
+  const cats = vt.extraction && vt.extraction.categories; if(!cats) return;
+  if(Array.isArray(cats.ITE) && cats.ITE.length){
+    cats.ITI = dedupeInstances([...(cats.ITI||[]), ...cats.ITE]);
+    cats.ITE = [];
+  }
+}
+
+/* Récupération : toute catégorie ATTENDUE (catsForVt), repérée dans le texte par le détecteur
+   de parois mais toujours vide après extraction + repli, déclenche UNE ré-extraction ciblée.
+   On ne récupère que ce qui est réellement dans la VT (garde-fou hints.detected) et le modèle
+   reste tenu de ne rien inventer. Une seule tentative, jamais bloquante. */
+async function recoverMissingDetectedCategories(vt){
+  if(!vt.text) return;
+  const hints = vt.hints || detectInstanceHints(vt.text);
+  const expected = catsForVt(vt);
+  const toRecover = expected.filter(cat =>
+    hints.detected[cat] && (vt.extraction.categories[cat]||[]).length === 0
+  );
+  if(!toRecover.length) return;
+  try{
+    const patch = await callAIExtraction(vt.text, hints, vt.role, { focusCats: toRecover });
+    for(const cat of toRecover){
+      const got = (patch.categories && patch.categories[cat]) || [];
+      if(got.length) vt.extraction.categories[cat] = got;
+    }
+    foldHabitationIteIntoIti(vt);   // la ré-extraction peut de nouveau classer en ITE -> re-replier
+  }catch(_){ /* on garde l'alerte visuelle « paroi manquante » ; pas de blocage */ }
+}
+
 async function extractOne(id){
   const vt = state.vts.find(v=>v.id==id); if(!vt) return;
   if(!vt.text){ vt.error='Texte PDF vide (re-charger le PDF).'; renderStep3(); return; }
@@ -2054,6 +2131,10 @@ async function extractOne(id){
       vt.extraction.categories.ITE = vt.extraction.categories.ITI;
       vt.extraction.categories.ITI = [];
     }
+    // Repli déterministe : ITE d'une habitation -> ITI (cf. foldHabitationIteIntoIti).
+    foldHabitationIteIntoIti(vt);
+    // Récupération d'une catégorie attendue repérée dans le texte mais restée vide (1 ré-extraction).
+    await recoverMissingDetectedCategories(vt);
     // Ré-extraction : nouvelles lignes, donc nouveaux index. Les sélections ET les
     // désactivations de l'extraction précédente doivent partir, sinon elles
     // s'appliqueraient à des lignes qui n'ont plus rien à voir.
