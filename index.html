@@ -580,7 +580,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-20.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-20.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1885,19 +1885,26 @@ function renderExtractionReport(){
     // = anomalie à corriger) de « non repéré » (le détecteur n'a rien vu dans la VT = normal,
     // ex. pas de combles sur un logement d'étage intermédiaire). hints absent (dossier archivé)
     // => on retombe sur l'ancien comportement : tout manquant est traité comme une anomalie.
-    const det        = vt.hints && vt.hints.detected;
-    const missReal   = det ? missing.filter(c =>  det[c]) : missing;
-    const missAbsent = det ? missing.filter(c => !det[c]) : [];
-    const applicable = cats.length - missAbsent.length;
+    // « manque » = anomalie réelle : catégorie déperditive attendue (repérée dans le texte),
+    // absente de l'extraction ET non marquée « sans objet » par le parseur de template.
+    // « sans objet » (catNA) = paroi non déperditive (logement chauffé de l'autre côté).
+    // « non repéré » = le détecteur n'a rien vu dans la VT. Ces deux derniers sont neutres.
+    const det     = vt.hints && vt.hints.detected;
+    const na      = vt.catNA || {};
+    const missReal  = missing.filter(c => (det ? det[c] : true) && !na[c]);
+    const missNA    = missing.filter(c => na[c]);
+    const missUndet = missing.filter(c => !na[c] && !(det ? det[c] : true));
+    const applicable = cats.length - missNA.length - missUndet.length;
     got += ok.length; expected += applicable; realMissing += missReal.length;
     let status;
     if(!missing.length){
       status = `<span style="color:var(--green-tx)">✅ complet</span>`;
     }else{
       const segs = [];
-      if(missReal.length)   segs.push(`<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missReal.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`);
-      if(missAbsent.length) segs.push(`<span style="color:var(--text-muted)">non repéré dans la VT : ${missAbsent.map(c=>CAT_LABEL[c]).join(', ')}</span>`);
-      status = segs.join(' · ');
+      if(missReal.length)  segs.push(`<span style="color:var(--orange-tx)">⚠️ manque : <strong>${missReal.map(c=>CAT_LABEL[c]).join(', ')}</strong></span>`);
+      if(missNA.length)    segs.push(`<span style="color:var(--text-muted)">sans objet : ${missNA.map(c=>CAT_LABEL[c]).join(', ')}</span>`);
+      if(missUndet.length) segs.push(`<span style="color:var(--text-muted)">non repéré : ${missUndet.map(c=>CAT_LABEL[c]).join(', ')}</span>`);
+      status = segs.length ? segs.join(' · ') : `<span style="color:var(--green-tx)">✅ complet</span>`;
     }
     return `<tr><td style="${cell}">${name}</td><td style="${cell}"><strong>${ok.length}/${applicable}</strong></td><td style="${cell}">${status}</td></tr>`;
   }).join('');
@@ -2119,6 +2126,74 @@ async function recoverMissingDetectedCategories(vt){
   }catch(_){ /* on garde l'alerte visuelle « paroi manquante » ; pas de blocage */ }
 }
 
+/* ============================================================================
+   ENRICHISSEMENT DÉTERMINISTE — PLANCHERS / COMBLES (template VT structuré)
+   ----------------------------------------------------------------------------
+   Ces VT ont un récapitulatif à format fixe :
+     « Surface plancher bas: <type> <S>m2 »
+     « Surface plancher haut: <type> <sol>m2 <rampant>m2 »
+   Le modèle rate souvent le plancher bas (décrit comme de l'existant, sans colonne
+   « à isoler » contrairement aux façades) -> on le parse en dur, fiable à 100%.
+   Règle métier : une paroi entre deux volumes CHAUFFÉS (appartement/logement chauffé
+   de l'autre côté) n'est pas déperditive => aucun travail => « sans objet » (catNA),
+   PAS un « manque ». On ne remplit jamais une catégorie déjà extraite par le modèle.
+   ============================================================================ */
+function parseVtTemplate(text){
+  if(!text) return null;
+  const lines = String(text).split('\n').map(l=>l.trim());
+  const out = { plancherBas:null, plancherHaut:null };
+  for(let i=0;i<lines.length;i++){
+    if(/^Surface plancher bas\s*:/i.test(lines[i])){
+      for(let j=i+1;j<Math.min(i+5,lines.length);j++){
+        if(/^Type\b/i.test(lines[j])) continue;
+        const m = lines[j].match(/^(.*?)\s+([\d.,]+)\s*m2\s*$/i);
+        if(m){ out.plancherBas = { type:m[1].trim(), surface:num(m[2]) }; break; }
+      }
+    }
+    if(/^Surface plancher haut\s*:/i.test(lines[i])){
+      for(let j=i+2;j<Math.min(i+7,lines.length);j++){
+        const m = lines[j].match(/([\d.,]+)\s*m2\s+([\d.,]+)\s*m2/i);
+        if(m){
+          let tl = [];
+          for(let k=i+2;k<=j;k++) tl.push(lines[k].replace(/[\d.,]+\s*m2/gi,'').trim());
+          out.plancherHaut = { type: tl.join(' ').replace(/\s+/g,' ').trim(), sol:num(m[1]), rampant:num(m[2]) };
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+// Paroi entre deux volumes chauffés (logement chauffé de l'autre côté) = non déperditive,
+// SAUF si le type mentionne explicitement des combles/rampant (« zone chauffée mansardée »).
+function isHeatedAdjacent(type){
+  const t = normalizeVtText(type);
+  return /(appartement|logement|local|zone)\s*chauff/.test(t)
+     && !/combl|rampant|mansard|perdus|amenag|toiture|sous.?toit/.test(t);
+}
+function tplInstance(label, type, surface){
+  return { description: label + ' — ' + (type||''), piece:'', dimensions:'',
+           surface_nette:surface, surface_brute:surface };
+}
+function enrichExtractionFromTemplate(vt){
+  vt.catNA = {};
+  if(vt.role==='ite' || !vt.text || !vt.extraction) return;
+  let tpl; try{ tpl = parseVtTemplate(vt.text); }catch(_){ return; }
+  if(!tpl) return;
+  const cats = vt.extraction.categories;
+  if(tpl.plancherBas && tpl.plancherBas.surface > 0){
+    if(isHeatedAdjacent(tpl.plancherBas.type)) vt.catNA.Plancher = true;
+    else if((cats.Plancher||[]).length === 0)
+      cats.Plancher = [ tplInstance('Plancher bas', tpl.plancherBas.type, tpl.plancherBas.surface) ];
+  }
+  if(tpl.plancherHaut){
+    const s = tpl.plancherHaut.rampant > 0 ? tpl.plancherHaut.rampant : tpl.plancherHaut.sol;
+    if(isHeatedAdjacent(tpl.plancherHaut.type)) vt.catNA.Combles = true;
+    else if(s > 0 && (cats.Combles||[]).length === 0)
+      cats.Combles = [ tplInstance('Combles', tpl.plancherHaut.type, s) ];
+  }
+}
+
 async function extractOne(id){
   const vt = state.vts.find(v=>v.id==id); if(!vt) return;
   if(!vt.text){ vt.error='Texte PDF vide (re-charger le PDF).'; renderStep3(); return; }
@@ -2135,6 +2210,8 @@ async function extractOne(id){
     foldHabitationIteIntoIti(vt);
     // Récupération d'une catégorie attendue repérée dans le texte mais restée vide (1 ré-extraction).
     await recoverMissingDetectedCategories(vt);
+    // Enrichissement déterministe planchers/combles depuis le récap structuré + marquage « sans objet ».
+    enrichExtractionFromTemplate(vt);
     // Ré-extraction : nouvelles lignes, donc nouveaux index. Les sélections ET les
     // désactivations de l'extraction précédente doivent partir, sinon elles
     // s'appliqueraient à des lignes qui n'ont plus rien à voir.
