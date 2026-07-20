@@ -580,7 +580,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-20.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-20.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -2172,22 +2172,75 @@ function isHeatedAdjacent(type){
      && !/combl|rampant|mansard|perdus|amenag|toiture|sous.?toit/.test(t);
 }
 function tplInstance(label, type, surface){
-  return { description: label + ' — ' + (type||''), piece:'', dimensions:'',
+  return { description: label + (type?(' — ' + type):''), piece:'', dimensions:'',
            surface_nette:surface, surface_brute:surface };
 }
+
+/* Récap « Surface plancher latéraux » : totaux fiables ouvrants (=menuiseries) / ITE / ITI. */
+function parseVtLateraux(text){
+  const lines = String(text).split('\n').map(l=>l.trim());
+  for(let i=0;i<lines.length;i++){
+    if(/Surface ouvrants\s+Surface ITE\s+Surface ITI/i.test(lines[i])){
+      for(let j=i+1;j<Math.min(i+6,lines.length);j++){
+        if(/m2/.test(lines[j])){
+          const p = lines[j].split(/m2/).map(s=>s.trim());   // [ouvrants, ITE, ITI, …] ; vide => 0
+          return { ouvrants:num(p[0]), ite:num(p[1]), iti:num(p[2]) };
+        }
+      }
+    }
+  }
+  return null;
+}
+/* Total « Surface à isoler » d'une VT ITE dédiée. */
+function parseVtIteTotal(text){
+  const m = String(text).match(/Surface à isoler \(en m2\)\s+([\d.,]+)/i);
+  return m ? num(m[1]) : 0;
+}
+function catSurfaceSum(cats, cat){
+  return ((cats && cats[cat]) || []).reduce((s,it)=> s + num(it.surface_nette), 0);
+}
+/* GARANTIE : le total d'une catégorie n'est jamais inférieur au total du récap de la VT.
+   Si le détail du modèle colle au total (±3%), on le garde (détail complet). Sinon on pose
+   une ligne unique = total fiable du récap : le montant est toujours correct, rien n'est ignoré. */
+function ensureCategoryTotal(cats, cat, target, label){
+  if(!(target > 0)) return;
+  const s = catSurfaceSum(cats, cat);
+  if((cats[cat]||[]).length && s >= target*0.97 && s <= target*1.03) return;
+  cats[cat] = [ tplInstance(label, 'total VT', target) ];
+}
+
+/* Enrichissement déterministe depuis le récap structuré de la VT (format International Horizon).
+   Garantit chaque catégorie à partir des totaux du récap (jamais dépendant de l'humeur du
+   modèle), et marque « sans objet » (catNA) les parois non déperditives. */
 function enrichExtractionFromTemplate(vt){
   vt.catNA = {};
-  if(vt.role==='ite' || !vt.text || !vt.extraction) return;
-  let tpl; try{ tpl = parseVtTemplate(vt.text); }catch(_){ return; }
-  if(!tpl) return;
+  if(!vt.text || !vt.extraction) return;
   const cats = vt.extraction.categories;
-  if(tpl.plancherBas && tpl.plancherBas.surface > 0){
+  let tpl, lat, iteTot;
+  try{ tpl = parseVtTemplate(vt.text); lat = parseVtLateraux(vt.text); iteTot = parseVtIteTotal(vt.text); }
+  catch(_){ return; }
+
+  // VT ITE dédiée : ne porte que de l'ITE = total « Surface à isoler » (sinon Surface ITE du récap).
+  if(vt.role === 'ite'){
+    ensureCategoryTotal(cats, 'ITE', iteTot || (lat && lat.ite) || 0, 'Façades ITE');
+    return;
+  }
+
+  // Habitation : garantir ITI (+ ITE si pas de VT ITE dédiée) et Fenêtres depuis le récap latéraux.
+  if(lat){
+    ensureCategoryTotal(cats, 'ITI', lat.iti, 'Murs ITI');
+    if(!hasDedicatedIte()) ensureCategoryTotal(cats, 'ITE', lat.ite, 'Murs ITE');
+    ensureCategoryTotal(cats, 'Fenetres', lat.ouvrants, 'Menuiseries');
+  }
+  // Plancher bas : déperditif (terre-plein/vide sanitaire) sauf logement chauffé en dessous.
+  if(tpl && tpl.plancherBas && tpl.plancherBas.surface > 0){
     if(isHeatedAdjacent(tpl.plancherBas.type)) vt.catNA.Plancher = true;
     else if((cats.Plancher||[]).length === 0)
       cats.Plancher = [ tplInstance('Plancher bas', tpl.plancherBas.type, tpl.plancherBas.surface) ];
   }
-  if(tpl.plancherHaut){
-    const s = tpl.plancherHaut.rampant > 0 ? tpl.plancherHaut.rampant : tpl.plancherHaut.sol;
+  // Combles (plancher haut) : sol + rampant (perdus ET/OU aménagé) sauf logement chauffé au-dessus.
+  if(tpl && tpl.plancherHaut){
+    const s = num(tpl.plancherHaut.sol) + num(tpl.plancherHaut.rampant);
     if(isHeatedAdjacent(tpl.plancherHaut.type)) vt.catNA.Combles = true;
     else if(s > 0 && (cats.Combles||[]).length === 0)
       cats.Combles = [ tplInstance('Combles', tpl.plancherHaut.type, s) ];
