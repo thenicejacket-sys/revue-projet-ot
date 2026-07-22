@@ -94,6 +94,8 @@ input[type=text],input[type=number],input[type=password],select,textarea{
   width:100%;background:var(--white);border:1px solid var(--border);color:var(--text-dark);
   padding:9px 11px;border-radius:8px;font-size:14px;font-family:'Nunito',sans-serif}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(27,63,139,.12)}
+/* Champ verrouillé (valeur dérivée automatiquement, non modifiable) : grisage net mais lisible */
+input.locked:disabled{background:#e3e8f1;color:#4b5872;border-color:#cbd5e5;opacity:1;cursor:not-allowed}
 textarea{resize:vertical;min-height:60px}
 
 button.btn{font-family:'Montserrat',sans-serif;background:var(--primary);color:#fff;border:none;padding:11px 20px;border-radius:8px;
@@ -580,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-22.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-22.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -709,6 +711,14 @@ function loadValoTemplate(){
     // douce — on le purge et on signalera qu'il faut recharger le fichier pour récupérer
     // toutes les options CEE. Sinon le menu « Type de revenus » resterait bridé à 2.
     if(d.schemaVersion !== VALO_SCHEMA){
+      state.valoStale = { fileName: d.fileName || '' };
+      localStorage.removeItem(VALO_KEY);
+      return;
+    }
+    // Template v2 (Rev Ménages) enregistré via une ANCIENNE version de l'app : l'ancien
+    // parseur lisait les colonnes décalées -> la CEE stockée vaut OUI/NON (c'était la
+    // colonne CDP). Table inutilisable : on purge et on demande de recharger le .xlsx.
+    if(Array.isArray(d.table) && d.table.length && d.table.every(r => /^(oui|non)$/i.test(String(r.cee||'').trim()))){
       state.valoStale = { fileName: d.fileName || '' };
       localStorage.removeItem(VALO_KEY);
       return;
@@ -1874,9 +1884,9 @@ function renderStep2(){
             ${revOpts.map(o=>`<option value="${esc(o)}" ${o===vt.revMenages?'selected':''}>${esc(o)}</option>`).join('')}
           </select></div>
         <div class="col"><label class="fld">Type de revenus</label>
-          <input type="text" value="${esc(vt.revenus)}" disabled title="${lockTitle}"/></div>
+          <input type="text" class="locked" value="${esc(vt.revenus)}" disabled title="${lockTitle}"/></div>
         <div class="col"><label class="fld">Coup de Pouce (CDP)</label>
-          <input type="text" value="${vt.cdp==='oui'?'Oui':'Non'}" disabled title="${lockTitle}"/></div>` : `
+          <input type="text" class="locked" value="${vt.cdp==='oui'?'Oui':'Non'}" disabled title="${lockTitle}"/></div>` : `
         <div class="col"><label class="fld">Type de revenus</label>
           ${(()=>{
             // Options = valeurs distinctes de la colonne CEE du template (fallback si aucun template).
