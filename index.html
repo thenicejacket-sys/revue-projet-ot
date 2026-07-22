@@ -582,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-22.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-22.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -742,9 +742,13 @@ function saveLS(){
     const blank = state.vts.length === 0 && !state.nomDossier;
     const dossier = (blank && SAVED_DOSSIER)
       ? { cas: SAVED_DOSSIER.cas, general: SAVED_DOSSIER.general, nomDossier: SAVED_DOSSIER.nomDossier,
-          overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts }
+          overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts,
+          chargesEdited: SAVED_DOSSIER.chargesEdited || {} }
       : { cas: state.cas, general: state.general, nomDossier: state.nomDossier,
           overrides: state.overrides,
+          // Surlignage rosé des prix édités : propriété DU DOSSIER (2026-07-22) — un nouveau
+          // dossier repart blanc, même si le prix modifié reste le nouveau défaut du barème.
+          chargesEdited: state.chargesEdited || {},
           // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
           vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false})) };
     // NB : le template de valorisation (valoTable/pollueurs) N'est PAS dans ce blob.
@@ -754,7 +758,6 @@ function saveLS(){
     localStorage.setItem(LS_KEY, JSON.stringify(Object.assign({
       settings: state.settings,
       chargesTable: state.chargesTable,
-      chargesEdited: state.chargesEdited,
       elementsTable: state.elementsTable,
       history: state.history
     }, dossier)));
@@ -772,7 +775,8 @@ function loadLS(){
     // bridait le menu « Type de revenus » à 2 options. On purge au passage ce résidu.
     if(d.valoTable || d.pollueurs){ delete d.valoTable; delete d.pollueurs; localStorage.setItem(LS_KEY, JSON.stringify(d)); }
     if(d.chargesTable) state.chargesTable = d.chargesTable;
-    if(d.chargesEdited) state.chargesEdited = d.chargesEdited;
+    // chargesEdited (surlignage rosé) N'est PLUS restauré globalement : il appartient au
+    // dossier. Une page vierge = nouveau dossier = tout blanc. Il revient via « Reprendre ».
     if(d.elementsTable) state.elementsTable = d.elementsTable;
     if(d.general) Object.assign(state.general, d.general);
     if(Array.isArray(d.history)) state.history = d.history;
@@ -780,7 +784,8 @@ function loadLS(){
     // s'ouvre vierge. Il est gardé de côté et proposé via le bandeau « Reprendre » (étape 1).
     if((Array.isArray(d.vts) && d.vts.length) || d.nomDossier){
       SAVED_DOSSIER = { cas:d.cas||1, nomDossier:d.nomDossier||'', vts:d.vts||[],
-                        overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''} };
+                        overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''},
+                        chargesEdited:d.chargesEdited||{} };
     }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
@@ -2822,6 +2827,7 @@ function buildDossierSnapshot(){
     valoTable: state.valoTable,
     pollueurs: state.pollueurs,
     chargesTable: state.chargesTable,
+    chargesEdited: JSON.parse(JSON.stringify(state.chargesEdited || {})),   // le rosé archivé avec son dossier
     elementsTable: state.elementsTable,
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
     vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false })),
@@ -3026,6 +3032,7 @@ async function openArchived(id){
   state.valoTable = snap.valoTable || null;
   state.pollueurs = snap.pollueurs || [];
   state.chargesTable = snap.chargesTable || null;
+  state.chargesEdited = snap.chargesEdited || {};   // rosé = celui du dossier archivé uniquement
   state.elementsTable = snap.elementsTable || state.elementsTable;
   state.vts = snap.vts || [];
   Object.assign(state.settings, snap.settings || {});
@@ -3370,6 +3377,7 @@ function renderResumeBanner(){
     const d = SAVED_DOSSIER; SAVED_DOSSIER = null;
     state.cas = d.cas; state.nomDossier = d.nomDossier; state.vts = d.vts;
     state.overrides = Object.assign({global:{},vt:{}}, d.overrides);
+    state.chargesEdited = d.chargesEdited || {};   // le surlignage rosé revient avec SON dossier
     Object.assign(state.general, d.general||{});
     _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
     $('#nomDossier').value = state.nomDossier;
