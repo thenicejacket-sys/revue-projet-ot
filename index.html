@@ -582,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-22.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-22.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1888,11 +1888,11 @@ function renderStep2(){
           <select data-q="revMenages" data-vt="${vt.id}">
             ${revOpts.map(o=>`<option value="${esc(o)}" ${o===vt.revMenages?'selected':''}>${esc(o)}</option>`).join('')}
           </select></div>
-        <div class="col"><label class="fld">Type de revenus</label>
+        <div class="col"><label class="fld">Type de CEE</label>
           <input type="text" class="locked" value="${esc(vt.revenus)}" disabled title="${lockTitle}"/></div>
         <div class="col"><label class="fld">Coup de Pouce (CDP)</label>
           <input type="text" class="locked" value="${vt.cdp==='oui'?'Oui':'Non'}" disabled title="${lockTitle}"/></div>` : `
-        <div class="col"><label class="fld">Type de revenus</label>
+        <div class="col"><label class="fld">Type de CEE</label>
           ${(()=>{
             // Options = valeurs distinctes de la colonne CEE du template (fallback si aucun template).
             const opts = valoCeeOptions();
