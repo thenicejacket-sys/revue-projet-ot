@@ -580,7 +580,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-20.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-22.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -647,6 +647,25 @@ function valoCeeOptions(){
     if(v && !seen.has(ceeKey(v))){ seen.add(ceeKey(v)); out.push(v); }
   }
   return out;
+}
+/* Valeurs « Rev Ménages » distinctes du template (format v2), dans l'ordre d'apparition.
+   Vide si aucun template chargé ou template ancien format -> l'onglet CEE retombe alors
+   sur les deux menus manuels Type de revenus / CDP. */
+function revMenagesOptions(){
+  if(!state.valoTable) return [];
+  const seen = new Set(), out = [];
+  for(const r of state.valoTable){
+    const v = String(r.rev||'').trim();
+    if(v && !seen.has(ceeKey(v))){ seen.add(ceeKey(v)); out.push(v); }
+  }
+  return out;
+}
+/* Mapping déterministe Rev Ménages -> {cee, cdp} : première ligne du template qui porte
+   cette valeur. Le template est la source unique — aucune table codée en dur. */
+function revToCeeCdp(rev){
+  if(!state.valoTable) return null;
+  const r = state.valoTable.find(x => ceeKey(x.rev) === ceeKey(rev));
+  return r ? { cee: String(r.cee||'').trim(), cdp: normCdp(r.cdp)==='OUI' ? 'oui' : 'non' } : null;
 }
 function normCdp(v){ return /oui|^o$|true|1/i.test(String(v||'').trim()) ? 'OUI' : 'NON'; }
 function normSauts(v){ const m=String(v||'').match(/\d/); return m ? m[0] : '2'; }   // "4 et +" -> "4"
@@ -1043,10 +1062,28 @@ function safeParseExtraction(raw){
    ============================================================================ */
 // Colonnes utiles de VALORISATION_TEMPLATE (en-têtes ligne 2, données dès ligne 3)
 const VCOL = { A:0, B:1, C:2, D:3, G:6, J:9, K:10, L:11, N:13, O:14 };
+// Format v2 (TEMPLATE_22_07, 2026-07) : colonne « Rev Ménages » insérée en J -> tout ce
+// qui suit se décale d'un cran : CDP en K, CEE en L, kWhc final en M, Valo en O, Valo CEE en P.
+const VCOL2 = { A:0, B:1, C:2, D:3, G:6, REV:9, CDP:10, CEE:11, KWHCF:12, VALO:14, VALOCEE:15 };
+
+/* Détecte le format du template : 'v2' si une colonne « Rev Ménages » existe en J
+   (en-tête ou données OUI/NON décalées en K), sinon 'v1' (ancien format). */
+function detectValoFormat(rows){
+  for(const r of rows){
+    const j = String(r[9] ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    if(/rev/.test(j) && /menage/.test(j)) return 'v2';        // en-tête « Rev Ménages »
+  }
+  // Pas d'en-tête reconnaissable : on regarde où vivent les OUI/NON de la colonne CDP.
+  const data = rows.filter(r => /^[234]/.test(String(r[0] ?? '').trim()) && String(r[6] ?? '').trim());
+  if(data.length && data.every(r => /^(oui|non)$/i.test(String(r[9]  ?? '').trim()))) return 'v1';
+  if(data.length && data.every(r => /^(oui|non)$/i.test(String(r[10] ?? '').trim()))) return 'v2';
+  return 'v1';
+}
 
 function parseValorisation(workbook){
   const ws = workbook.Sheets['Feuil1'] || workbook.Sheets[workbook.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, blankrows:false, defval:'' });
+  const v2 = detectValoFormat(rows) === 'v2';
   // Détection ROBUSTE des lignes de données, quelle que soit la position des en-têtes
   // (en-têtes en ligne 1 OU ligne 2, avec ou sans ligne de titre) :
   // une ligne valide = Nb sauts (col A) commence par 2/3/4 ET Pollueur (col G) renseigné (≠ en-tête).
@@ -1062,11 +1099,12 @@ function parseValorisation(workbook){
       fact:      num(r[VCOL.C]),
       shabLabel: String(r[VCOL.D]||''),
       pollueur:  String(r[VCOL.G]||'').trim(),
-      cdp:       normCdp(r[VCOL.J]),
-      cee:       String(r[VCOL.K]||'').trim(),   // valeur BRUTE de la colonne CEE (alimente le menu Type de revenus)
-      kwhcFinal: num(r[VCOL.L]),
-      valo:      num(r[VCOL.N]),
-      valoCee:   num(r[VCOL.O])
+      rev:       v2 ? String(r[VCOL2.REV]||'').trim() : '',   // « Rev Ménages » (v2 uniquement)
+      cdp:       normCdp(v2 ? r[VCOL2.CDP] : r[VCOL.J]),
+      cee:       String((v2 ? r[VCOL2.CEE] : r[VCOL.K])||'').trim(),   // valeur BRUTE de la colonne CEE (alimente le menu Type de revenus)
+      kwhcFinal: num(v2 ? r[VCOL2.KWHCF] : r[VCOL.L]),
+      valo:      num(v2 ? r[VCOL2.VALO] : r[VCOL.N]),
+      valoCee:   num(v2 ? r[VCOL2.VALOCEE] : r[VCOL.O])
     }));
   return parsed;
 }
@@ -1553,7 +1591,7 @@ function verifyIntegrity(){
 // ---- Couche 2 : scénarios golden (résultats calculés à la main, rejoués à chaque chargement) ----
 function _gVt(id, role, shab, cats, extra){
   return Object.assign({ id, role, fileName:'g'+id+'.pdf', label: role==='ite'?'VT ITE':'Habitation '+id, shab,
-    revenus:'classique', cdp:'oui', sauts:'2', hasIte:'oui', nbAudits:1, pcLines:[], selections:{}, disabled:{}, pct:{}, collapsed:{},
+    revenus:'classique', revMenages:'', cdp:'oui', sauts:'2', hasIte:'oui', nbAudits:1, pcLines:[], selections:{}, disabled:{}, pct:{}, collapsed:{},
     extraction:{ shab_m2:shab, categories:Object.assign({ITE:[],ITI:[],Combles:[],Plancher:[],Fenetres:[]}, cats) } }, extra||{});
 }
 const GOLDEN_CHARGES = { ITE:{unite:'M2',achat:100,vente:200}, ITI:{unite:'M2',achat:70,vente:210},
@@ -1692,7 +1730,7 @@ async function handleFiles(fileList){
     const id = ++_vtSeq;
     const role = defaultRoleForNewVt(file.name);
     const vt = { id, fileName:file.name, role, text:'', hints:null,
-                 extraction:null, revenus:'classique', cdp:'oui', sauts:'2', shab:0, hasIte:'oui', nbAudits:1,
+                 extraction:null, revenus:'classique', revMenages:'', cdp:'oui', sauts:'2', shab:0, hasIte:'oui', nbAudits:1,
                  selections:{}, disabled:{}, pct:{...CAT_PCT_DEFAULT}, collapsed:{}, pcLines:[],
                  label:'', labelCustom:false, extracting:false, error:null, extractedOk:false };
     state.vts.push(vt);
@@ -1807,14 +1845,38 @@ function renderStep2(){
   if(!state.valoTable) box.insertAdjacentHTML('beforebegin','');
   if(habs.length === 0){ box.innerHTML = '<div class="alert info">Aucune VT « Habitation » chargée (étape 1).</div>'; return; }
 
+  // Format v2 : la colonne « Rev Ménages » du template pilote Type de revenus + CDP.
+  const revOpts = revMenagesOptions();
   box.innerHTML = habs.map(vt=>{
+    if(revOpts.length){
+      // Sélection courante ramenée à une option existante, puis dérivation cee/cdp.
+      const cur = revOpts.find(o => ceeKey(o) === ceeKey(vt.revMenages)) || revOpts[0];
+      vt.revMenages = cur;
+      const d = revToCeeCdp(cur);
+      if(d){ vt.revenus = d.cee; vt.cdp = d.cdp; }
+    }
     const r = state.valoTable ? lookupValo({pollueur:state.general.pollueur,cee:vt.revenus,cdp:vt.cdp,sauts:vt.sauts,shab:vt.shab}) : null;
     const valoTxt = !state.valoTable ? '<span class="badge warn">template non chargé</span>'
       : r.error ? `<span class="badge ko">${esc(r.error)}</span>`
       : `<span class="badge ok">Prime CEE : ${eur(r.valoCee)}</span>`;
+    // Fact correctif (col C du template) de la ligne matchée — affiché sous la Prime CEE.
+    const factTxt = (r && !r.error && r.row)
+      ? `<div style="text-align:right;font-size:12px;color:var(--text-muted);margin-top:2px">Fact correctif : <strong>${esc(String(r.row.fact).replace('.',','))}</strong></div>`
+      : '';
+    const lockTitle = 'Déterminé automatiquement par « Revenus ménages » (template)';
     return `<div class="vt-block">
       <div class="head"><strong>${esc(vt.label)}</strong> <span class="pill">${esc(vt.fileName)}</span><span style="flex:1"></span>${valoTxt}</div>
+      ${factTxt}
       <div class="row">
+        ${revOpts.length ? `
+        <div class="col"><label class="fld">Revenus ménages</label>
+          <select data-q="revMenages" data-vt="${vt.id}">
+            ${revOpts.map(o=>`<option value="${esc(o)}" ${o===vt.revMenages?'selected':''}>${esc(o)}</option>`).join('')}
+          </select></div>
+        <div class="col"><label class="fld">Type de revenus</label>
+          <input type="text" value="${esc(vt.revenus)}" disabled title="${lockTitle}"/></div>
+        <div class="col"><label class="fld">Coup de Pouce (CDP)</label>
+          <input type="text" value="${vt.cdp==='oui'?'Oui':'Non'}" disabled title="${lockTitle}"/></div>` : `
         <div class="col"><label class="fld">Type de revenus</label>
           ${(()=>{
             // Options = valeurs distinctes de la colonne CEE du template (fallback si aucun template).
@@ -1830,7 +1892,7 @@ function renderStep2(){
           <select data-q="cdp" data-vt="${vt.id}">
             <option value="oui" ${vt.cdp==='oui'?'selected':''}>Oui</option>
             <option value="non" ${vt.cdp==='non'?'selected':''}>Non</option>
-          </select></div>
+          </select></div>`}
         <div class="col"><label class="fld">Nombre de sauts de classe</label>
           <select data-q="sauts" data-vt="${vt.id}">
             <option value="2" ${vt.sauts==='2'?'selected':''}>2</option>
@@ -3022,7 +3084,9 @@ function renderValoInfo(){
   // Nombre d'options CEE distinctes = ce que proposera le menu « Type de revenus ».
   // Signal direct : si tu attends 6 options et que tu en vois 2, le fichier chargé n'est pas le bon.
   const cee = valoCeeOptions();
-  info.innerHTML = `<div class="alert ${dirty?'warn':'ok'}">${name}${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')||'—'} · <strong>${cee.length} option(s) CEE</strong> : ${cee.map(esc).join(', ')||'—'} · `
+  const revs = revMenagesOptions();
+  const revsTxt = revs.length ? ` · <strong>${revs.length} option(s) Revenus ménages</strong> : ${revs.map(esc).join(', ')}` : '';
+  info.innerHTML = `<div class="alert ${dirty?'warn':'ok'}">${name}${state.valoTable.length} ligne(s) · Pollueurs : ${state.pollueurs.map(esc).join(', ')||'—'} · <strong>${cee.length} option(s) CEE</strong> : ${cee.map(esc).join(', ')||'—'}${revsTxt} · `
     + (dirty ? '<strong>⚠️ non enregistré</strong> — clique « Enregistrer le template »'
              : '✅ enregistré, repris à la prochaine ouverture')
     + `</div>`;
@@ -3033,10 +3097,12 @@ function renderValoPreview(){
   const MAX = 200;                       // aperçu borné : au-delà, on résume
   const shown = rows.slice(0, MAX);
   const fnum = v => num(v) ? num(v).toLocaleString('fr-FR', {maximumFractionDigits:2}) : '<span style="color:var(--text-muted)">—</span>';
+  const hasRev = rows.some(r => String(r.rev||'').trim());
   const body = shown.map(r=>`<tr>
       <td>${esc(r.pollueur)}</td>
       <td class="num">${esc(r.sauts)}</td>
       <td>${esc(r.shabLabel)}</td>
+      ${hasRev?`<td>${esc(r.rev)}</td>`:''}
       <td>${esc(r.cee)}</td>
       <td>${esc(r.cdp)}</td>
       <td class="num">${fnum(r.kwhc)}</td>
@@ -3053,7 +3119,7 @@ function renderValoPreview(){
       <div style="max-height:264px;overflow:auto;border:1px solid var(--border);border-radius:8px">
         <table style="font-size:12px" class="valo-preview">
           <thead><tr>
-            <th>Pollueur</th><th class="num">Sauts</th><th>Shab</th><th>CEE</th><th>CDP</th>
+            <th>Pollueur</th><th class="num">Sauts</th><th>Shab</th>${hasRev?'<th>Rev Ménages</th>':''}<th>CEE</th><th>CDP</th>
             <th class="num">kWhc</th><th class="num">kWhc final</th><th class="num">Valo</th><th class="num">Valo CEE</th>
           </tr></thead>
           <tbody>${body}</tbody>
