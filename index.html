@@ -580,7 +580,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-22.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-22.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -2022,8 +2022,9 @@ function renderStep3(){
             <strong>${collapsed?'➕':'➖'} ${CAT_LABEL[cat]}</strong>
             <span class="pill">${activeCount(vt,cat)} instance(s)${nOff?` · ${nOff} désactivée${nOff>1?'s':''}`:''}</span></div>`;
         // Barre TOTAL : % indicatif à GAUCHE, les deux totaux à DROITE.
-        //  - Total initial (bleu) : toutes les lignes actives, cochées ou non. Fixe.
         //  - Total coché (vert)   : les lignes cochées. SEUL total qui alimente le calcul.
+        //  - Total initial (bleu) : toutes les lignes actives, cochées ou non. Fixe. Tout à droite.
+        // Ordre demandé (2026-07-22) : vert à gauche du bleu.
         // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
             <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — % appliqué au total actif. N'entre PAS dans le calcul.">
@@ -2031,8 +2032,8 @@ function renderStep3(){
               <input type="number" data-pct="${vt.id}|${cat}" value="${catPct(vt,cat)}" min="0" max="100" step="5" style="width:70px;text-align:right">
               <span class="pill">≈ ${m2(retainedSurface(vt,cat))}</span></label>
             <span class="flex" style="gap:8px">
-              <span class="pill" style="background:var(--blue-bg);color:var(--blue-tx)" title="Toutes les lignes actives, cochées ou non. Ne bouge pas quand on coche/décoche — seule la croix rouge le fait varier. N'entre PAS dans le calcul.">Total initial : <strong>${m2(sumActive(vt,cat))}</strong></span>
               <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+              <span class="pill" style="background:var(--blue-bg);color:var(--blue-tx)" title="Toutes les lignes actives, cochées ou non. Ne bouge pas quand on coche/décoche — seule la croix rouge le fait varier. N'entre PAS dans le calcul.">Total initial : <strong>${m2(sumActive(vt,cat))}</strong></span>
             </span>
           </div>` : '';
         // Replié : en-tête + total seulement (détail masqué)
