@@ -582,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-22.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-24.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -1145,8 +1145,11 @@ function trancheOfLabel(label){
   const hasLt = /</.test(t), hasGt = />/.test(t);
   if(nums.length >= 2) return shabToTranche((nums[0]+nums[1])/2);   // milieu de tranche
   if(nums.length === 1){
-    if(hasLt) return shabToTranche(nums[0]-1);   // "< 35"
-    if(hasGt) return shabToTranche(nums[0]+1);   // "> 130"
+    // Position du nombre vs signe : « Shab < 35 » = borne SUP, mais « 130 < Shab » = borne INF
+    // (template v2 : la dernière tranche s'écrit « 130 < Shab » = Shab au-delà de 130).
+    const numIdx = t.search(/\d/);
+    if(hasLt) return shabToTranche(numIdx < t.indexOf('<') ? nums[0]+1 : nums[0]-1);
+    if(hasGt) return shabToTranche(numIdx < t.indexOf('>') ? nums[0]-1 : nums[0]+1);
     return shabToTranche(nums[0]);
   }
   return -1;
