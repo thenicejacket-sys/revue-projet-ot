@@ -582,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-24.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-24.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -2027,11 +2027,16 @@ function renderStep3(){
         : (!vt.extractedOk ? `<div class="alert info">Pas encore extrait — clique « Extraire » ci-dessus, ou saisis les surfaces à la main.</div>` : '');
       // Catégories à afficher = catégories attendues (cf. catsForVt).
       const catsToShow = catsForVt(vt);
-      // Alerte « paroi manquante » limitée aux catégories réellement affichées pour cette VT
+      // Alerte « paroi manquante » limitée aux catégories réellement affichées pour cette VT.
+      // Une catégorie « sans objet » (catNA : logement chauffé de l'autre côté) n'est PAS une
+      // anomalie — elle sort de l'alerte orange et s'explique dans un bandeau neutre dédié.
       const warns = vt.extractedOk ? catsToShow.filter(cat =>
         (vt.hints && vt.hints.detected && vt.hints.detected[cat]) &&
-        (activeCount(vt, cat) === 0)
+        (activeCount(vt, cat) === 0) &&
+        !(vt.catNA && vt.catNA[cat])
       ) : [];
+      const nas = vt.extractedOk ? catsToShow.filter(cat => vt.catNA && vt.catNA[cat] && activeCount(vt, cat) === 0) : [];
+      const naHtml = nas.length ? `<div class="alert info">ℹ️ ${nas.map(c=>CAT_LABEL[c]).join(', ')} : <strong>sans objet</strong> pour cette habitation — un logement chauffé se trouve de l'autre côté de la paroi (non déperditive, pas de travaux CEE à prévoir). La VT le confirme (ex. plancher bas « Appartement chauffé »). Saisie manuelle toujours possible ci-dessous si besoin.</div>` : '';
       // Le tooltip expose les termes qui ont déclenché l'alerte : un doute sur l'alerte
       // se tranche en survolant, sans rouvrir la VT.
       const warnHtml = warns.length ? `<div class="alert warn" title="${esc(warns.map(c=>CAT_LABEL[c]+' ← '+((vt.hints&&vt.hints.matched&&vt.hints.matched[c])||[]).join(', ')).join(' | '))}">⚠️ Paroi(s) repérée(s) dans le texte mais absente(s) de l'extraction : <strong>${warns.map(c=>CAT_LABEL[c]).join(', ')}</strong>. Vérifier / saisir manuellement. <small>(survoler pour voir les termes détectés)</small></div>` : '';
@@ -2087,7 +2092,7 @@ function renderStep3(){
                ${totalBar}</div>`;
         return `<div class="cat-block">${head}${body}</div>`;
       }).join('');
-      inner = errBanner + warnHtml + (vt.role==='habitation'
+      inner = errBanner + warnHtml + naHtml + (vt.role==='habitation'
         ? `<div class="row" style="align-items:flex-start">
            <div class="col" style="max-width:240px"><label class="fld">Surface habitable (m²)</label>
              <input type="number" data-shab="${vt.id}" value="${vt.shab||''}" step="0.1"></div>
