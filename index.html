@@ -582,7 +582,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-24.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-24.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -2092,7 +2092,7 @@ function renderStep3(){
                ${totalBar}</div>`;
         return `<div class="cat-block">${head}${body}</div>`;
       }).join('');
-      inner = errBanner + warnHtml + naHtml + (vt.role==='habitation'
+      inner = errBanner + warnHtml + naHtml + extractionControlHtml(vt) + (vt.role==='habitation'
         ? `<div class="row" style="align-items:flex-start">
            <div class="col" style="max-width:240px"><label class="fld">Surface habitable (m²)</label>
              <input type="number" data-shab="${vt.id}" value="${vt.shab||''}" step="0.1"></div>
@@ -2288,6 +2288,49 @@ function parseVtIteTotal(text){
   const m = String(text).match(/Surface à isoler \(en m2\)\s+([\d.,]+)/i);
   return m ? num(m[1]) : 0;
 }
+
+/* 2e LECTURE DÉTERMINISTE du tableau OUVERTURES (template International Horizon).
+   Une ligne par menuiserie : Type / Orientation / Matériau / H / L / Nombre / Surface.
+   Validé sur 3 VT réelles : totaux parsés = récap « Surface ouvrants » au centime
+   (7,71 et 16,70 exacts) — et 17,18 sur une VT dont le récap lui-même était faux (7,59,
+   Velux oubliés du récap). Le tableau détaillé fait donc foi, pas le récap. */
+const OUV_TYPES = /^(velux|fen[êe]tre|porte[- ]fen[êe]tre|porte|baie)\b/i;
+const OUV_CARDINAL = /^(nord|sud|est|ouest)([\s\/-]+(nord|sud|est|ouest))?\s*$/i;
+const OUV_SECTION_END = /^(ELECTRICIT[ÉE]|CHAUFFAGE|EAU CHAUDE|VENTILATION|FA[ÇC]ADES|PLANCHER BAS|PLANCHER HAUT|SURFACES|R[ÉE]CAPITULATIF|ISOLATION|COMBLES|ACC[ÈE]S PLANCHER)/;
+function parseVtOuvertures(text){
+  const lines = String(text||'').split('\n').map(l => l.trim());
+  const start = lines.findIndex(l => /^OUVERTURES\s*$/.test(l));
+  if(start < 0) return null;
+  const rows = [];
+  let type = null, orientation = '', mat = [];
+  for(let i = start + 1; i < lines.length; i++){
+    const l = lines[i];
+    if(OUV_SECTION_END.test(l)) break;
+    if(!l || /^Visite technique/i.test(l) || /^Type\s+Orientation/i.test(l)) continue;
+    // « Fenêtre fixe » est un attribut matériau, pas une nouvelle ouverture
+    if(OUV_TYPES.test(l) && !/fixe/i.test(l)){ type = l.match(OUV_TYPES)[0]; orientation = ''; mat = []; continue; }
+    if(!type) continue;
+    // ligne de mesures = 4 dernières colonnes (séparées par 2+ espaces) : H, L, Nombre, Surface
+    const cols = l.split(/\s{2,}/).filter(Boolean);
+    if(cols.length >= 4){
+      const [h, lg, n, s] = cols.slice(-4);
+      if(num(h) > 0 && num(lg) > 0 && /^\d+$/.test(String(n).trim()) && num(s) > 0){
+        for(const b of cols.slice(0, -4)){          // cas « Porte » : orientation/matériau sur la même ligne
+          if(OUV_CARDINAL.test(b)) orientation = b;
+          else if(!/^[ée]tanch/i.test(b) && !/^(ok|non)$/i.test(b)) mat.push(b);
+        }
+        rows.push({ type, orientation,
+                    materiau: mat.join(' ').replace(/\s+/g,' ').replace(/,\s*$/,'').trim(),
+                    dims: (h + ' × ' + lg).replace(/\s+/g,' '), nombre: parseInt(n,10), surface: num(s) });
+        type = null; orientation = ''; mat = [];
+        continue;
+      }
+    }
+    if(OUV_CARDINAL.test(l)) orientation = l;
+    else if(!/^[ée]tanch/i.test(l) && !/^(ok|non)$/i.test(l) && l.length < 60) mat.push(l);
+  }
+  return rows;
+}
 function catSurfaceSum(cats, cat){
   return ((cats && cats[cat]) || []).reduce((s,it)=> s + num(it.surface_nette), 0);
 }
@@ -2320,6 +2363,19 @@ function enrichExtractionFromTemplate(vt){
     return;
   }
 
+  // Fenêtres : complétion depuis le tableau OUVERTURES parsé (2e lecture déterministe).
+  // Si le modèle rend moins de lignes ou moins de surface que le template n'en contient,
+  // les lignes parsées remplacent son détail — le tableau détaillé de la VT fait foi.
+  let ouv = null;
+  try{ ouv = parseVtOuvertures(vt.text); }catch(_){ ouv = null; }
+  if(ouv && ouv.length){
+    const sumTpl = ouv.reduce((s,r)=> s + r.surface, 0);
+    if((cats.Fenetres||[]).length < ouv.length || catSurfaceSum(cats,'Fenetres') < sumTpl*0.97){
+      cats.Fenetres = ouv.map(r => ({ description: r.type + (r.materiau ? ' — ' + r.materiau : ''),
+        piece: r.orientation || '', orientation:'', dimensions: r.dims,
+        surface_nette: r.surface, surface_brute: r.surface }));
+    }
+  }
   // Habitation : garantir ITI (+ ITE si pas de VT ITE dédiée) et Fenêtres depuis le récap latéraux.
   if(lat){
     ensureCategoryTotal(cats, 'ITI', lat.iti, 'Murs ITI');
@@ -2339,6 +2395,75 @@ function enrichExtractionFromTemplate(vt){
     else if(s > 0 && (cats.Combles||[]).length === 0)
       cats.Combles = [ tplInstance('Combles', tpl.plancherHaut.type, s) ];
   }
+}
+
+/* PANNEAU « CONTRÔLE D'EXTRACTION » — rapprochement 100% déterministe, affiché sous chaque VT.
+   Compare ce que le template de la VT annonce (parseurs ci-dessus, AUCUNE IA) avec ce que
+   l'extraction contient. Chaque paroi : ✅ couvert / ⚠️ à vérifier / ℹ️ sans objet.
+   C'est la preuve visible que rien n'a été perdu — l'UAT n'a plus à soupçonner. */
+function extractionControlHtml(vt){
+  if(!vt.extractedOk || !vt.text) return '';
+  let tpl=null, lat=null, iteTot=0, ouv=null;
+  try{ tpl=parseVtTemplate(vt.text); lat=parseVtLateraux(vt.text); iteTot=parseVtIteTotal(vt.text); ouv=parseVtOuvertures(vt.text); }
+  catch(_){ return ''; }
+  const cats = (vt.extraction && vt.extraction.categories) || {};
+  const na = vt.catNA || {};
+  const covers = (s, target) => s >= target*0.97;   // l'extraction couvre ce que la VT annonce
+  const rows = [];
+  const push = (label, vtSays, got, st, note) => rows.push({label, vtSays, got, st, note: note||''});
+  if(vt.role === 'ite'){
+    const target = iteTot || (lat && lat.ite) || 0;
+    if(target > 0){
+      const s = catSurfaceSum(cats,'ITE');
+      push('Façades ITE', m2(target)+' à isoler', m2(s), covers(s,target)?'ok':'ko');
+    }
+  } else {
+    if(ouv && ouv.length){
+      const sumTpl = ouv.reduce((a,r)=> a + r.surface, 0);
+      const s = catSurfaceSum(cats,'Fenetres'), n = (cats.Fenetres||[]).length;
+      push('Fenêtres / ouvertures', ouv.length+' ouverture(s) · '+m2(sumTpl), n+' ligne(s) · '+m2(s),
+           (n >= ouv.length && covers(s,sumTpl)) ? 'ok' : 'ko');
+    } else if(lat && lat.ouvrants > 0){
+      const s = catSurfaceSum(cats,'Fenetres');
+      push('Fenêtres / ouvertures', m2(lat.ouvrants)+' (récap)', m2(s), covers(s,lat.ouvrants)?'ok':'ko');
+    }
+    if(lat && lat.iti > 0){
+      const s = catSurfaceSum(cats,'ITI');
+      push('Murs ITI', m2(lat.iti)+' (récap)', m2(s), covers(s,lat.iti)?'ok':'ko');
+    }
+    if(tpl && tpl.plancherBas && tpl.plancherBas.surface > 0){
+      const s = catSurfaceSum(cats,'Plancher');
+      if(na.Plancher) push('Plancher bas', tpl.plancherBas.type+' · '+m2(tpl.plancherBas.surface),
+                           'exclu volontairement', 'na', 'logement chauffé de l\'autre côté — non déperditif');
+      else push('Plancher bas', tpl.plancherBas.type+' · '+m2(tpl.plancherBas.surface), m2(s),
+                covers(s,tpl.plancherBas.surface)?'ok':'ko');
+    }
+    if(tpl && tpl.plancherHaut){
+      const t = num(tpl.plancherHaut.sol) + num(tpl.plancherHaut.rampant);
+      const s = catSurfaceSum(cats,'Combles');
+      if(na.Combles) push('Combles / plancher haut', tpl.plancherHaut.type+' · '+m2(t),
+                          'exclu volontairement', 'na', 'logement chauffé de l\'autre côté');
+      else if(t > 0) push('Combles / plancher haut', m2(t)+' (sol + rampant)', m2(s), covers(s,t)?'ok':'ko');
+    }
+  }
+  if(!rows.length) return '';
+  const ICO = { ok:'✅', ko:'⚠️', na:'ℹ️' };
+  const TXT = { ok:'couvert', ko:'à vérifier / ré-extraire', na:'sans objet' };
+  const COL = { ok:'var(--green-tx)', ko:'var(--orange-tx)', na:'var(--text-muted)' };
+  const allOk = rows.every(r => r.st !== 'ko');
+  return `<div style="border:1px solid var(--border);border-radius:8px;margin:8px 0;background:#f8fafe;overflow:hidden">
+    <div style="padding:8px 12px;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted)">
+      🔎 Contrôle d'extraction — lecture directe de la VT (sans IA)
+      ${allOk?'<span style="color:var(--green-tx)"> · tout est couvert</span>':'<span style="color:var(--orange-tx)"> · écart(s) détecté(s)</span>'}</div>
+    <table style="width:100%;font-size:13px;margin:0"><thead><tr>
+      <th style="text-align:left;padding:4px 12px">Paroi</th><th style="text-align:left;padding:4px 12px">La VT annonce</th>
+      <th style="text-align:left;padding:4px 12px">Extrait</th><th style="text-align:left;padding:4px 12px">Verdict</th></tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td style="padding:4px 12px"><strong>${esc(r.label)}</strong></td>
+      <td style="padding:4px 12px">${esc(r.vtSays)}</td>
+      <td style="padding:4px 12px">${esc(r.got)}</td>
+      <td style="padding:4px 12px;color:${COL[r.st]}">${ICO[r.st]} ${TXT[r.st]}${r.note?' <small>('+esc(r.note)+')</small>':''}</td></tr>`).join('')}
+    </tbody></table></div>`;
 }
 
 async function extractOne(id){

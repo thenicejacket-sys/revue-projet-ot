@@ -1,0 +1,462 @@
+
+Informations générales 
+ Nom   CLIENT_A   Type d’étude / Forme   
+Appartement 
+ Prénom   2   Année de construction   1970 
+ Numéro étage   1   Numéro appartement   2 
+ Téléphone   0600000000   Orientation   Ouest 
+ Adresse   ADRESSE_X   Mitoyenneté 
+ Ville   VILLE_X   Nombre de niveau   RDC 
+ Code postal   00000   Shab (m2)   51.25 
+ Compteur 
+ électrique   
+6 kva   Type de plancher bas   Appartement chauffée 
+ Date et heure   27/04/2026 16:17   Type de plancher haut   Combles perdus accessibles 
+ Type propriétaire   Bailleur   Énergie principale   Electricité 
+ Température confort   Hiver: 19, Été: 23   Émetteur de chauffage   Thermostat programmable 
+ Altitude   20 m   Chauffage d’appoint 
+ Latitude   
+47.431308299356   
+ECS   
+Accumulation (par ballon) 
+ Chauffe-eau électrique 
+ Longitude   
+-0.52833025665319   
+Ventilation   
+Réglette 
+ VMC Simple flux présente 
+ Enfouissement du 
+ bâtiment 
+ Enfouissement du sous 
+ sol 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+RÉCAPITULATIF 
+ Surface plancher bas: 
+ Type   Surface 
+ Appartement chauffée   51.25m2 
+ Surface plancher haut: 
+ Type   Surface sol   Surface rampant 
+ Combles perdus accessibles 
+ avec Trappe sans échelle   
+52.07m2   0.00m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Surface plancher latéraux: 
+ Type   Surface ouvrants   Surface ITE   Surface ITI 
+ Béton 
+ Parpaings   
+16.70 m2   m2   24.39 m2 
+ Consommation énergétique : 
+ -   Consommation électrique 1500 €/an 
+ Commentaire technicien: Dernière rénovation date de +25 ans. 
+ Commentaire plancher bas: Local commercial (fleuriste) 
+ Commentaire plancher haut: Accès via parties communes, surface totale : 22.61*8.01=181.11m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+SURFACES 
+ Nombre de niveau chauffés   :   RDC 
+ Niveau R 
+ En zone 
+ chauffée   
+Pièce   Longueur   Largeur   Hauteur   Surface   Radiateur   Photo radiateur   Photo pièce 
+ Zone 
+ chauffée   
+Chambre 2   3.62 m   3 m   2.4 m   10.86 m2   
+Electrique/Aér 
+ othermie 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Zone 
+ chauffée 
+ Salle à 
+ manger 1   
+2.71 m   1.72 m   2.4 m   4.66 m2   Aucun 
+ Zone 
+ chauffée   
+Salle d’eau   2.86 m   2.82 m   2.4 m   8.07 m2   
+Electrique/Aér 
+ othermie 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Zone 
+ chauffée   
+Salon 1   5.64 m   4.57 m   2.4 m   25.77 m2   
+Electrique/Aér 
+ othermie 
+ Zone 
+ chauffée   
+WC 1   1.93 m   0.98 m   2.4 m   1.89 m2   Aucun 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Plan niveau 
+ RDC 
+ Surface 
+ niveau 
+ RDC 
+ 51.25 m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Niveau R+1 
+ En zone 
+ chauffée   
+Pièce   Longueur   Largeur   Hauteur   Surface   Radiateur   Photo radiateur   Photo pièce 
+ Plan niveau 
+ R+1 
+ Surface 
+ niveau 
+ R+1 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Niveau R+2 
+ En zone 
+ chauffée   
+Pièce   Longueur   Largeur   Hauteur   Surface   Radiateur   Photo radiateur   Photo pièce 
+ Plan niveau 
+ R+2 
+ Surface 
+ niveau 
+ R+2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Niveau R+3 
+ En zone 
+ chauffée   
+Pièce   Longueur   Largeur   Hauteur   Surface   Radiateur   Photo radiateur   Photo pièce 
+ Plan niveau 
+ R+3 
+ Surface 
+ niveau 
+ R+3 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Niveau R+4 
+ En zone 
+ chauffée   
+Pièce   Longueur   Largeur   Hauteur   Surface   Radiateur   Photo radiateur   Photo pièce 
+ Plan niveau 
+ R+4 
+ Surface 
+ niveau 
+ R+4 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+PLANCHER BAS 
+ Type 
+ Gros 
+ oeuvr 
+ e 
+ Longue 
+ ur (en 
+ m) 
+ Largeur 
+ (en m) 
+ Hauteu 
+ r (en 
+ m) 
+ Isolation / 
+ À 1€   
+Surface   Photo 1   Photo 2   Photo 3 
+ Appartem 
+ ent 
+ chauffée 
+ Béton 
+ ou terre 
+ cuite 
+ 51.25m2 
+ Commentaire plancher bas   :   Local commercial (fleuriste) 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+PLANCHER HAUT 
+ Type 
+ Gros 
+ oeuvr 
+ e 
+ Longue 
+ ur (en 
+ m) 
+ Largeur 
+ (en m) 
+ Hauteur 
+ sous 
+ faîtage 
+ (en m) 
+ Longueu 
+ r maison 
+ (en m) 
+ Pente 
+ rampant 
+ (en m) 
+ Type/Année 
+ isolation (en 
+ mm) 
+ Surface 
+ sol (m2) 
+ Surface 
+ rampant 
+ (m2) 
+ Photo 1   Photo 2   Photo 3 
+ Comble 
+ s 
+ perdus 
+ accessi 
+ bles 
+ avec 
+ Trappe 
+ sans 
+ échelle 
+ Béton 
+ ou 
+ terre 
+ cuite 
+ 6.5   8.01   2.79 
+ Soufflé laine de 
+ roche ou ouate 
+ de cellulose 
+ Isolation 
+ présente Entre 
+ 2000 et 2009 
+ 240 
+ 52.07   0.00 
+ Commentaire plancher haut:   Accès via parties communes, surface totale : 22.61*8.01=181.11m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+ACCÈS PLANCHER HAUT-BAS 
+ Vide sanitaire   Combles 
+ Trappe sans échelle 
+ Dimension 0.66 x 0.56 m 
+ Commentaire: Plafond Parties communes 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+FAÇADES 
+ Orientation   
+Mitoyen 
+ neté   
+Longueur 
+ Hauteur 
+ sous 
+ gouttière 
+ Hauteur 
+ sous 
+ faîtage 
+ Compositio 
+ n   
+Isolation   
+Surface 
+ brute 
+ Surface 
+ ouvrants 
+ Surface 
+ à isoler   
+Photos 
+ Ouest 
+ Salon   
+Non   5.64 m   2.4 m   0 m 
+ Béton 
+ Parpaings 
+ Épaisseur   : 
+ 250 mm 
+ Plus de 10 
+ ans 
+ ITI 
+ (Isolation 
+ thermique 
+ intérieure) 
+ 100 Laine 
+ de verre 
+ 13.54 m2   8.88 m2   4.66 m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Est 
+ Salle à 
+ manger 
+ Partielle 
+ Local non 
+ chauffé 
+ accessible 
+ 100 % 
+ 2.71 m   2.4 m   0 m 
+ Béton 
+ Parpaings 
+ Épaisseur   : 
+ 250 mm 
+ Plus de 10 
+ ans 
+ ITI 
+ (Isolation 
+ thermique 
+ intérieure) 
+ 100 Laine 
+ de verre 
+ 6.50 m2   0.00 m2   6.50 m2 
+ Commentaire   :   Sur parties communes 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Est 
+ SDE 
+ Partielle 
+ Local non 
+ chauffé 
+ accessible 
+ 100 % 
+ 2.86 m   2.4 m   0 m 
+ Béton 
+ Parpaings 
+ Épaisseur   : 
+ 250 mm 
+ Plus de 10 
+ ans 
+ ITI 
+ (Isolation 
+ thermique 
+ intérieure) 
+ 100 Laine 
+ de verre 
+ 6.86 m2   0.00 m2   6.86 m2 
+ Commentaire   :   Sur parties communes 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Ouest 
+ Chambre   
+Non   2.97 m   2.4 m   0 m 
+ Béton 
+ Parpaings 
+ Épaisseur   : 
+ 250 mm 
+ Plus de 10 
+ ans 
+ ITI 
+ (Isolation 
+ thermique 
+ intérieure) 
+ 100 Laine 
+ de verre 
+ 7.13 m2   5.93 m2   1.20 m2 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Est 
+ Salon 
+ Partielle 
+ Local non 
+ chauffé 
+ accessible 
+ 100 % 
+ 2.94 m   2.4 m   0 m 
+ Béton 
+ Parpaings 
+ Épaisseur   : 
+ 250 mm 
+ Plus de 10 
+ ans 
+ ITI 
+ (Isolation 
+ thermique 
+ intérieure) 
+ 100 Laine 
+ de verre 
+ 7.06 m2   1.89 m2   5.17 m2 
+ Commentaire   :   sur parties communes 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+OUVERTURES 
+ Type   Orientation   Matériau   Hauteur   Largeur   Nombre   Surface   Photo 
+ Porte 
+ Étanchéité/Joint 
+ Ok 
+ Est   
+Pleine   
+2.1   0.9   1   1.89 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Baie-vitrée 
+ Étanchéité/Joint 
+ Ok 
+ Ouest 
+ PVC, Double 
+ vitrage 20 mm, 
+ Volets roulants   
+2.4   1.85   2   8.88 
+ Baie-vitrée 
+ Étanchéité/Joint 
+ Ok 
+ Ouest 
+ PVC, Double 
+ vitrage 20 mm, 
+ Volets roulants 
+ 2.4   2.47   1   5.93 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+ELECTRICITÉ 
+ Puissance compteur :   6 kva 
+ Type de compteur :   Monophasée 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+CHAUFFAGE 
+ Type   Générateur   Année   Marque   Emplacement   Émetteur   
+Puissance (en 
+ kW) 
+ Plaque signalétique 
+ Electricité   Radiateurs   2000   ATLANTIC 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+EAU CHAUDE SANITAIRE 
+ Lié au chauffage   Type   Position   Volume   Photo 
+ Electrique   
+Accumulation (par ballon) 
+ Chauffe-eau électrique 
+ Dans volume chauffé 
+ Au sol dans SDE   
+150 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+CHAUFFAGE D’APPOINT 
+ Présence d’un 
+ chauffage 
+ d’appoint 
+ Pièce   Type   Photo 1   Photo 2 
+ Non 
+ VENTILATION 
+ Température de confort hiver:   19 
+ Température de confort été:   23 
+ Type ventilation   Photo réglette   Photo VMC   Photo grille 
+ Réglette 
+ VMC Simple flux présente 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 
+CLIMATISATION 
+ Type climatisation   Surface climatisée   Année climatiseur   Nombre de split   Photo split 
+ Aucun 
+ Visite technique 
+ CLIENT_A 2 
+ VILLE_X ADRESSE_X 

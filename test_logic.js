@@ -14,11 +14,19 @@ const VCOL ={A:0,B:1,C:2,D:3,G:6,J:9,K:10,L:11,N:13,O:14};
 const VCOL2={A:0,B:1,C:2,D:3,G:6,REV:9,CDP:10,CEE:11,KWHCF:12,VALO:14,VALOCEE:15};
 
 function shabToTranche(s){ s=num(s); if(s<35)return 0; if(s<60)return 1; if(s<90)return 2; if(s<110)return 3; if(s<=130)return 4; return 5; }
+// Copie conforme de l'app (2026-07-24 : position du nombre vs signe — « 130 < Shab » = borne INF).
+// NB : test_extraction.js extrait désormais la VRAIE fonction d'index.html ; celle-ci reste
+// une copie de commodité pour le lookup ci-dessous.
 function trancheOfLabel(label){
   const t=String(label||''); const nums=(t.match(/\d+([.,]\d+)?/g)||[]).map(x=>parseFloat(x.replace(',','.')));
   const hasLt=/</.test(t), hasGt=/>/.test(t);
   if(nums.length>=2) return shabToTranche((nums[0]+nums[1])/2);
-  if(nums.length===1){ if(hasLt) return shabToTranche(nums[0]-1); if(hasGt) return shabToTranche(nums[0]+1); return shabToTranche(nums[0]); }
+  if(nums.length===1){
+    const numIdx = t.search(/\d/);
+    if(hasLt) return shabToTranche(numIdx < t.indexOf('<') ? nums[0]+1 : nums[0]-1);
+    if(hasGt) return shabToTranche(numIdx < t.indexOf('>') ? nums[0]-1 : nums[0]+1);
+    return shabToTranche(nums[0]);
+  }
   return -1;
 }
 
