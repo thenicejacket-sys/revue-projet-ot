@@ -35,8 +35,10 @@ function grabConst(name) {
 }
 const FNS = ['num', 'normalizeVtText', 'shabToTranche', 'trancheOfLabel', 'isHeatedAdjacent',
              'parseVtTemplate', 'parseVtLateraux', 'parseVtIteTotal', 'parseVtOuvertures',
-             'catSurfaceSum', 'tplInstance', 'ensureCategoryTotal'];
-const CONSTS = ['OUV_TYPES', 'OUV_CARDINAL', 'OUV_SECTION_END'];
+             'catSurfaceSum', 'tplInstance', 'ensureCategoryTotal',
+             'isoJoin', 'isoFromBlock', 'parseVtIsolation', 'applyIsolationStates'];
+const CONSTS = ['OUV_TYPES', 'OUV_CARDINAL', 'OUV_SECTION_END',
+                'ISO_MARK', 'ISO_NUMLINE', 'ISO_SURF3', 'ISO_SECTION_END'];
 eval(CONSTS.map(grabConst).join('\n') + '\n' + FNS.map(grabFn).join('\n'));
 
 /* ---- Unités : tranches Shab (bug UAT « >130 hors barème » du 24/07) ---- */
@@ -97,6 +99,62 @@ console.log('— COHÉRENCE : détail > récap sur hab3 (Velux hors récap) —'
   const ouv = parseVtOuvertures(text);
   const sum = ouv.reduce((s, r) => s + r.surface, 0);
   assert(sum > parseVtLateraux(text).ouvrants, 'détail (' + sum.toFixed(2) + ') > récap — le parseur de lignes protège du récap faux');
+}
+
+/* ---- ÉTAT ISOLATION (colonne du 27/07) : lecture déterministe des colonnes « Isolation »
+   ---- Ancrage de non-régression : la somme des façades parsées DOIT égaler le récap ITI.
+   ---- Si elle diverge, c'est qu'un bloc façade a été perdu (piège /^ACC[ÈE]S/i qui matchait
+   ---- « accessible » et coupait le tableau : 2 façades sur 7 disparaissaient sur hab1). */
+console.log('— ÉTAT ISOLATION (parseVtIsolation) —');
+const ISO_EXPECTED = {
+  vt_immeuble_a_hab1: { nbFacades: 7, sumFacades: 56.30,
+                        facadeEtat: 'Moins de 5 ans ITI (Isolation thermique intérieure) 400 Laine de roche',
+                        plancherBas: '', plancherHaut: '' },
+  vt_immeuble_a_hab2: { nbFacades: 5, sumFacades: 24.39,
+                        facadeEtat: 'Plus de 10 ans ITI (Isolation thermique intérieure) 100 Laine de verre',
+                        plancherBas: '',
+                        plancherHaut: 'Soufflé laine de roche ou ouate de cellulose Isolation présente Entre 2000 et 2009 240 mm' },
+  vt_immeuble_a_hab3: { nbFacades: 5, sumFacades: 35.17,
+                        facadeEtat: 'Plus de 10 ans ITI (Isolation thermique intérieure) 100 Laine de verre',
+                        plancherBas: '', plancherHaut: '' },
+};
+for (const [name, exp] of Object.entries(ISO_EXPECTED)) {
+  const text = fs.readFileSync(path.join(__dirname, 'tests', 'fixtures', name + '.txt'), 'utf8');
+  const iso = parseVtIsolation(text);
+  const sum = iso.facades.reduce((s, f) => s + f.surface, 0);
+  assert(iso.facades.length === exp.nbFacades,
+         name + ' : ' + exp.nbFacades + ' façades lues (' + iso.facades.length + ')');
+  assert(near(sum, exp.sumFacades), name + ' : somme façades = récap ITI (' + exp.sumFacades + ' m²)');
+  assert(iso.facades.every(f => f.etat === exp.facadeEtat), name + ' : état isolation façades = « ' + exp.facadeEtat + ' »');
+  assert(iso.plancherBas === exp.plancherBas,
+         name + ' : plancher bas ' + (exp.plancherBas ? '= « ' + exp.plancherBas + ' »' : 'non renseigné dans la VT'));
+  assert(iso.plancherHaut === exp.plancherHaut,
+         name + ' : plancher haut ' + (exp.plancherHaut ? 'renseigné' : 'non renseigné dans la VT'));
+}
+
+/* ---- Injection dans les lignes extraites : appariement par surface + repli commun ---- */
+console.log('— INJECTION applyIsolationStates —');
+{
+  const text = fs.readFileSync(path.join(__dirname, 'tests', 'fixtures', 'vt_immeuble_a_hab2.txt'), 'utf8');
+  const vt = { text, extraction: { categories: {
+    ITI: [ { surface_nette: 4.66 }, { surface_nette: 6.50 }, { surface_nette: 99 } ],
+    Combles: [ { surface_nette: 52.07 } ],
+    Plancher: [], ITE: [], Fenetres: [ { surface_nette: 5 } ] } } };
+  applyIsolationStates(vt);
+  const c = vt.extraction.categories;
+  assert(c.ITI[0].etat_isolation === ISO_EXPECTED.vt_immeuble_a_hab2.facadeEtat, 'ITI apparié par surface (4,66)');
+  assert(c.ITI[2].etat_isolation === ISO_EXPECTED.vt_immeuble_a_hab2.facadeEtat,
+         'ITI non apparié : repli sur l\'état commun à toutes les façades');
+  assert(c.Combles[0].etat_isolation === ISO_EXPECTED.vt_immeuble_a_hab2.plancherHaut, 'Combles = cellule plancher haut');
+  assert(!c.Fenetres[0].etat_isolation, 'Fenêtres jamais renseignées (hors périmètre)');
+}
+{
+  // La VT ne dit rien -> AUCUNE valeur inventée (c'est ce qui rend véridique la mention
+  // « État isolation non renseigné dans la VT » du rectangle d'information globale).
+  const vt = { text: 'PLANCHER BAS\n Type   Surface \n Terre plein \n 40.00m2 \n Commentaire plancher bas : Ras \n',
+               extraction: { categories: { ITI: [], Combles: [], Plancher: [ { surface_nette: 40 } ], ITE: [], Fenetres: [] } } };
+  applyIsolationStates(vt);
+  assert(!vt.extraction.categories.Plancher[0].etat_isolation, 'VT muette : etat_isolation reste vide, rien n\'est inventé');
 }
 
 console.log(failures ? ('\n💥 ' + failures + ' échec(s)') : '\n🎉 EXTRACTION : TOUS LES TESTS PASSENT');
