@@ -36,7 +36,8 @@ function grabConst(name) {
 const FNS = ['num', 'normalizeVtText', 'shabToTranche', 'trancheOfLabel', 'isHeatedAdjacent',
              'parseVtTemplate', 'parseVtLateraux', 'parseVtIteTotal', 'parseVtOuvertures',
              'catSurfaceSum', 'tplInstance', 'ensureCategoryTotal',
-             'isoJoin', 'isoFromBlock', 'parseVtIsolation', 'applyIsolationStates'];
+             'isoJoin', 'isoFromBlock', 'parseVtIsolation', 'applyIsolationStates',
+             'applyMatrix', 'mulMatrix'];
 const CONSTS = ['OUV_TYPES', 'OUV_CARDINAL', 'OUV_SECTION_END',
                 'ISO_MARK', 'ISO_NUMLINE', 'ISO_SURF3', 'ISO_SECTION_END'];
 eval(CONSTS.map(grabConst).join('\n') + '\n' + FNS.map(grabFn).join('\n'));
@@ -155,6 +156,31 @@ console.log('— INJECTION applyIsolationStates —');
                extraction: { categories: { ITI: [], Combles: [], Plancher: [ { surface_nette: 40 } ], ITE: [], Fenetres: [] } } };
   applyIsolationStates(vt);
   assert(!vt.extraction.categories.Plancher[0].etat_isolation, 'VT muette : etat_isolation reste vide, rien n\'est inventé');
+}
+
+/* ---- MATRICES PDF (vignettes photos du 27/07) : la composition save/transform doit être
+   ---- exacte. Le bug d'origine : ne lire QUE le dernier « transform » avant l'ordre de
+   ---- peinture. Les pages qui en empilent deux (p.26 de la VT Derouet 3) donnaient alors une
+   ---- découpe blanche, en silence. Ces asserts verrouillent l'algèbre du correctif. */
+console.log('— MATRICES PDF (vignettes) —');
+{
+  const I = [1,0,0,1,0,0];
+  assert(applyMatrix(I, 7, 9).join() === '7,9', 'identité : le point ne bouge pas');
+  const t = [1,0,0,1,10,20];                       // translation
+  assert(applyMatrix(t, 1, 2).join() === '11,22', 'translation (10,20)');
+  const s = [2,0,0,3,0,0];                         // échelle
+  assert(applyMatrix(s, 4, 5).join() === '8,15', 'échelle ×2 / ×3');
+  // Composition : échelle PUIS translation. Lire seulement la dernière matrice donnerait
+  // (10,20) — c'est exactement l'erreur que le correctif supprime.
+  const c = mulMatrix(s, t);
+  assert(applyMatrix(c, 1, 1).join() === '12,23', 'échelle puis translation = (12,23)');
+  assert(applyMatrix(mulMatrix(I, c), 1, 1).join() === '12,23', 'composer avec l\'identité ne change rien');
+  // Carré unité d'une image posée en (530,104) taille 198×148 (cas réel p.26, paysage)
+  const img = mulMatrix([198,0,0,148,530,104], I);
+  const pts = [[0,0],[1,0],[0,1],[1,1]].map(p => applyMatrix(img, p[0], p[1]));
+  const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+  assert(Math.min.apply(null,xs) === 530 && Math.max.apply(null,xs) === 728, 'image p.26 : x de 530 à 728');
+  assert(Math.min.apply(null,ys) === 104 && Math.max.apply(null,ys) === 252, 'image p.26 : y de 104 à 252');
 }
 
 console.log(failures ? ('\n💥 ' + failures + ' échec(s)') : '\n🎉 EXTRACTION : TOUS LES TESTS PASSENT');

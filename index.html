@@ -109,6 +109,18 @@ button.btn.success{background:var(--accent-green)}
 button.btn.small{padding:6px 12px;font-size:11.5px}
 button.btn.danger{background:#ef4444}
 button.btn.danger:hover{background:#dc2626}
+/* Vignette photo d'une menuiserie (survol ou clic). Volontairement petite : elle sert
+   à reconnaître DE QUELLE fenêtre on parle, pas à examiner la photo. */
+.ph{position:relative;display:inline-block}
+.ph .ph-pop{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:60;
+  background:#fff;border:1px solid var(--border);border-radius:10px;padding:6px;
+  box-shadow:0 12px 32px rgba(16,32,64,.24)}
+.ph:hover .ph-pop,.ph.pin .ph-pop{display:block}
+.ph .ph-pop img{display:block;width:200px;height:auto;border-radius:6px}
+.ph .ph-cap{display:block;font-size:11px;color:var(--text-muted);text-align:center;margin-top:4px;max-width:200px}
+.ph.pin>button{background:var(--blue-bg);color:var(--blue-tx)}
+.ph>button{padding:5px 8px;line-height:0}
+.ph>button svg{width:15px;height:15px;display:block}
 button.btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
 
 .actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px}
@@ -582,7 +594,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-27.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-27.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -750,7 +762,8 @@ function saveLS(){
           // dossier repart blanc, même si le prix modifié reste le nouveau défaut du barème.
           chargesEdited: state.chargesEdited || {},
           // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
-          vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false})) };
+          // photos:null — les vignettes ne quittent JAMAIS la session (cf. extractVtPhotos)
+          vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false, photos:null, photosLoading:false})) };
     // NB : le template de valorisation (valoTable/pollueurs) N'est PAS dans ce blob.
     // Il a son propre stockage dédié (VALO_KEY) commité explicitement via « Enregistrer
     // le template » — c'est ce qui donne un vrai contrôle : charger un fichier ne le
@@ -816,6 +829,12 @@ function showView(id){
 $$('#nav button').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.view)));
 document.addEventListener('click', e=>{
   const t = e.target.closest('[data-goto]'); if(t) showView(t.dataset.goto);
+  // Clic hors d'une vignette épinglée : on referme (le survol, lui, reste géré en CSS).
+  if(!e.target.closest('[data-ph]'))
+    document.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
+});
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape') document.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
 });
 
 /* ============================================================================
@@ -842,6 +861,153 @@ async function extractPdfText(arrayBuffer){
     full += lines.join('\n') + '\n';
   }
   return full;
+}
+
+/* ============================================================================
+   PHOTOS DES MENUISERIES — vignettes extraites du PDF (SESSION UNIQUEMENT)
+   ----------------------------------------------------------------------------
+   Le template VT place 2 photos par page dans la section OUVERTURES, chacune
+   occupant une bande verticale qui contient la ligne de texte de sa menuiserie.
+   Relevé sur les VT réelles : lignes « Velux » à y=398 et y=195, photos couvrant
+   308→506 et 104→302. Le rapprochement se fait donc par RECOUVREMENT VERTICAL,
+   la même mécanique de coordonnées que extractPdfText.
+   Le logo de pied de page (86×85, répété à y=98 sur chaque page) est écarté par
+   sa hauteur.
+   ⚠️ Les vignettes ne sont JAMAIS persistées — ni localStorage, ni snapshot Supabase
+   (~30 photos par VT saturerait l'un et alourdirait l'autre). Elles vivent le temps
+   de la session : un dossier archivé se consulte sans photos.
+   ============================================================================ */
+const PHOTO_W = 200;        // largeur de la vignette — « juste voir de quelle fenêtre on parle »
+const PHOTO_MIN_H = 120;    // en dessous (logo de pied de page) : ce n'est pas une photo
+const PHOTO_TYPE_RE = /^(velux|fen[êe]tre|porte[- ]fen[êe]tre|porte|baie)\b/i;
+
+// Matrices PDF [a,b,c,d,e,f] : point (x,y) -> (a·x + c·y + e , b·x + d·y + f).
+function applyMatrix(m, x, y){ return [ m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5] ]; }
+// Concaténation : appliquer A PUIS B (c'est le sens de l'opérateur « cm » sur la CTM).
+function mulMatrix(a, b){
+  return [ a[0]*b[0] + a[1]*b[2],            a[0]*b[1] + a[1]*b[3],
+           a[2]*b[0] + a[3]*b[2],            a[2]*b[1] + a[3]*b[3],
+           a[4]*b[0] + a[5]*b[2] + b[4],     a[4]*b[1] + a[5]*b[3] + b[5] ];
+}
+
+/* File d'attente des vignettes : SÉQUENTIELLE (une VT à la fois, le rendu pdf.js est coûteux)
+   mais NON BLOQUANTE pour le chargement. Charger 4 VT rendait la main en 27 s quand on
+   attendait les photos ; ici la main est rendue tout de suite et les vignettes arrivent
+   ensuite, la pastille « photos… » indiquant l'avancement.
+   On ne re-rend l'étape 3 que si elle est visible ET qu'aucun champ n'y est en cours de
+   saisie : une vignette qui arrive ne doit jamais voler le focus. */
+let _photoQueue = Promise.resolve();
+function queueVtPhotos(vt, buf){
+  vt.photosLoading = true;
+  renderVtList();
+  _photoQueue = _photoQueue.then(async () => {
+    try{ vt.photos = await extractVtPhotos(buf); }
+    catch(_){ vt.photos = []; }          // pas de photo = pas d'icône, l'app reste utilisable
+    vt.photosLoading = false;
+    renderVtList();
+    const step3 = document.getElementById('step3');
+    const saisieEnCours = document.activeElement && document.activeElement.closest('#step3');
+    if(step3 && step3.classList.contains('active') && !saisieEnCours) renderStep3();
+  });
+}
+
+async function extractVtPhotos(arrayBuffer){
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const out = [];
+  for(let p=1; p<=pdf.numPages; p++){
+    const page = await pdf.getPage(p);
+    const items = (await page.getTextContent()).items.filter(i => i.str && i.str.trim());
+    // Page sans menuiserie : on ne la rend pas (le rendu est le coût dominant).
+    if(!items.some(i => PHOTO_TYPE_RE.test(i.str.trim()))) continue;
+
+    // Rectangles des images — vraie pile de matrices (save / restore / transform composés).
+    // Ne PAS se contenter du dernier « transform » avant l'ordre de peinture : la plupart des
+    // pages n'en empilent qu'un, mais certaines en composent deux (p.26 de la VT Derouet 3,
+    // photo en paysage) et l'heuristique y découpait une zone blanche, en silence.
+    const ops = await page.getOperatorList();
+    const rects = [];
+    let ctm = [1,0,0,1,0,0];
+    const stack = [];
+    for(let k=0;k<ops.fnArray.length;k++){
+      const fn = ops.fnArray[k];
+      if(fn === pdfjsLib.OPS.save){ stack.push(ctm.slice()); continue; }
+      if(fn === pdfjsLib.OPS.restore){ ctm = stack.pop() || [1,0,0,1,0,0]; continue; }
+      if(fn === pdfjsLib.OPS.transform){ ctm = mulMatrix(ops.argsArray[k], ctm); continue; }
+      if(fn !== pdfjsLib.OPS.paintImageXObject && fn !== pdfjsLib.OPS.paintJpegXObject) continue;
+      // Une image occupe le carré unité de l'espace courant : on projette ses 4 coins.
+      const pts = [[0,0],[1,0],[0,1],[1,1]].map(c => applyMatrix(ctm, c[0], c[1]));
+      const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+      const x = Math.min.apply(null,xs), y = Math.min.apply(null,ys);
+      const w = Math.max.apply(null,xs) - x, h = Math.max.apply(null,ys) - y;
+      if(h < PHOTO_MIN_H) continue;      // logo de pied de page
+      rects.push({ x, y, w, h });
+    }
+    if(!rects.length) continue;
+
+    const scale = Math.min(2, PHOTO_W / Math.max.apply(null, rects.map(r=>r.w)));
+    const viewport = page.getViewport({ scale });
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(viewport.width); cv.height = Math.ceil(viewport.height);
+    await page.render({ canvasContext: cv.getContext('2d'), viewport }).promise;
+
+    // Appariement photo <-> ligne DANS LA PAGE. Sur la plupart des pages la ligne est en face
+    // de sa photo, mais pas toujours : en fin de section (p.26 de la VT Derouet 3) la ligne
+    // « Porte … 1.87 » est au-dessus de sa photo. Ce qui tient TOUJOURS, c'est l'ordre :
+    // photos et lignes se lisent de haut en bas dans le même sens. On apparie donc par rang
+    // quand les comptes coïncident, et on retombe sur le recouvrement vertical sinon.
+    // « Fenêtre fixe » est exclu : c'est un attribut de la menuiserie, pas une nouvelle
+    // ouverture (même règle que parseVtOuvertures).
+    const rows = items.filter(i => PHOTO_TYPE_RE.test(i.str.trim()) && !/fixe/i.test(i.str))
+                      .map(i => ({ label: i.str.trim(), y: i.transform[5] }))
+                      .sort((a,b)=> b.y - a.y);
+    rects.sort((a,b)=> (b.y + b.h) - (a.y + a.h));          // haut de page d'abord
+    const byRank = rows.length === rects.length;
+    // Surface : dernier nombre nu de la ligne (H / L / Nombre / Surface, sans unité).
+    const surfaceAt = (y) => {
+      const nums = items.filter(i => Math.abs(i.transform[5] - y) <= 20 && /^[\d.,]+$/.test(i.str.trim()));
+      return nums.length ? num(nums[nums.length-1].str) : 0;
+    };
+
+    for(let ri=0; ri<rects.length; ri++){
+      const r = rects[ri];
+      let row = byRank ? rows[ri]
+                       : rows.find(w => w.y >= r.y && w.y <= r.y + r.h);
+      const A = viewport.convertToViewportPoint(r.x, r.y);
+      const B = viewport.convertToViewportPoint(r.x + r.w, r.y + r.h);
+      const vx = Math.max(0, Math.min(A[0], B[0])), vy = Math.max(0, Math.min(A[1], B[1]));
+      const vw = Math.abs(B[0]-A[0]), vh = Math.abs(B[1]-A[1]);
+      if(vw < 8 || vh < 8) continue;
+      const sub = document.createElement('canvas');
+      sub.width = Math.round(vw); sub.height = Math.round(vh);
+      sub.getContext('2d').drawImage(cv, vx, vy, vw, vh, 0, 0, sub.width, sub.height);
+      out.push({ page: p, dataUrl: sub.toDataURL('image/jpeg', 0.72),
+                 label: row ? row.label : '',
+                 surface: row ? surfaceAt(row.y) : 0 });
+    }
+  }
+  return out;
+}
+
+/* Rapprochement photo ↔ ligne de menuiserie, par surface, en consommant les photos dans
+   l'ordre du document : deux fenêtres de même surface reçoivent chacune la sienne.
+   Aucune correspondance => aucune icône. Mieux vaut pas de photo que la mauvaise. */
+function photosForFenetres(vt){
+  const map = {};
+  const photos = vt.photos || [];
+  if(!photos.length) return map;
+  const used = {};
+  const inst = effectiveInstances(vt, 'Fenetres');
+  inst.forEach((it, i) => {
+    const s = num(it.surface_nette);
+    if(!(s > 0)) return;
+    const k = photos.findIndex((p, j) => !used[j] && p.surface > 0 && Math.abs(p.surface - s) <= 0.02);
+    if(k >= 0){ used[k] = true; map[i] = photos[k]; }
+  });
+  // Repli : autant de photos que de menuiseries, et rien d'apparié par surface (VT d'un
+  // autre format). Les deux listes sont dans l'ordre du document -> appariement par rang.
+  if(!Object.keys(map).length && photos.length === inst.length)
+    inst.forEach((_, i) => { map[i] = photos[i]; });
+  return map;
 }
 
 /* ============================================================================
@@ -1747,6 +1913,9 @@ function renderVtList(){
       <div class="head">
         <strong>📄 ${esc(vt.fileName)}</strong>
         <span class="pill">${(vt.text||'').length.toLocaleString('fr-FR')} car.</span>
+        ${ vt.photosLoading
+            ? '<span class="pill"><span class="spinner"></span> photos…</span>'
+            : ((vt.photos && vt.photos.length) ? `<span class="pill" title="Vignettes disponibles à l'étape Extraction, sur les lignes Fenêtres. Non archivées : elles vivent le temps de la session.">📷 ${vt.photos.length} photo(s)</span>` : '') }
         <span class="spacer" style="flex:1"></span>
         <label class="fld" style="margin:0">Rôle</label>
         <select data-role="${vt.id}" style="width:auto">
@@ -1790,9 +1959,12 @@ async function handleFiles(fileList){
     renderVtList();   // renumberVts() y attribue 'VT ITE' / 'Habitation N' selon la position
     try{
       const buf = await file.arrayBuffer();
-      vt.text = await extractPdfText(buf);
+      // ⚠️ pdf.js TRANSFÈRE le buffer au worker : il est détaché après le 1er getDocument.
+      // Chaque lecture reçoit donc sa propre copie (slice(0)).
+      vt.text = await extractPdfText(buf.slice(0));
       vt.hints = detectInstanceHints(vt.text);
-    }catch(e){ vt.error = 'Lecture PDF impossible : '+e.message; }
+      queueVtPhotos(vt, buf.slice(0));   // vignettes en tâche de fond : ne retarde RIEN
+    }catch(e){ vt.error = 'Lecture PDF impossible : '+e.message; vt.photosLoading = false; }
     renderVtList();
   }
 }
@@ -2089,6 +2261,8 @@ function renderStep3(){
       const cats = catsToShow.map(cat=>{
         const inst = effectiveInstances(vt, cat);
         const collapsed = catCollapsed(vt, cat);
+        // Vignettes : uniquement les menuiseries, uniquement les lignes appariées à une photo.
+        const photoMap = cat==='Fenetres' ? photosForFenetres(vt) : {};
         // En-tête cliquable : + / − pour plier/déplier (déplié par défaut)
         const nOff = inst.length - activeCount(vt, cat);
         const head = `<div class="cat-head" data-toggle="${vt.id}|${cat}" style="cursor:pointer">
@@ -2131,6 +2305,7 @@ function renderStep3(){
                  ${cat==='Fenetres'?`<td><input type="text" value="${esc(it.dimensions||'')}" data-edit="${vt.id}|${cat}|${i}|dimensions" placeholder="ex. 1,20 × 1,00" style="width:130px"${lock}></td>`:''}
                  <td class="num"><input type="number" value="${it.surface_nette}" step="0.1" data-edit="${vt.id}|${cat}|${i}|surface_nette" style="width:90px;text-align:right"${lock}></td>
                  <td style="white-space:nowrap">
+                   ${photoMap[i]?`<span class="ph" data-ph="1"><button class="btn small ghost" title="Photo de la VT — survol pour voir, clic pour épingler"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></button><span class="ph-pop"><img src="${photoMap[i].dataUrl}" alt="Photo de la menuiserie"><span class="ph-cap">${esc(photoMap[i].label||'Menuiserie')} · ${m2(photoMap[i].surface)} · p.${photoMap[i].page}</span></span></span>`:''}
                    <button class="btn danger small" data-off="${vt.id}|${cat}|${i}"${off?' disabled':''} title="Désactiver : la ligne est décochée, grisée, et sort des totaux">✕</button>
                    <button class="btn small ghost" data-on="${vt.id}|${cat}|${i}"${off?'':' disabled'} title="Réinitialiser : réactive la ligne et la recoche">↺</button>
                  </td>
@@ -2161,6 +2336,14 @@ function renderStep3(){
   }).join('');
 
   // listeners
+  // Photo : survol = aperçu fugace (CSS), clic = épinglé (reste ouvert le temps de comparer).
+  // Un seul épinglage à la fois ; clic ailleurs ou Échap referme.
+  wrap.querySelectorAll('[data-ph]').forEach(sp=> sp.addEventListener('click', e=>{
+    e.stopPropagation();
+    const on = sp.classList.contains('pin');
+    wrap.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
+    if(!on) sp.classList.add('pin');
+  }));
   wrap.querySelectorAll('[data-extract]').forEach(b=> b.addEventListener('click', ()=>extractOne(b.dataset.extract)));
   wrap.querySelectorAll('[data-goparams]').forEach(b=> b.addEventListener('click', ()=>showView('params')));
   wrap.querySelectorAll('[data-toggle]').forEach(h=> h.addEventListener('click', e=>{
@@ -3134,7 +3317,8 @@ function buildDossierSnapshot(){
     chargesEdited: JSON.parse(JSON.stringify(state.chargesEdited || {})),   // le rosé archivé avec son dossier
     elementsTable: state.elementsTable,
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
-    vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false })),
+    // photos:null — jamais dans le snapshot Supabase (cf. extractVtPhotos)
+    vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false, photos:null, photosLoading:false })),
     resume: { couts:round2(tot.coutRevient), venteHT:round2(tot.venteTravaux), marge:round2(tot.marge),
               margeBrute:round2(tot.margeBrute), prime:round2(tot.prime), reste:round2(tot.reste),
               go:tot.go, nbVt:state.vts.length }
