@@ -111,16 +111,18 @@ button.btn.danger{background:#ef4444}
 button.btn.danger:hover{background:#dc2626}
 /* Vignette photo d'une menuiserie (survol ou clic). Volontairement petite : elle sert
    à reconnaître DE QUELLE fenêtre on parle, pas à examiner la photo. */
-.ph{position:relative;display:inline-block}
-.ph .ph-pop{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:60;
-  background:#fff;border:1px solid var(--border);border-radius:10px;padding:6px;
-  box-shadow:0 12px 32px rgba(16,32,64,.24)}
-.ph:hover .ph-pop,.ph.pin .ph-pop{display:block}
-.ph .ph-pop img{display:block;width:200px;height:auto;border-radius:6px}
-.ph .ph-cap{display:block;font-size:11px;color:var(--text-muted);text-align:center;margin-top:4px;max-width:200px}
-.ph.pin>button{background:var(--blue-bg);color:var(--blue-tx)}
+.ph{display:inline-block}
 .ph>button{padding:5px 8px;line-height:0}
 .ph>button svg{width:15px;height:15px;display:block}
+.ph.pin>button{background:var(--blue-bg);color:var(--blue-tx)}
+/* La vignette est rendue au niveau du BODY, pas dans le tableau : « .cat-block » porte
+   overflow:hidden (coins arrondis) et rognait la photo en bas de bloc, et « section.view »
+   porte un transform, qui piège même un position:fixed. Hors de ces deux pièges, la photo
+   passe devant tout le reste. pointer-events:none => elle n'intercepte jamais un clic. */
+#phOverlay{display:none;position:fixed;z-index:9999;background:#fff;border:1px solid var(--border);
+  border-radius:10px;padding:6px;box-shadow:0 12px 32px rgba(16,32,64,.28);pointer-events:none}
+#phOverlay img{display:block;width:200px;border-radius:6px}
+#phOverlay .ph-cap{display:block;font-size:11px;color:var(--text-muted);text-align:center;margin-top:4px;max-width:200px}
 button.btn:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
 
 .actions{display:flex;justify-content:space-between;gap:10px;margin-top:18px}
@@ -594,7 +596,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-27.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-27.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -829,13 +831,12 @@ function showView(id){
 $$('#nav button').forEach(b=> b.addEventListener('click', ()=>showView(b.dataset.view)));
 document.addEventListener('click', e=>{
   const t = e.target.closest('[data-goto]'); if(t) showView(t.dataset.goto);
-  // Clic hors d'une vignette épinglée : on referme (le survol, lui, reste géré en CSS).
-  if(!e.target.closest('[data-ph]'))
-    document.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
+  if(!e.target.closest('[data-ph]')) phHide(true);   // clic hors vignette : on referme
 });
-document.addEventListener('keydown', e=>{
-  if(e.key === 'Escape') document.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
-});
+document.addEventListener('keydown', e=>{ if(e.key === 'Escape') phHide(true); });
+// Une vignette épinglée est positionnée en coordonnées écran : elle doit suivre le défilement.
+window.addEventListener('scroll', ()=>{ if(_phPinned) phShow(_phPinned); }, {passive:true});
+window.addEventListener('resize', ()=>{ if(_phPinned) phShow(_phPinned); });
 
 /* ============================================================================
    EXTRACTION TEXTE PDF  (repris d'AuditVT — extractPdfText)
@@ -980,12 +981,53 @@ async function extractVtPhotos(arrayBuffer){
       const sub = document.createElement('canvas');
       sub.width = Math.round(vw); sub.height = Math.round(vh);
       sub.getContext('2d').drawImage(cv, vx, vy, vw, vh, 0, 0, sub.width, sub.height);
+      // w/h conservés : l'overlay fixe sa hauteur AVANT l'affichage, donc son placement
+      // (et sa bascule vers le haut) est juste dès la première ouverture.
       out.push({ page: p, dataUrl: sub.toDataURL('image/jpeg', 0.72),
+                 w: sub.width, h: sub.height,
                  label: row ? row.label : '',
                  surface: row ? surfaceAt(row.y) : 0 });
     }
   }
   return out;
+}
+
+/* ---------------------------------------------------------------------------------------
+   VIGNETTE EN SURCOUCHE — un seul élément, enfant direct de <body>.
+   Le registre évite de recopier le base64 dans le DOM : la ligne ne porte qu'un index.
+   --------------------------------------------------------------------------------------- */
+const _phReg = [];
+let _phOverlay = null, _phPinned = null;
+
+function phOverlay(){
+  if(_phOverlay) return _phOverlay;
+  _phOverlay = document.createElement('div');
+  _phOverlay.id = 'phOverlay';
+  _phOverlay.innerHTML = '<img alt="Photo de la menuiserie"><span class="ph-cap"></span>';
+  document.body.appendChild(_phOverlay);      // <body> : hors de tout parent qui rogne
+  return _phOverlay;
+}
+function phHide(force){
+  if(_phPinned && !force) return;
+  if(force) _phPinned = null;
+  document.querySelectorAll('.ph.pin').forEach(o=>o.classList.remove('pin'));
+  if(_phOverlay) _phOverlay.style.display = 'none';
+}
+function phShow(sp){
+  const p = _phReg[+sp.dataset.ph]; if(!p) return;
+  const ov = phOverlay();
+  const img = ov.querySelector('img');
+  img.src = p.dataUrl;
+  img.style.height = (p.w ? Math.round(200 * p.h / p.w) : 0) + 'px';   // hauteur connue d'avance
+  ov.querySelector('.ph-cap').textContent =
+    (p.label || 'Menuiserie') + ' · ' + m2(p.surface) + ' · p.' + p.page;
+  ov.style.display = 'block';
+  const r = sp.getBoundingClientRect(), w = ov.offsetWidth, h = ov.offsetHeight;
+  // Aligné à droite de l'icône, replié dans la fenêtre ; bascule au-dessus si le bas manque.
+  let top = r.bottom + 6;
+  if(top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
+  ov.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + 'px';
+  ov.style.top  = top + 'px';
 }
 
 /* Rapprochement photo ↔ ligne de menuiserie, par surface, en consommant les photos dans
@@ -2228,6 +2270,7 @@ function renderExtractionReport(){
 
 function renderStep3(){
   saveLS();   // persiste extraction + sélections à chaque interaction
+  _phReg.length = 0; phHide(true);   // le registre des vignettes suit le rendu courant
   const wrap = $('#extractList');
   if(state.vts.length===0){ wrap.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
 
@@ -2305,7 +2348,7 @@ function renderStep3(){
                  ${cat==='Fenetres'?`<td><input type="text" value="${esc(it.dimensions||'')}" data-edit="${vt.id}|${cat}|${i}|dimensions" placeholder="ex. 1,20 × 1,00" style="width:130px"${lock}></td>`:''}
                  <td class="num"><input type="number" value="${it.surface_nette}" step="0.1" data-edit="${vt.id}|${cat}|${i}|surface_nette" style="width:90px;text-align:right"${lock}></td>
                  <td style="white-space:nowrap">
-                   ${photoMap[i]?`<span class="ph" data-ph="1"><button class="btn small ghost" title="Photo de la VT — survol pour voir, clic pour épingler"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></button><span class="ph-pop"><img src="${photoMap[i].dataUrl}" alt="Photo de la menuiserie"><span class="ph-cap">${esc(photoMap[i].label||'Menuiserie')} · ${m2(photoMap[i].surface)} · p.${photoMap[i].page}</span></span></span>`:''}
+                   ${photoMap[i]?`<span class="ph" data-ph="${_phReg.push(photoMap[i])-1}"><button class="btn small ghost" title="Photo de la VT — survol pour voir, clic pour épingler"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg></button></span>`:''}
                    <button class="btn danger small" data-off="${vt.id}|${cat}|${i}"${off?' disabled':''} title="Désactiver : la ligne est décochée, grisée, et sort des totaux">✕</button>
                    <button class="btn small ghost" data-on="${vt.id}|${cat}|${i}"${off?'':' disabled'} title="Réinitialiser : réactive la ligne et la recoche">↺</button>
                  </td>
@@ -2336,14 +2379,18 @@ function renderStep3(){
   }).join('');
 
   // listeners
-  // Photo : survol = aperçu fugace (CSS), clic = épinglé (reste ouvert le temps de comparer).
+  // Photo : survol = aperçu fugace, clic = épinglé (reste ouvert le temps de comparer).
   // Un seul épinglage à la fois ; clic ailleurs ou Échap referme.
-  wrap.querySelectorAll('[data-ph]').forEach(sp=> sp.addEventListener('click', e=>{
-    e.stopPropagation();
-    const on = sp.classList.contains('pin');
-    wrap.querySelectorAll('[data-ph].pin').forEach(o=>o.classList.remove('pin'));
-    if(!on) sp.classList.add('pin');
-  }));
+  wrap.querySelectorAll('[data-ph]').forEach(sp=>{
+    sp.addEventListener('mouseenter', ()=>{ if(!_phPinned) phShow(sp); });
+    sp.addEventListener('mouseleave', ()=> phHide(false));
+    sp.addEventListener('click', e=>{
+      e.stopPropagation();
+      const deja = _phPinned === sp;
+      phHide(true);
+      if(!deja){ _phPinned = sp; sp.classList.add('pin'); phShow(sp); }
+    });
+  });
   wrap.querySelectorAll('[data-extract]').forEach(b=> b.addEventListener('click', ()=>extractOne(b.dataset.extract)));
   wrap.querySelectorAll('[data-goparams]').forEach(b=> b.addEventListener('click', ()=>showView('params')));
   wrap.querySelectorAll('[data-toggle]').forEach(h=> h.addEventListener('click', e=>{
