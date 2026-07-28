@@ -694,7 +694,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-28.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-28.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
@@ -5087,8 +5087,12 @@ function drawCourrier(doc, model) {
     }
   }
 
-  y = ensureSpace(doc, y + 14, 30);
+  // Bloc signature du chargé d'affaires : entièrement OMIS quand aucune information
+  // n'est fournie. Toutes les propositions n'en ont pas ; on ne laisse pas traîner
+  // un « Le chargé d'affaires, » suivi du vide.
   const chargeAffaires = model.chargeAffaires || {};
+  if (!chargeAffaires.nom && !chargeAffaires.tel && !chargeAffaires.mobile) return;
+  y = ensureSpace(doc, y + 14, 30);
   const sigX = W - MARGIN - 72;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9.5);
@@ -5669,6 +5673,9 @@ function propCreate(){
     conflits: Object.assign({}, idents.conflits),
     manuel: false,
     chargeAffaires: { nom: s.caNom||'', tel: s.caTel||'', mobile: s.caMobile||'' },
+    // Toutes les propositions ne portent pas de chargé d'affaires : on l'inclut par
+    // défaut seulement si un nom est paramétré, et l'icône permet de basculer.
+    caInclus: !!(s.caNom || s.caTel || s.caMobile),
     conditions: {
       offrePrevoit: [
         "Étude technique et dimensionnement des travaux d'isolation",
@@ -5693,6 +5700,11 @@ function propEnsure(){
   const p = state.prop;
   p.autoFields = p.autoFields || {}; p.conflits = p.conflits || {};
   p.sections = p.sections || [];
+  p.chargeAffaires = p.chargeAffaires || { nom:'', tel:'', mobile:'' };
+  // Dossiers archivés avant l'ajout de l'option : on déduit l'inclusion de la présence
+  // d'une information, pour ne pas faire disparaître une signature déjà voulue.
+  if(p.caInclus === undefined)
+    p.caInclus = !!(p.chargeAffaires.nom || p.chargeAffaires.tel || p.chargeAffaires.mobile);
   return p;
 }
 
@@ -5831,12 +5843,38 @@ function propInfosHtml(p, ro){
     + '</div>'
     + '<div style="margin-top:8px"><button class="btn small ghost allow-frozen" id="propManuel" title="Vide tout le bloc destinataire et retire les badges « auto ». À utiliser quand le vrai destinataire n\'est pas dans les VT : mandataire, syndic, société de gestion, changement de propriétaire."'+ro+'>✎ Saisir manuellement</button></div>'
 
-    + '<hr/><h3 style="font-size:13px;color:var(--text-muted);margin:0 0 8px">Chargé d\'affaires</h3>'
-    + '<div class="row">'
-    + f('chargeAffaires.nom','Nom', p.chargeAffaires.nom, null, 'Paramétrable dans ⚙️ Paramètres')
-    + f('chargeAffaires.tel','Téléphone fixe', p.chargeAffaires.tel, null, '')
-    + f('chargeAffaires.mobile','Mobile', p.chargeAffaires.mobile, null, '')
-    + '</div></div></div>';
+    + '<hr/>' + propChargeAffairesHtml(p, ro)
+    + '</div></div>';
+}
+
+/* Chargé d'affaires : présent sur certaines propositions, absent sur d'autres.
+   L'icône bascule son inclusion. Exclu, le bloc signature ne part PAS dans le PDF
+   (cf. propBuildPdfModel) — ce n'est pas un simple masquage à l'écran.
+   SVG inline plutôt qu'un emoji : les glyphes emoji cassent selon les polices. */
+const ICO_OEIL = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICO_OEIL_BARRE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19M6.61 6.61A18.6 18.6 0 0 0 2 11s3.5 7 10 7a9.7 9.7 0 0 0 5.39-1.61"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="2" y1="2" x2="22" y2="22"/></svg>';
+
+function propChargeAffairesHtml(p, ro){
+  const on = p.caInclus !== false;
+  const lock = on ? ro : ' disabled';
+  const f = (id, label, val, ph) =>
+    '<div class="col"><label class="fld">'+esc(label)+'</label>'
+    + '<input type="text" data-prop="'+id+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'"'+lock+' /></div>';
+  return '<div style="display:flex;align-items:center;gap:10px;margin:0 0 8px">'
+    + '<h3 style="font-size:13px;color:var(--text-muted);margin:0">Chargé d\'affaires</h3>'
+    + '<button class="btn small ghost allow-frozen" id="propCaToggle"'+ro+' style="padding:3px 10px;'
+    + (on ? 'color:var(--ot-bleu);border-color:var(--ot-bleu)' : 'color:var(--text-muted)') + '" '
+    + 'title="' + (on ? 'Inclus dans la proposition — cliquer pour le retirer du devis'
+                      : 'Absent de la proposition — cliquer pour l\'inclure') + '">'
+    + (on ? ICO_OEIL + ' Inclus' : ICO_OEIL_BARRE + ' Non inclus') + '</button>'
+    + '<small style="color:var(--text-muted)">' + (on ? 'La signature apparaîtra sur le courrier.'
+                                                      : 'Aucun bloc signature dans le devis.') + '</small>'
+    + '</div>'
+    + '<div class="row"' + (on ? '' : ' style="opacity:.45"') + '>'
+    + f('chargeAffaires.nom','Nom', p.chargeAffaires.nom, 'Paramétrable dans ⚙️ Paramètres')
+    + f('chargeAffaires.tel','Téléphone fixe', p.chargeAffaires.tel, '')
+    + f('chargeAffaires.mobile','Mobile', p.chargeAffaires.mobile, '')
+    + '</div>';
 }
 
 function propModeHtml(p, ro){
@@ -6108,6 +6146,13 @@ function propBind(box){
     head.querySelector('.caret').textContent = sec.classList.contains('closed') ? '▸' : '▾';
   }));
 
+  // Inclusion du chargé d'affaires dans le devis
+  const caT = box.querySelector('#propCaToggle');
+  if(caT) caT.addEventListener('click', ()=>{
+    state.prop.caInclus = (state.prop.caInclus === false);
+    rerender();
+  });
+
   // Saisie manuelle du destinataire
   const man = box.querySelector('#propManuel');
   if(man) man.addEventListener('click', ()=>{
@@ -6239,7 +6284,10 @@ function propBuildPdfModel(){
       email:            String(p.bailleur.email||''),
       adresseFacturation: String(p.bailleur.adresseFacturation||''),
     },
-    chargeAffaires: { nom:String(p.chargeAffaires.nom||''), tel:String(p.chargeAffaires.tel||''), mobile:String(p.chargeAffaires.mobile||'') },
+    // Chargé d'affaires exclu -> objet vide : le générateur omet alors tout le bloc
+    // signature. On ne se contente pas de le masquer, il ne part pas dans le document.
+    chargeAffaires: p.caInclus === false ? { nom:'', tel:'', mobile:'' }
+      : { nom:String(p.chargeAffaires.nom||''), tel:String(p.chargeAffaires.tel||''), mobile:String(p.chargeAffaires.mobile||'') },
     sections,
     totaux: { baseHT:t.baseHT, baseTVA:t.baseTVA, baseTTC:t.baseTTC, primeCee:t.primeCee, resteTTC:t.resteTTC },
     conditions: {
