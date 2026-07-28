@@ -694,7 +694,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-28.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-28.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
@@ -4995,8 +4995,30 @@ function drawCourrier(doc, model) {
     .filter(Boolean)
     .forEach((t) => { doc.text(t, leftX, ly); ly += 4.6; });
 
+  /* Bloc destinataire : on compose d'abord la liste des lignes réellement
+     disponibles, puis on dimensionne le cadre dessus. Une hauteur fixe laissait
+     un grand vide sous un destinataire peu renseigné — le cadre s'ajuste. */
   const destinataire = model.destinataire || {};
-  const boxH = 48;
+  const nomComplet = [destinataire.prenom, destinataire.nom].filter(Boolean).join(' ');
+  const destTitle = destinataire.personneMorale || nomComplet;
+
+  const corps = [];   // { txt, gras }
+  // Forme juridique : « SCI », « Particulier »… affichée seulement si elle apporte
+  // une information que la raison sociale ne porte pas déjà.
+  const forme = String(destinataire.typeProprietaire || '').trim();
+  if (forme && destTitle && !new RegExp('(^|\\s)' + forme.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(destTitle))
+    corps.push({ txt: forme, gras: false });
+  if (destinataire.personneMorale && nomComplet)
+    corps.push({ txt: "A l'attention de " + nomComplet, gras: false });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.splitTextToSize(destinataire.adresseFacturation || '', colW - 12)
+     .filter(Boolean).forEach((l) => corps.push({ txt: l, gras: false }));
+  if (destinataire.tel) corps.push({ txt: 'Tél : ' + destinataire.tel, gras: false });
+  if (destinataire.email) corps.push({ txt: destinataire.email, gras: false });
+
+  // 7 (marge haute + libellé) + 5 par titre + 4.4 par ligne + 6 de marge basse
+  const boxH = Math.max(26, 13 + (destTitle ? 5 : 0) + corps.length * 4.4 + 6);
   setDraw(doc, COLOR_GRAY_LINE);
   doc.setLineWidth(0.3);
   doc.roundedRect(rightX, ry, colW, boxH, 1.5, 1.5, 'S');
@@ -5007,8 +5029,6 @@ function drawCourrier(doc, model) {
   doc.text('DESTINATAIRE', rightX + 6, dy);
   dy += 6;
 
-  const destTitle = destinataire.personneMorale ||
-    [destinataire.prenom, destinataire.nom].filter(Boolean).join(' ');
   if (destTitle) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
@@ -5018,17 +5038,8 @@ function drawCourrier(doc, model) {
   }
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
-  if (destinataire.personneMorale && (destinataire.nom || destinataire.prenom)) {
-    doc.text(
-      "A l'attention de " + [destinataire.prenom, destinataire.nom].filter(Boolean).join(' '),
-      rightX + 6, dy
-    );
-    dy += 4.4;
-  }
-  const addrLines = doc.splitTextToSize(destinataire.adresseFacturation || '', colW - 12);
-  addrLines.forEach((l) => { doc.text(l, rightX + 6, dy); dy += 4.2; });
-  if (destinataire.tel) { doc.text('Tél : ' + destinataire.tel, rightX + 6, dy); dy += 4.2; }
-  if (destinataire.email) { doc.text(destinataire.email, rightX + 6, dy); dy += 4.2; }
+  setText(doc, COLOR_GRAY_TEXT);
+  corps.forEach((l) => { doc.text(l.txt, rightX + 6, dy); dy += 4.4; });
 
   y = Math.max(ly, ry + boxH) + 10;
 
@@ -5037,8 +5048,10 @@ function drawCourrier(doc, model) {
     rowPageBreak: 'avoid',
     startY: y,
     margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
-    head: [['Réf. Projet', 'V/réf.', 'N/réf.', 'Date']],
-    body: [[devis.refProjet || '', '', devis.numero || '', devis.dateEmission || '']],
+    // « V/réf. » (votre référence) retiré : l'application n'a nulle part où saisir la
+    // référence interne du client, la colonne était donc toujours vide.
+    head: [['Réf. Projet', 'N/réf.', 'Date']],
+    body: [[devis.refProjet || '', devis.numero || '', devis.dateEmission || '']],
     theme: 'plain',
     styles: {
       font: 'helvetica', fontSize: 8.5, textColor: hexToRgb(COLOR_GRAY_TEXT),
@@ -5664,6 +5677,13 @@ function propNumeroDevis(){
   return 'OTE-'+an+'-'+String(n).padStart(3,'0');
 }
 
+// « 4 rue David d'Angers, 49130 LES PONTS DE CÉ » — vide si rien n'a été extrait.
+function propAdresseChantier(c){
+  if(!c) return '';
+  const ligne2 = [c.cp, c.ville].filter(Boolean).join(' ');
+  return [c.adresse, ligne2].filter(Boolean).join(', ');
+}
+
 function propCreate(){
   const s = state.settings;
   const idents = propResolveIdentites();
@@ -5675,9 +5695,14 @@ function propCreate(){
     devis: { numero: propNumeroDevis(), dateEmission: today.toISOString().slice(0,10),
              validiteMois: num(s.validiteMois) || 2, refProjet: state.nomDossier || '' },
     chantier: Object.assign({ adresse:'', cp:'', ville:'' }, idents.chantier),
+    // Adresse de facturation : proposée depuis l'adresse du chantier, car un bailleur
+    // possède le plus souvent l'immeuble concerné. Elle porte le badge « auto » et
+    // reste modifiable — un bailleur domicilié ailleurs se corrige en deux secondes.
     bailleur: { typeProprietaire:'', personneMorale:'', nom: idents.bailleur.nom || '', prenom:'',
-                tel: idents.bailleur.tel || '', email:'', adresseFacturation:'' },
-    autoFields: Object.assign({}, idents.auto),
+                tel: idents.bailleur.tel || '', email:'',
+                adresseFacturation: propAdresseChantier(idents.chantier) },
+    autoFields: Object.assign({}, idents.auto,
+      propAdresseChantier(idents.chantier) ? { 'bailleur.adresseFacturation': true } : {}),
     conflits: Object.assign({}, idents.conflits),
     manuel: false,
     chargeAffaires: { nom: s.caNom||'', tel: s.caTel||'', mobile: s.caMobile||'' },
@@ -5847,7 +5872,7 @@ function propInfosHtml(p, ro){
     + f('bailleur.tel','Téléphone', p.bailleur.tel, 'bailleur.tel', '')
     + f('bailleur.email','E-mail', p.bailleur.email, 'bailleur.email', 'Absent des VT — à saisir')
     + '</div><div class="row">'
-    + f('bailleur.adresseFacturation','Adresse de facturation', p.bailleur.adresseFacturation, 'bailleur.adresseFacturation', 'Si différente de l\'adresse du chantier')
+    + f('bailleur.adresseFacturation','Adresse de facturation', p.bailleur.adresseFacturation, 'bailleur.adresseFacturation', 'Adresse du chantier par défaut — corrige si le bailleur est domicilié ailleurs')
     + '</div>'
     + '<div style="margin-top:8px"><button class="btn small ghost allow-frozen" id="propManuel" title="Vide tout le bloc destinataire et retire les badges « auto ». À utiliser quand le vrai destinataire n\'est pas dans les VT : mandataire, syndic, société de gestion, changement de propriétaire."'+ro+'>✎ Saisir manuellement</button></div>'
 
