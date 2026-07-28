@@ -197,7 +197,10 @@ body.frozen #frozenBar .btn{background:rgba(255,255,255,.16);color:#fff;border:1
 body.frozen main{pointer-events:none}
 body.frozen main .allow-frozen{pointer-events:auto}
 body.frozen main input,body.frozen main select,body.frozen main textarea{background:#f4f6fb;color:var(--text)}
-body.frozen #nav [data-view="step6"],body.frozen #btnArchive,body.frozen #saveDossier,body.frozen #scanIA{display:none}
+/* Le mode « dossier figé en lecture seule » n'est plus utilisé : reprendre un dossier
+   de l'historique l'ouvre désormais EN ÉDITION (cf. openArchived). Les règles sont
+   conservées, inertes, car #frozenBar sert toujours de bandeau de contexte. */
+body.frozen #scanIA{display:none}
 /* Porte d'accès (login). NB : garde-fou cosmétique côté client, PAS une vraie sécurité. */
 #loginGate{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--primary-dark),var(--primary));padding:20px}
 body.locked{overflow:hidden}
@@ -366,9 +369,7 @@ main{position:relative;z-index:1}
   <button data-view="step3"><span class="num">2</span> Extraction &amp; sélection</button>
   <button data-view="step2"><span class="num">3</span> Valorisation CEE</button>
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
-  <button data-view="step5"><span class="num">5</span> Rapport</button>
-  <button data-view="step6"><span class="num">6</span> Sauvegarde</button>
-  <button data-view="step7"><span class="num">7</span> Proposition de travaux</button>
+  <button data-view="step7"><span class="num">5</span> Proposition de travaux</button>
   <span class="spacer"></span>
   <button data-view="history" class="param">📋 Historique</button>
   <button data-view="params" class="param">⚙️ Paramètres</button>
@@ -468,40 +469,19 @@ main{position:relative;z-index:1}
         <strong>Cliquez sur un widget</strong> pour corriger sa valeur ou forcer la décision GO/NO-GO (survolez pour voir la formule) — <em>↺ pour revenir au calcul automatique</em>.</p>
       <div id="calcArea"></div>
       <div id="scanIAResult"></div>
+
+      <!-- Archivage automatique : plus d'étape « Sauvegarde » dédiée. Dès que les
+           calculs sont valides, le dossier part dans l'historique et s'y met à jour. -->
+      <hr/>
+      <div id="autoSaveArea"></div>
       <div class="actions">
         <button class="btn ghost" data-goto="step2">← Retour</button>
         <button class="btn ghost" id="scanIA" title="Second regard IA sur la plausibilité métier (ordres de grandeur). Optionnel — ne remplace pas les contrôles automatiques.">🔍 Scan IA de cohérence</button>
         <span style="flex:1"></span>
-        <span><small>Les modifications sont sauvegardées automatiquement avec le dossier.</small></span>
-        <button class="btn" id="saveDossier">💾 Sauvegarder</button>
-        <button class="btn" data-goto="step5">Étape suivante : Rapport →</button>
+        <button class="btn success" id="downloadExcel">📊 Télécharger le rapport (.xlsx)</button>
+        <button class="btn" data-goto="step7">Étape suivante : Proposition de travaux →</button>
       </div>
-    </div>
-  </section>
-
-  <!-- ====================================================== ÉTAPE 5 — RAPPORT ====================================================== -->
-  <section class="view" id="step5">
-    <div class="card">
-      <h2>5 · Rapport</h2>
-      <p class="hint">Génère le rapport Excel (.xlsx) : onglets Synthèse, Détails et Récapitulatif (format Master Suivi).</p>
-      <div class="flex">
-        <button class="btn success" id="downloadExcel">📊 Rapport Excel (.xlsx)</button>
-      </div>
-      <div id="reportPreview" style="margin-top:16px"></div>
-    </div>
-  </section>
-
-  <!-- ====================================================== ÉTAPE 6 — SAUVEGARDE ====================================================== -->
-  <section class="view" id="step6">
-    <div class="card">
-      <h2>6 · Sauvegarde dans l'historique</h2>
-      <p class="hint">Fige ce dossier et l'archive dans l'<strong>historique partagé</strong> : nom, fichiers chargés (titres uniquement), extraction, valorisation, charges &amp; marges et résultats. Une fois sauvegardé, le dossier est <strong>consultable par tous et non modifiable</strong>.</p>
-      <div id="saveArea"></div>
-      <div class="actions">
-        <button class="btn ghost" data-goto="step5">← Retour</button>
-        <span style="flex:1"></span>
-        <button class="btn success" id="btnArchive">💾 Sauvegarder dans l'historique</button>
-      </div>
+      <div id="reportPreview" style="margin-top:12px"></div>
     </div>
   </section>
 
@@ -714,13 +694,20 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-28.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-28.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
 const PROP_SETTING_NUM  = ['tvaDefaut','validiteMois','acomptePct'];
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
-let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
+let FROZEN = null;                 // vestige : plus jamais renseigné (un dossier repris est désormais éditable)
+// Entrée d'historique du dossier courant. null = dossier neuf (la prochaine sauvegarde
+// en créera une). Renseigné = toute sauvegarde REMPLACE cette entrée au lieu d'en ajouter.
+// Déclaré ici, avant saveLS/loadLS qui le lisent : un `let` plus bas les mettrait en
+// zone morte temporelle et ferait planter le chargement.
+let CURRENT_HIST_ID = null;
+let _lastSavedFingerprint = null;  // empreinte du dernier archivage, évite de réécrire à l'identique
+let _autoSaveBusy = false;
 
 // ── Historique partagé : configuration Supabase (remplie une fois le projet créé via MCP). ──
 // Tant que ces champs sont vides, l'historique fonctionne en LOCAL (ce navigateur uniquement).
@@ -886,11 +873,15 @@ function saveLS(){
     const dossier = (blank && SAVED_DOSSIER)
       ? { cas: SAVED_DOSSIER.cas, general: SAVED_DOSSIER.general, nomDossier: SAVED_DOSSIER.nomDossier,
           overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts,
-          chargesEdited: SAVED_DOSSIER.chargesEdited || {}, prop: SAVED_DOSSIER.prop || null }
+          chargesEdited: SAVED_DOSSIER.chargesEdited || {}, prop: SAVED_DOSSIER.prop || null,
+          histId: SAVED_DOSSIER.histId || null }
       : { cas: state.cas, general: state.general, nomDossier: state.nomDossier,
           overrides: state.overrides,
           // Proposition de travaux (étape 7) : propriété DU DOSSIER, comme chargesEdited.
           prop: state.prop,
+          // Lien vers l'entrée d'historique de ce dossier : sans lui, « Reprendre » après
+          // un rechargement recréerait une entrée au lieu de mettre à jour l'existante.
+          histId: CURRENT_HIST_ID,
           // Surlignage rosé des prix édités : propriété DU DOSSIER (2026-07-22) — un nouveau
           // dossier repart blanc, même si le prix modifié reste le nouveau défaut du barème.
           chargesEdited: state.chargesEdited || {},
@@ -931,7 +922,7 @@ function loadLS(){
     if((Array.isArray(d.vts) && d.vts.length) || d.nomDossier){
       SAVED_DOSSIER = { cas:d.cas||1, nomDossier:d.nomDossier||'', vts:d.vts||[],
                         overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''},
-                        chargesEdited:d.chargesEdited||{}, prop:d.prop||null };
+                        chargesEdited:d.chargesEdited||{}, prop:d.prop||null, histId:d.histId||null };
     }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
@@ -951,10 +942,12 @@ function showView(id){
   $$('#nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===id));
   if(id==='step2') renderStep2();
   if(id==='step3') renderStep3();
-  if(id==='step4') renderStep4();
+  // Étape 4 : les calculs de marge déclenchent l'archivage automatique dans
+  // l'historique (il n'y a plus d'étape « Sauvegarde » dédiée). autoArchive()
+  // ne réécrit que si le dossier a réellement changé.
+  if(id==='step4'){ renderStep4(); autoArchiveFromStep4(); }
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
   if(id==='params'){ renderChargesEditor(); renderElementsBareme(); }
-  if(id==='step6') renderStep6();
   if(id==='step7') renderStep7();
   if(id==='history') renderHistory();
   applyBackground(id);
@@ -3475,12 +3468,12 @@ $('#downloadExcel').addEventListener('click', ()=>{
   if(unpricedForXls.length){ alert('⛔ Rapport bloqué — élément(s) additionnel(s) incomplet(s) (prix au barème, ou description + prix pour un ajout individuel) :\n' + unpricedForXls.join('\n')); return; }
   const fname = 'rapport-' + (state.nomDossier.trim().replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) || 'dossier') + '.xlsx';
   XLSX.writeFile(buildReportWorkbook(), fname);
-  $('#reportPreview').innerHTML = '<div class="alert ok">📊 Rapport Excel téléchargé : <strong>'+esc(fname)+'</strong>. Passe à l\'étape <strong>6 · Sauvegarde</strong> pour archiver ce dossier dans l\'historique partagé.</div>';
+  $('#reportPreview').innerHTML = '<div class="alert ok">📊 Rapport Excel téléchargé : <strong>'+esc(fname)+'</strong>. Le dossier est archivé automatiquement dans l\'historique. Passe à <strong>5 · Proposition de travaux</strong> pour établir le devis client.</div>';
 });
 
 /* ============================================================================
    HISTORIQUE PARTAGÉ — snapshot de dossier figé, archivé (Supabase si configuré, sinon local),
-   immuable une fois sauvegardé, rejouable en lecture seule.
+   ré-ouvrable en édition : une nouvelle sauvegarde remplace l'entrée existante.
    ============================================================================ */
 // Instantané complet et figé du dossier : tout le nécessaire pour ré-afficher les 5 onglets et
 // régénérer le rapport Excel. Le texte brut des PDF et la clé API ne sont JAMAIS inclus.
@@ -3558,56 +3551,101 @@ const HistoryStore = {
     const all = this._lsAll().filter(x=>x.id!==id);
     localStorage.setItem(this._lsKey, JSON.stringify(all));
     return true;
+  },
+  /* Remplace une entrée existante. La base n'autorise PAS l'UPDATE (RLS : select,
+     insert et delete seulement) : on insère la nouvelle version PUIS on supprime
+     l'ancienne. Cet ordre est délibéré — si la suppression échoue on garde un
+     doublon, récupérable, plutôt qu'un trou. L'inverse perdrait le dossier. */
+  async replace(id, snap){
+    const row = await this.save(snap);
+    try{ await this.remove(id); }
+    catch(e){ console.warn('Ancienne version non supprimée (doublon dans l\'historique) :', e.message); }
+    return row;
   }
 };
 
-// ── ÉTAPE 6 — récap avant sauvegarde ──
-function renderStep6(){
-  const area = $('#saveArea'); if(!area) return;
+/* ── ARCHIVAGE AUTOMATIQUE ───────────────────────────────────────────────────
+   Il n'y a plus d'étape « Sauvegarde » : dès que l'étape 4 produit des calculs
+   valides, le dossier part dans l'historique. Un dossier n'a qu'UNE entrée, qui
+   se met à jour — reprendre un dossier archivé, le modifier et régénérer sa
+   proposition écrase la version précédente au lieu d'empiler des doublons.
+
+   CURRENT_HIST_ID porte l'identité de cette entrée : nul pour un dossier neuf,
+   rempli à la première sauvegarde, ou repris tel quel quand on ouvre un dossier
+   depuis l'historique. (Déclaré en tête de script avec les autres variables d'état.) */
+
+// Empreinte de ce qui compte pour l'archive. Deux passages sur l'étape 4 sans
+// modification ne doivent pas générer deux écritures réseau.
+function dossierFingerprint(snap){
+  try{ return JSON.stringify({ nom:snap.nom, resume:snap.resume, ov:snap.overrides,
+                               vts:(snap.vts||[]).map(v=>({f:v.fileName,r:v.role,s:v.selections,d:v.disabled,p:v.pcLines,sh:v.shab})),
+                               prop:snap.prop }); }
+  catch(_){ return String(Math.random()); }
+}
+
+function autoSaveBlockers(){
   const problems = [];
   if(!state.nomDossier.trim()) problems.push('Renseigne le « Nom du dossier » (étape 1).');
   if(state.vts.length===0) problems.push('Charge au moins une VT (étape 1).');
   if(!state.chargesTable) problems.push('Charge le barème de charges (Paramètres).');
   const unpricedEl = unpricedElementIssues();
-  if(unpricedEl.length) problems.push('Élément(s) additionnel(s) incomplet(s) (prix au barème, ou description + prix pour un ajout individuel) : ' + unpricedEl.join(' · '));
-  const { tot } = calcGlobal();
-  const gov = (state.overrides && state.overrides.global) || {};   // valeurs forcées au niveau du total
-  const integ = verifyIntegrity();
-  const fichiers = state.vts.map(v=>'• '+esc(v.fileName)+' — '+(v.role==='ite'?'VT ITE':esc(v.label))).join('<br>') || '—';
-  area.innerHTML = `
-    ${problems.length ? '<div class="alert err">'+problems.map(esc).join('<br>')+'</div>' : ''}
-    ${!SUPA_ON() ? '<div class="alert info">ℹ️ Historique en mode <strong>local</strong> (ce navigateur). Le partage entre tous les utilisateurs s\'activera dès la connexion à la base Supabase.</div>' : '<div class="alert ok">🌐 Historique <strong>partagé</strong> (Supabase) — visible par tous les utilisateurs, non modifiable une fois sauvegardé.</div>'}
-    <div class="row">
-      <div class="col"><label class="fld">Nom du dossier</label><div style="font-weight:700;font-size:15px">${esc(state.nomDossier||'(sans nom)')}</div></div>
-      <div class="col"><label class="fld">Cas</label><div>${state.cas} — ${esc(CAS_DESC[state.cas]||'')}</div></div>
-    </div>
-    <div style="margin-top:12px"><label class="fld">Fichiers chargés (titres uniquement)</label><div style="font-size:13px">${fichiers}</div></div>
-    <div class="kpi-grid" style="margin-top:14px">
-      <div class="kpi ${gov.coutRevient!=null?'edited':''}"><div class="lab">Coût de revient${gov.coutRevient!=null?' ✎':''}</div><div class="val">${eur(tot.coutRevient)}</div></div>
-      <div class="kpi ${gov.marge!=null?'edited':''}"><div class="lab">Marge commerciale${gov.marge!=null?' ✎':''}</div><div class="val">${eur(tot.marge)}</div></div>
-      <div class="kpi ${gov.prime!=null?'edited':''}"><div class="lab">Prime CEE${gov.prime!=null?' ✎':''}</div><div class="val">${eur(tot.prime)}</div></div>
-      <div class="kpi ${gov.decision?'edited':(tot.go?'go':'nogo')}"><div class="lab">Décision${gov.decision?' ✎':''}</div><div class="val ${tot.go?'go':'nogo'}" style="color:${tot.go?'var(--green-tx)':'var(--red-tx)'}">${tot.go?'✅ GO':'⛔ NO-GO'}</div></div>
-    </div>
-    ${(gov.coutRevient!=null||gov.marge!=null||gov.prime!=null||gov.decision||activeOverridesList().length) ? '<div style="margin-top:8px"><small>✎ = valeur(s) modifiée(s) manuellement (fond rosé). '+activeOverridesList().length+' correction(s) enregistrée(s) sur ce dossier.</small></div>' : ''}
-    <div style="margin-top:10px"><small>${integ.ok ? '🛡️ Calculs vérifiés ('+integ.passCount+'/'+integ.autoCount+') — prêt à archiver.' : '🚨 '+integ.fails.length+' contrôle(s) en échec — corrige avant d\'archiver.'}</small></div>`;
-  $('#btnArchive').disabled = problems.length>0 || !integ.ok;
+  if(unpricedEl.length) problems.push('Élément(s) additionnel(s) incomplet(s) : ' + unpricedEl.join(' · '));
+  return problems;
 }
 
-async function archiveDossier(){
-  const btn = $('#btnArchive'); const area = $('#saveArea');
-  btn.disabled = true; const old = btn.textContent; btn.textContent = '⏳ Sauvegarde…';
+async function autoArchive(opts){
+  if(_autoSaveBusy) return null;
+  const problems = autoSaveBlockers();
+  const integ = verifyIntegrity();
+  if(problems.length || !integ.ok) return null;      // on n'archive jamais un dossier incohérent
+  const snap = buildDossierSnapshot();
+  const fp = dossierFingerprint(snap);
+  if(fp === _lastSavedFingerprint && !(opts && opts.force)) return null;   // rien n'a bougé
+  _autoSaveBusy = true;
   try{
-    const snap = buildDossierSnapshot();
-    const row = await HistoryStore.save(snap);
-    area.insertAdjacentHTML('afterbegin', '<div class="alert ok">✅ Dossier <strong>'+esc(snap.nom)+'</strong> archivé dans l\'historique '+(SUPA_ON()?'partagé':'local')+'. Il est désormais consultable et non modifiable. <button class="btn small" data-goto="history">Voir l\'historique →</button></div>');
-    btn.textContent = '✅ Sauvegardé';
-    setTimeout(()=>{ btn.textContent = old; btn.disabled=false; }, 2000);
-  }catch(e){
-    area.insertAdjacentHTML('afterbegin', '<div class="alert err">Sauvegarde impossible : '+esc(e.message)+'</div>');
-    btn.textContent = old; btn.disabled=false;
+    const row = CURRENT_HIST_ID
+      ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
+      : await HistoryStore.save(snap);
+    CURRENT_HIST_ID = row && row.id ? row.id : CURRENT_HIST_ID;
+    _lastSavedFingerprint = fp;
+    return row;
+  } finally { _autoSaveBusy = false; }
+}
+
+// Bandeau d'état sous les calculs de l'étape 4.
+function renderAutoSave(){
+  const area = $('#autoSaveArea'); if(!area) return;
+  const problems = autoSaveBlockers();
+  const integ = verifyIntegrity();
+  const bloque = problems.length > 0 || !integ.ok;
+  const lieu = SUPA_ON() ? 'historique partagé' : 'historique local (ce navigateur)';
+  if(bloque){
+    area.innerHTML = '<div class="alert warn">⏸️ <strong>Pas encore archivé.</strong> '
+      + (problems.length ? problems.map(esc).join('<br>') : '')
+      + (!integ.ok ? (problems.length?'<br>':'') + '🚨 ' + integ.fails.length + ' contrôle(s) de cohérence en échec.' : '')
+      + '</div>';
+    return;
+  }
+  area.innerHTML = '<div class="alert ok" id="autoSaveMsg">💾 <strong>'
+    + (CURRENT_HIST_ID ? 'Dossier mis à jour' : 'Archivage automatique')
+    + '</strong> dans l\'' + lieu + '. 🛡️ Calculs vérifiés (' + integ.passCount + '/' + integ.autoCount + ').'
+    + ' <button class="btn small" data-goto="history">Voir l\'historique →</button></div>';
+}
+
+// Déclencheur : à chaque affichage de l'étape 4, on archive si quelque chose a changé.
+async function autoArchiveFromStep4(){
+  renderAutoSave();
+  const row = await autoArchive();
+  if(row){
+    const msg = $('#autoSaveMsg');
+    if(msg) msg.insertAdjacentHTML('beforeend', ' <em>Enregistré à '
+      + new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}) + '.</em>');
   }
 }
-$('#btnArchive').addEventListener('click', archiveDossier);
+
+/* Les étapes 5 (Rapport) et 6 (Sauvegarde) ont été supprimées : le rapport Excel
+   se télécharge depuis l'étape 4 et l'archivage y est automatique (autoArchive).
+   renderStep6 / archiveDossier / #btnArchive n'existent plus. */
 
 // ── HISTORIQUE — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) ──
 const ICO = {
@@ -3626,7 +3664,7 @@ async function renderHistory(){
   try{ _histRows = await HistoryStore.list(); }
   catch(e){ wrap.innerHTML = '<div class="alert err">Historique inaccessible : '+esc(e.message)+'</div>'; return; }
   if(!_histRows.length){
-    wrap.innerHTML = '<div class="alert info">Aucun dossier archivé. Complète les 5 étapes puis sauvegarde à l\'étape <strong>6 · Sauvegarde</strong>.</div>';
+    wrap.innerHTML = '<div class="alert info">Aucun dossier archivé. Les dossiers s\'archivent <strong>automatiquement</strong> dès que l\'étape <strong>4 · Charges &amp; marges</strong> produit des calculs valides.</div>';
     return;
   }
   wrap.innerHTML = `
@@ -3652,7 +3690,7 @@ function renderHistBody(){
   const cnt = $('#hfCount'); if(cnt) cnt.textContent = rows.length + (rows.length===_histRows.length ? ' dossier(s)' : ' / '+_histRows.length+' dossier(s)');
   if(!rows.length){ body.innerHTML = '<tr><td colspan="7"><small>Aucun dossier ne correspond.</small></td></tr>'; return; }
   body.innerHTML = rows.map(h=>{ const r=h.resume||{}; const dt=new Date(h.created_at);
-    return `<tr class="histrow" data-histopen="${esc(String(h.id))}" style="cursor:pointer" title="Double-clic : consulter en lecture seule">
+    return `<tr class="histrow" data-histopen="${esc(String(h.id))}" style="cursor:pointer" title="Double-clic : reprendre ce dossier en édition. Toute sauvegarde remplacera cette entrée.">
       <td style="white-space:nowrap">${dt.toLocaleDateString('fr-FR')} ${dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
       <td><strong style="color:var(--primary)">${esc(h.nom||'(sans nom)')}</strong>${
         r.typeDoc === 'Proposition de travaux'
@@ -3695,37 +3733,51 @@ async function downloadHistoryReport(id){
   } finally { KEYS.forEach(k=> state[k]=bak[k]); }
 }
 
+/* Reprendre un dossier de l'historique = l'ouvrir EN ÉDITION.
+   Avant, un dossier archivé était figé en lecture seule (FROZEN) et l'historique
+   était immuable. Ce n'est plus le cas : on peut corriger un dossier, refaire sa
+   proposition, et la sauvegarde écrase la version précédente au lieu d'empiler
+   des doublons. CURRENT_HIST_ID retient QUELLE entrée sera écrasée. */
 async function openArchived(id){
   let snap;
   try{ snap = await HistoryStore.get(id); }catch(e){ alert('Ouverture impossible : '+e.message); return; }
   if(!snap){ alert('Dossier introuvable.'); return; }
-  FROZEN = snap;
-  // Charge le snapshot dans l'état (sans persister — saveLS est bloqué tant que FROZEN est actif)
+  FROZEN = null;                       // plus de lecture seule
+  CURRENT_HIST_ID = id;                // toute sauvegarde ultérieure remplacera CETTE entrée
+  _lastSavedFingerprint = null;        // on ne connaît pas encore l'empreinte locale
   state.cas = snap.cas; state.nomDossier = snap.nom;
   state.general = snap.general || {pollueur:''};
   state.overrides = snap.overrides || {global:{},vt:{}};
   state.valoTable = snap.valoTable || null;
   state.pollueurs = snap.pollueurs || [];
   state.chargesTable = snap.chargesTable || null;
-  state.chargesEdited = snap.chargesEdited || {};   // rosé = celui du dossier archivé uniquement
+  state.chargesEdited = snap.chargesEdited || {};
   state.elementsTable = snap.elementsTable || state.elementsTable;
-  state.prop = snap.prop || null;                   // proposition de travaux du dossier archivé (consultable, non modifiable)
+  state.prop = snap.prop || null;      // sa proposition de travaux, ré-éditable
   state.vts = snap.vts || [];
   Object.assign(state.settings, snap.settings || {});
-  document.body.classList.add('frozen');
-  $('#frozenBar').innerHTML = `<span style="font-size:18px">📋</span>
-    <strong>Dossier archivé : ${esc(snap.nom||'(sans nom)')}</strong>
-    <span style="opacity:.8;font-size:13px">— lecture seule, non modifiable</span>
+  document.body.classList.remove('frozen');
+  $('#frozenBar').innerHTML = `<span style="font-size:18px">✏️</span>
+    <strong>Dossier repris : ${esc(snap.nom||'(sans nom)')}</strong>
+    <span style="opacity:.8;font-size:13px">— modifiable. Toute sauvegarde <strong>remplacera</strong> cette entrée de l'historique.</span>
     <span style="flex:1"></span>
-    <button class="btn small allow-frozen" id="frozenExport">📊 Rapport Excel</button>
-    <button class="btn small allow-frozen" id="frozenExit">← Quitter la consultation</button>`;
+    <button class="btn small" id="frozenExport">📊 Rapport Excel</button>
+    <button class="btn small" id="frozenExit">← Quitter sans lier</button>`;
   $('#frozenExport').addEventListener('click', ()=>{
-    const fname = 'rapport-archive-' + (snap.nom||'dossier').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) + '.xlsx';
+    const fname = 'rapport-' + (snap.nom||'dossier').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40) + '.xlsx';
     XLSX.writeFile(buildReportWorkbook(), fname);
   });
-  $('#frozenExit').addEventListener('click', ()=>{ FROZEN=null; location.reload(); });
+  // « Quitter sans lier » : on garde le dossier en cours d'édition mais on coupe le
+  // lien avec l'entrée d'historique — la prochaine sauvegarde créera une NOUVELLE
+  // entrée au lieu d'écraser celle-ci.
+  $('#frozenExit').addEventListener('click', ()=>{
+    CURRENT_HIST_ID = null; _lastSavedFingerprint = null;
+    $('#frozenBar').innerHTML = '';
+    saveLS();
+  });
   $('#nomDossier').value = state.nomDossier;
   refreshCas();
+  saveLS();
   showView('step1');
   window.scrollTo(0,0);
 }
@@ -3920,11 +3972,8 @@ $('#auditVT').addEventListener('input', e=>{ state.settings.auditVT = num(e.targ
 $('#vtIte').addEventListener('input', e=>{ state.settings.vtIte = num(e.target.value); saveLS(); });
 $('#regiePct').addEventListener('input', e=>{ state.settings.regiePct = num(e.target.value); saveLS(); });
 $('#seuilGo').addEventListener('input', e=>{ state.settings.seuilGo = num(e.target.value); saveLS(); });
-$('#saveDossier').addEventListener('click', ()=>{
-  saveLS();
-  $('#saveDossier').textContent = '✅ Sauvegardé';
-  setTimeout(()=>$('#saveDossier').textContent = '💾 Sauvegarder', 1500);
-});
+// #saveDossier a disparu avec l'ancienne étape 4 : la sauvegarde locale se fait en
+// continu (saveLS) et l'archivage dans l'historique est automatique (autoArchive).
 
 // ── Couche 3 : Scan IA de cohérence (plausibilité métier — optionnel, jamais décisionnaire) ──
 async function runScanIA(){
@@ -5929,7 +5978,7 @@ function propConditionsHtml(p, ro){
 
 function propActionsHtml(ro){
   return '<div class="actions" style="margin-top:18px">'
-    + '<button class="btn ghost" data-goto="step6">← Retour</button>'
+    + '<button class="btn ghost" data-goto="step4">← Retour</button>'
     + '<button class="btn small ghost allow-frozen" id="propReset"'+ro+' title="Reconstruit toutes les sections depuis les calculs des étapes 2 à 4. Les modifications faites ici seront perdues.">↺ Réinitialiser depuis les calculs</button>'
     + '<span style="flex:1"></span>'
     + '<button class="btn blue allow-frozen" id="propSim">👁️ Simulation</button>'
@@ -6282,7 +6331,11 @@ async function propDownload(){
     const doc = buildPropositionPdf(propBuildPdfModel());
     doc.save(propFileName());
 
-    if(!FROZEN){
+    /* Un dossier n'a qu'UNE entrée d'historique, qui porte à la fois le dossier et sa
+       proposition. Regénérer un devis MET À JOUR cette entrée (CURRENT_HIST_ID) au lieu
+       d'empiler un doublon — c'est le comportement voulu : on retrouve toujours la
+       dernière version d'un dossier, pas son historique de versions. */
+    {
       const t = propTotaux();
       const snap = buildDossierSnapshot();
       snap.resume = Object.assign({}, snap.resume, {
@@ -6292,16 +6345,22 @@ async function propDownload(){
         propPrime: t.primeCee, propReste: t.resteTTC,
       });
       try{
-        await HistoryStore.save(snap);
+        const row = CURRENT_HIST_ID
+          ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
+          : await HistoryStore.save(snap);
+        if(row && row.id) CURRENT_HIST_ID = row.id;
+        _lastSavedFingerprint = dossierFingerprint(snap);
         if(btn){ btn.textContent = '✅ Téléchargé'; }
         const msg = document.getElementById('propMsg');
-        if(msg) msg.innerHTML = '<div class="alert ok">📄 <strong>'+esc(propFileName())+'</strong> téléchargé et enregistré dans l\'historique.</div>';
+        if(msg) msg.innerHTML = '<div class="alert ok">📄 <strong>'+esc(propFileName())+'</strong> téléchargé. '
+          + 'Le dossier et sa proposition sont à jour dans l\'historique.'
+          + ' <button class="btn small" data-goto="history">Voir l\'historique →</button></div>';
       }catch(e){
         if(btn) btn.textContent = '⚠️ PDF ok, historique KO';
         const msg = document.getElementById('propMsg');
         if(msg) msg.innerHTML = '<div class="alert warn">📄 PDF téléchargé, mais l\'enregistrement dans l\'historique a échoué : '+esc(e.message)+'</div>';
       }
-    } else if(btn) btn.textContent = '✅ Téléchargé';
+    }
   }catch(e){
     alert('Téléchargement impossible : '+e.message);
   }finally{
@@ -6364,6 +6423,8 @@ function renderResumeBanner(){
     state.overrides = Object.assign({global:{},vt:{}}, d.overrides);
     state.chargesEdited = d.chargesEdited || {};   // le surlignage rosé revient avec SON dossier
     state.prop = d.prop || null;                   // la proposition de travaux revient avec SON dossier
+    CURRENT_HIST_ID = d.histId || null;            // on reprend le lien vers SON entrée d'historique
+    _lastSavedFingerprint = null;
     Object.assign(state.general, d.general||{});
     _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
     $('#nomDossier').value = state.nomDossier;
@@ -6377,7 +6438,8 @@ loadLS();
 loadValoTemplate();   // template de valorisation depuis son stockage dédié (VALO_KEY)
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENTS_DEFAULT)); // barème des éléments (prix à renseigner dans Paramètres)
-// Fond d'écran de l'étape 7 : pas de visuel dédié, on reprend celui de l'étape 6
+// Fond d'écran de l'onglet Proposition : pas de visuel dédié, on reprend celui d'une
+// étape supprimée (les images des ex-étapes 5 et 6 restent dans BG_IMAGES).
 // (sans cette ligne, applyBackground retomberait sur le fond de l'étape 1).
 if(window.BG_IMAGES && !window.BG_IMAGES.step7) window.BG_IMAGES.step7 = window.BG_IMAGES.step6 || window.BG_IMAGES.step5;
 hydrateParamsUI();
