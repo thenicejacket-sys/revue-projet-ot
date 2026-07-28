@@ -30,6 +30,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- SheetJS 0.18.5 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- jsPDF 2.5.2 + AutoTable 3.8.4 — génération de la proposition de travaux (étape 7).
+     Versions ÉPINGLÉES. Si le CDN est injoignable, ensurePdfLibs() bascule sur vendor/. -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
 
 <style>
 /* ============================ Identité visuelle — reprise d'AuditVT Comparator ============================
@@ -219,6 +223,47 @@ body.locked #loginGate{display:flex}
 .alert.ok{background:#eaf7ee;border-color:#b4e3c2;color:var(--green-tx)}
 /* Ligne d'instance DÉSACTIVÉE (croix rouge) : grisée franchement, champs fondus dans
    le gris — la ligne doit se lire comme morte au premier coup d'œil. ↺ la réactive. */
+/* ============================ ÉTAPE 7 — Proposition de travaux ============================ */
+/* Charte OT Énergie relevée sur leurs documents réels (devis DKP E 25 005). Elle ne remplace
+   pas l'identité de l'app : elle ne sert qu'aux éléments qui préfigurent le rendu du PDF. */
+:root{--ot-bleu:#3F56A5;--ot-magenta:#C1367C;--ot-vert:#759542;--ot-gris:#333333;--ot-filet:#DDDDDD}
+.prop-sec{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;background:#fff}
+.prop-sec>.head{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f7f9fd;border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0;cursor:pointer;flex-wrap:wrap}
+.prop-sec>.head .caret{font-size:12px;color:var(--text-muted);width:12px;flex:0 0 12px}
+.prop-sec>.head .ttl{font-family:'Montserrat';font-weight:700;color:var(--ot-bleu)}
+.prop-sec>.head .sub{color:var(--text-muted);font-size:13px}
+.prop-sec>.head .st{margin-left:auto;font-family:'Montserrat';font-weight:700;color:var(--ot-bleu);white-space:nowrap;font-variant-numeric:tabular-nums}
+.prop-sec.closed>.body{display:none}
+.prop-sec>.body{padding:12px 14px}
+.prop-sec table{margin:0}
+.prop-sec td input,.prop-sec td select,.prop-sec td textarea{width:100%;box-sizing:border-box}
+/* Les fleches du champ numerique volaient assez de place pour rogner la derniere
+   decimale (« 224.7 » au lieu de « 224.79 »). On les retire : la saisie se fait au
+   clavier, et les nombres sont alignes a droite comme dans le reste de l'app. */
+.prop-sec td input[type=number]{-moz-appearance:textfield;text-align:right;font-variant-numeric:tabular-nums}
+.prop-sec td input[type=number]::-webkit-outer-spin-button,
+.prop-sec td input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.prop-sec td textarea{resize:vertical;min-height:38px;font-family:'Nunito';font-size:13px;line-height:1.35}
+.prop-notes{width:100%;box-sizing:border-box;margin-top:8px;min-height:34px;resize:vertical;font-family:'Nunito';font-size:13px}
+.auto-badge{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:8px;background:#e8eefc;color:var(--ot-bleu);font-size:10px;font-weight:700;font-family:'Montserrat';letter-spacing:.4px;vertical-align:middle}
+.prop-conflit{border-left:3px solid #c47f17;background:#fff8e6;padding:8px 12px;border-radius:6px;margin:6px 0;font-size:13px}
+.prop-tot{border:2px solid var(--ot-bleu);border-radius:var(--radius);padding:14px 18px;background:#fff;max-width:460px;margin-left:auto}
+.prop-tot .l{display:flex;justify-content:space-between;gap:24px;padding:4px 0;font-variant-numeric:tabular-nums}
+.prop-tot .l span:last-child{font-weight:600}
+.prop-tot .prime span:last-child{color:#c0392b}
+.prop-tot .rac{margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--ot-magenta);color:#fff;font-family:'Montserrat';font-size:17px;font-weight:700}
+.prop-tot .rac span:last-child{font-weight:800}
+.prop-modes{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;background:#fff}
+.prop-modes button{border:0;background:#fff;padding:7px 16px;font-family:'Montserrat';font-weight:600;font-size:13px;cursor:pointer;color:var(--text-muted)}
+.prop-modes button.on{background:var(--ot-bleu);color:#fff}
+/* Vue de simulation : montée sur <body>, JAMAIS dans une .view — « section.view » porte un
+   transform (animation fade) qui crée un bloc conteneur et piège même un position:fixed.
+   Même piège que la vignette photo (#phOverlay), même parade. */
+#simOverlay{display:none;position:fixed;inset:0;z-index:9998;background:rgba(20,28,48,.82);flex-direction:column}
+#simOverlay.on{display:flex}
+#simOverlay .bar{display:flex;align-items:center;gap:12px;padding:10px 16px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.25);flex-wrap:wrap}
+#simOverlay .bar .t{font-family:'Montserrat';font-weight:700;color:var(--ot-bleu)}
+#simOverlay iframe{flex:1;width:100%;border:0;background:#525659}
 tr.row-off{background:#b9c0cc;filter:grayscale(1)}
 tr.row-off input{background:transparent;border-color:#8d97a6;color:#41495a}
 tr.row-off input::placeholder{color:#5d6675}
@@ -323,6 +368,7 @@ main{position:relative;z-index:1}
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
   <button data-view="step5"><span class="num">5</span> Rapport</button>
   <button data-view="step6"><span class="num">6</span> Sauvegarde</button>
+  <button data-view="step7"><span class="num">7</span> Proposition de travaux</button>
   <span class="spacer"></span>
   <button data-view="history" class="param">📋 Historique</button>
   <button data-view="params" class="param">⚙️ Paramètres</button>
@@ -459,6 +505,15 @@ main{position:relative;z-index:1}
     </div>
   </section>
 
+  <!-- ====================================================== ÉTAPE 7 — PROPOSITION DE TRAVAUX ====================================================== -->
+  <section class="view" id="step7">
+    <div class="card">
+      <h2>7 · Proposition de travaux</h2>
+      <p class="hint">Construit le <strong>devis PDF</strong> envoyable au client à partir des prix calculés à l'étape 4. Tout est éditable ici sans rien changer aux étapes précédentes.</p>
+      <div id="step7Body"></div>
+    </div>
+  </section>
+
   <!-- ====================================================== PARAMÈTRES ====================================================== -->
   <section class="view" id="params">
     <div class="card">
@@ -544,6 +599,69 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
+      <hr/>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Proposition de travaux (étape 7)</h3>
+      <p class="hint" style="margin-top:-4px">Ces valeurs alimentent l'en-tête, le pied de page et la signature du devis PDF. Elles sont pré-remplies dans chaque proposition et restent corrigeables dossier par dossier.</p>
+      <div class="row">
+        <div class="col">
+          <label class="fld">Chargé d'affaires — nom</label>
+          <input type="text" id="caNom" placeholder="Prénom NOM" />
+        </div>
+        <div class="col">
+          <label class="fld">Chargé d'affaires — téléphone fixe</label>
+          <input type="text" id="caTel" placeholder="01.85.90.60.67" />
+        </div>
+        <div class="col">
+          <label class="fld">Chargé d'affaires — mobile</label>
+          <input type="text" id="caMobile" placeholder="06 xx xx xx xx" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label class="fld">TVA par défaut (%)</label>
+          <input type="number" id="tvaDefaut" value="5.5" step="0.1" />
+          <small>5,5 % en rénovation énergétique résidentielle · 20 % en tertiaire.</small>
+        </div>
+        <div class="col">
+          <label class="fld">Validité du devis (mois)</label>
+          <input type="number" id="validiteMois" value="2" step="1" min="1" />
+          <small>CGV OT : « valables deux mois à partir de la date de notre proposition écrite ».</small>
+        </div>
+        <div class="col">
+          <label class="fld">Acompte à la commande (%)</label>
+          <input type="number" id="acomptePct" value="30" step="5" min="0" max="100" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label class="fld">E-mail figurant sur le devis</label>
+          <input type="text" id="otEmail" placeholder="contact@otenenergie.fr" />
+          <small>⚠️ Les documents OT portent <code>contact@otenenergie.fr</code> (double « en ») alors que le site est <code>otenergie.fr</code>. Valeur reprise telle quelle — à confirmer avec OT Énergie.</small>
+        </div>
+        <div class="col">
+          <label class="fld">Site web</label>
+          <input type="text" id="otSite" placeholder="www.otenergie.fr" />
+        </div>
+        <div class="col">
+          <label class="fld">Téléphone standard</label>
+          <input type="text" id="otTel" placeholder="Tél. : 01.85.90.60.67" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label class="fld">Adresse — ligne 1</label>
+          <input type="text" id="otAdr1" placeholder="33 rue de Piscop" />
+        </div>
+        <div class="col">
+          <label class="fld">Adresse — ligne 2</label>
+          <input type="text" id="otAdr2" placeholder="95350 SAINT-BRICE SOUS FORET" />
+        </div>
+        <div class="col">
+          <label class="fld">Mentions légales</label>
+          <input type="text" id="otLegal" placeholder="SAS au capital de 50.000€" />
+        </div>
+      </div>
+
       <div class="actions">
         <span><small>Tous les paramètres sont persistés en localStorage.</small></span>
         <button class="btn" id="saveParams">💾 Enregistrer</button>
@@ -596,7 +714,11 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-27.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-28.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+// Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
+const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
+                           'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
+const PROP_SETTING_NUM  = ['tvaDefaut','validiteMois','acomptePct'];
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // dossier archivé en cours de consultation (lecture seule) — null = édition normale
 
@@ -613,7 +735,14 @@ const state = {
   vts: [],                  // {id, fileName, role, text, hints, extraction, revenus, cdp, sauts, shab, selections, pcLines, label, extracting, error}
   general: { pollueur:'' },
   overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
-  settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0 },
+  settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
+    // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
+    // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
+    caNom:'', caTel:'', caMobile:'', tvaDefaut:5.5, validiteMois:2, acomptePct:30,
+    otEmail:'contact@otenenergie.fr',   // ⚠️ double « en » : coquille des documents OT, conservée telle quelle
+    otSite:'www.otenergie.fr', otTel:'Tél. : 01.85.90.60.67',
+    otAdr1:'33 rue de Piscop', otAdr2:'95350 SAINT-BRICE SOUS FORET', otLegal:'SAS au capital de 50.000€' },
+  prop: null,               // état de la proposition de travaux (étape 7) — null tant qu'elle n'a pas été ouverte
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   valoFileName: '',         // nom du .xlsx chargé (affiché dans l'aperçu)
   valoDirty: false,         // chargé mais pas encore enregistré (session-only, jamais persisté)
@@ -757,9 +886,11 @@ function saveLS(){
     const dossier = (blank && SAVED_DOSSIER)
       ? { cas: SAVED_DOSSIER.cas, general: SAVED_DOSSIER.general, nomDossier: SAVED_DOSSIER.nomDossier,
           overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts,
-          chargesEdited: SAVED_DOSSIER.chargesEdited || {} }
+          chargesEdited: SAVED_DOSSIER.chargesEdited || {}, prop: SAVED_DOSSIER.prop || null }
       : { cas: state.cas, general: state.general, nomDossier: state.nomDossier,
           overrides: state.overrides,
+          // Proposition de travaux (étape 7) : propriété DU DOSSIER, comme chargesEdited.
+          prop: state.prop,
           // Surlignage rosé des prix édités : propriété DU DOSSIER (2026-07-22) — un nouveau
           // dossier repart blanc, même si le prix modifié reste le nouveau défaut du barème.
           chargesEdited: state.chargesEdited || {},
@@ -800,7 +931,7 @@ function loadLS(){
     if((Array.isArray(d.vts) && d.vts.length) || d.nomDossier){
       SAVED_DOSSIER = { cas:d.cas||1, nomDossier:d.nomDossier||'', vts:d.vts||[],
                         overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''},
-                        chargesEdited:d.chargesEdited||{} };
+                        chargesEdited:d.chargesEdited||{}, prop:d.prop||null };
     }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
@@ -824,6 +955,7 @@ function showView(id){
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
   if(id==='params'){ renderChargesEditor(); renderElementsBareme(); }
   if(id==='step6') renderStep6();
+  if(id==='step7') renderStep7();
   if(id==='history') renderHistory();
   applyBackground(id);
   window.scrollTo(0,0);
@@ -2005,6 +2137,10 @@ async function handleFiles(fileList){
       // Chaque lecture reçoit donc sa propre copie (slice(0)).
       vt.text = await extractPdfText(buf.slice(0));
       vt.hints = detectInstanceHints(vt.text);
+      // Identités (étape 7) : capturées MAINTENANT, tant que le texte est là.
+      // saveLS vide vt.text (les PDF sont trop volumineux pour localStorage) ; ce petit
+      // objet, lui, est persisté avec la VT et survit au rechargement et à l'archivage.
+      try{ vt.ident = parseVtIdentite(vt.text); }catch(e){ console.warn('Identité VT illisible', e.message); }
       queueVtPhotos(vt, buf.slice(0));   // vignettes en tâche de fond : ne retarde RIEN
     }catch(e){ vt.error = 'Lecture PDF impossible : '+e.message; vt.photosLoading = false; }
     renderVtList();
@@ -3366,6 +3502,7 @@ function buildDossierSnapshot(){
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
     // photos:null — jamais dans le snapshot Supabase (cf. extractVtPhotos)
     vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false, photos:null, photosLoading:false })),
+    prop: state.prop ? JSON.parse(JSON.stringify(state.prop)) : null,   // proposition de travaux (étape 7), archivée avec son dossier
     resume: { couts:round2(tot.coutRevient), venteHT:round2(tot.venteTravaux), marge:round2(tot.marge),
               margeBrute:round2(tot.margeBrute), prime:round2(tot.prime), reste:round2(tot.reste),
               go:tot.go, nbVt:state.vts.length }
@@ -3517,7 +3654,10 @@ function renderHistBody(){
   body.innerHTML = rows.map(h=>{ const r=h.resume||{}; const dt=new Date(h.created_at);
     return `<tr class="histrow" data-histopen="${esc(String(h.id))}" style="cursor:pointer" title="Double-clic : consulter en lecture seule">
       <td style="white-space:nowrap">${dt.toLocaleDateString('fr-FR')} ${dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
-      <td><strong style="color:var(--primary)">${esc(h.nom||'(sans nom)')}</strong></td>
+      <td><strong style="color:var(--primary)">${esc(h.nom||'(sans nom)')}</strong>${
+        r.typeDoc === 'Proposition de travaux'
+          ? ` <span class="badge" style="background:#f3e3ec;color:var(--ot-magenta)" title="Devis généré à l'étape 7${r.numeroDevis?' — '+esc(r.numeroDevis):''}">📄 Proposition${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>` : ''
+      }</td>
       <td class="num">${eur(r.couts)}</td><td class="num">${eur(r.marge)}</td><td class="num">${eur(r.prime)}</td>
       <td>${r.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>
       <td><div class="hist-actions">
@@ -3569,6 +3709,7 @@ async function openArchived(id){
   state.chargesTable = snap.chargesTable || null;
   state.chargesEdited = snap.chargesEdited || {};   // rosé = celui du dossier archivé uniquement
   state.elementsTable = snap.elementsTable || state.elementsTable;
+  state.prop = snap.prop || null;                   // proposition de travaux du dossier archivé (consultable, non modifiable)
   state.vts = snap.vts || [];
   Object.assign(state.settings, snap.settings || {});
   document.body.classList.add('frozen');
@@ -3592,10 +3733,18 @@ async function openArchived(id){
 $('#histExport').addEventListener('click', async ()=>{
   let rows; try{ rows = await HistoryStore.list(); }catch(e){ alert('Historique inaccessible.'); return; }
   if(!rows.length){ alert('Historique vide.'); return; }
-  const aoa = [['Date','Nom du dossier','Coût de revient','Marge commerciale','Prime CEE','Reste à charge','Décision']];
-  rows.forEach(h=>{ const r=h.resume||{}; aoa.push([ new Date(h.created_at).toLocaleString('fr-FR'), h.nom||'', round2(r.couts), round2(r.marge), round2(r.prime), round2(r.reste), r.go?'GO':'NO-GO' ]); });
+  // Colonnes historiques INCHANGÉES (1 à 7). Les colonnes 8 à 13 sont ajoutées à droite et
+  // ne concernent que les entrées créées par l'étape 7 : une entrée de dossier classique les
+  // laisse vides, aucune colonne existante ne bouge.
+  const aoa = [['Date','Nom du dossier','Coût de revient','Marge commerciale','Prime CEE','Reste à charge','Décision',
+                'Type de document','N° de devis','Proposition HT','Proposition TVA','Proposition TTC','Proposition reste à charge']];
+  rows.forEach(h=>{ const r=h.resume||{};
+    const prop = r.typeDoc === 'Proposition de travaux';
+    aoa.push([ new Date(h.created_at).toLocaleString('fr-FR'), h.nom||'', round2(r.couts), round2(r.marge), round2(r.prime), round2(r.reste), r.go?'GO':'NO-GO',
+               r.typeDoc || 'Dossier', prop ? (r.numeroDevis||'') : '',
+               prop ? round2(r.propHT) : '', prop ? round2(r.propTVA) : '', prop ? round2(r.propTTC) : '', prop ? round2(r.propReste) : '' ]); });
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws['!cols'] = [{wch:17},{wch:28},{wch:15},{wch:16},{wch:13},{wch:14},{wch:9}];
+  ws['!cols'] = [{wch:17},{wch:28},{wch:15},{wch:16},{wch:13},{wch:14},{wch:9},{wch:22},{wch:15},{wch:15},{wch:16},{wch:16},{wch:22}];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Historique');
   XLSX.writeFile(wb, 'historique-revue-projet-ot.xlsx');
 });
@@ -3837,6 +3986,11 @@ $('#saveParams').addEventListener('click', ()=>{
   state.settings.vtIte   = num($('#vtIte').value);
   state.settings.regiePct= num($('#regiePct').value);
   state.settings.seuilGo = num($('#seuilGo').value);
+  // Proposition de travaux (étape 7) — émetteur, chargé d'affaires et défauts du devis
+  PROP_SETTING_KEYS.forEach(k=>{
+    const inp = $('#'+k); if(!inp) return;
+    state.settings[k] = PROP_SETTING_NUM.includes(k) ? num(inp.value) : inp.value.trim();
+  });
   // Barème de prix : les valeurs saisies deviennent le barème utilisé pour les calculs
   const ct = {};
   CHARGES_ROWS.forEach(r=>{ ct[r.key] = { unite:'M2', achat:0, vente:0 }; });
@@ -3861,6 +4015,2298 @@ $('#saveParams').addEventListener('click', ()=>{
   $('#saveParams').textContent='✅ Enregistré'; setTimeout(()=>$('#saveParams').textContent='💾 Enregistrer',1500);
 });
 
+
+
+
+
+
+
+
+
+
+
+
+
+/* ===== DEBUT BLOC ETAPE 7 — genere par assemble.cjs, ne pas editer a la main ===== */
+/* ---------- prop_logo.js ---------- */
+// Logo OT Énergie — extrait du devis officiel DKP E 25 005 (objet image 418x178, fond blanc).
+// Embarqué en base64 : le PDF se génère sans aucune requête réseau. Copie du fichier
+// dans assets/logo-otenergie.jpg pour référence.
+const PROP_LOGO_RATIO = 418 / 178;
+const PROP_LOGO_OT = 'data:image/jpeg;base64,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APUUm0eg/KuSnX5I2saShd3MbwjE0Ph63VwQSWOCPc1q3VtFd2z286B43GCKl6UVhKV5cxaVlY841nwteae7SQKbi36hlGWX6isEgqSCCCOxr2Wq0+n2Vycz2sMh9WQGumGKa0kjN0+x5FT4oZZ5AkUbSMegUZNepjQtJBz/AGfB/wB8VbhtoLcYhhSMf7KgVbxS6IXszj/D/hF/MS51NQqrysPc/X/Cu1AAGAMCiiuSdSU3dmqSWwUUUVAwooooAKKKKACiiigAooooAKx/FNh9u0hygzLD+8X+o/Ktig88U07O4mrqx5NE7wypKhwyEMD7ivUbC6S9sYblOkig/Q9xXB+ItMOn6iwQfuZPmT/CtbwZqG1n0+RuD88efXuK0m+ZXOem+WXKzrqKKKyOkKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACvNvGUTR+IJmYcOFZT7Yr0msjxBocWsWw+YJcR/cf+h9q2ozUJXZM1dHmKMUYMOoORXo2keKdPvIEW4lW3nAwyvwCfY1w1/o9/p7lbi2cAfxqMqfxqjXdOEaqMU3E9e+3WZGftcGPXzBWZqfijTbKJvKmW4m/hSM5Gfc15pTkjeRtqIzN6KM1ksLFbsr2jJLu4ku7qW4lOZJGLGtzwXYNc6wLkr+6txuJ/2j0FM0rwpqF6ytOhtoe7OPmP0Fd9p9hb6daLbWybUXqe5PqaK1WKjyxCMW3dlmiiiuA2CiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigDP1rTV1OwaLgSL80behrz5TNZXYYZjmib8iK9Rrm/FGjeepvrdP3ij94o/iHr9ad7GFWF/eRs6XfR6jYpcJ1PDL/dPcVbrgNB1RtMvPmJMEnDj09675HWRFdGDKwyCO9Te5dOfMhaKKKZoFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAAQCMEZFVpdPsps+ZaQvnrlBVmimm0BSXSNMU5Wwtwf8ArmKsxW8MIxFEif7qgVJRQ23uFgooopAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAcj4i0Mws15ap+7PLoP4ff6UnhvWTbMLO5b90x+Rj/AAn0+ldeQCMEZFYU3hi2kvBMkhjjJyYwP5Gs2mneJhKm1LmgbtFAGBiitDcKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP//Z';
+
+/* ---------- prop_cgv.js ---------- */
+// Conditions générales de vente OT Énergie — reprises VERBATIM du devis DKP E 25 005
+// (page 14). Le document source saute de VII à IX : il n'y a pas d'article VIII, reproduit tel quel.
+// ⚠️ Ces CGV sont rédigées pour de la vente de matériel entre professionnels. Sur une
+// proposition résidentielle, plusieurs clauses sont inapplicables — d'où la case à cocher,
+// décochée par défaut. À faire valider par OT Énergie avant usage.
+const PROP_CGV_ARTICLES = [
+  {
+    "titre": "I GENERALITES - FORMATION DU CONTRAT",
+    "texte": "A défaut de stipulations particulières contraires, nos ventes, prestations de services et installations, et toutes les réglementations juridiques qui s’y rattachent sont régies exclusivement par les présentes conditions générales de vente et de livraison. Une fois acceptées, nos clauses s’appliquent à l’intégralité des transactions futures et à leur exécution, même si la commande nous parvient par fax, mail, ou autre écrit sur lesquels nos conditions ne figurent pas. Toute clause contraire inscrite dans la commande de l’acheteur, et non acceptée préalablement par écrit par OTenergie, est réputée sans effet."
+  },
+  {
+    "titre": "II PRIX",
+    "texte": "1. Nos prix s’entendent en Euros, hors taxes, hors emballages et hors frais de transport.\n2. Les prix convenus et repris sur nos confirmations de commande sont fermes et définitifs.\n3. Le montage et les raccordements ne sont pas compris dans les prix de nos appareils. La mise en service des produits par notre société et les interventions de service après-vente sont facturées selon les tarifs et barèmes en vigueur."
+  },
+  {
+    "titre": "III DEVIS",
+    "texte": "Nos devis sont valables deux mois à partir de la date de notre proposition écrite, sauf convention particulière, dérogatoire et notamment clause d’indexation."
+  },
+  {
+    "titre": "IV CATALOGUES",
+    "texte": "Les catalogues, imprimés, tarifs et autres documents commerciaux ou techniques diffusés par OTEnergie ne constituent pas d’offres fermes de fournitures et de services de sa part ; nous nous réservons le droit d’y apporter à tout instant, sans préavis, les modifications que nous jugerons nécessaires."
+  },
+  {
+    "titre": "V COMMANDE",
+    "texte": "1. Toute commande, pour être valable, doit être acceptée par notre société sous la forme de notre confirmation de commande écrite. Il en est de même pour toute modification ou avenant au contrat initial. Les déclarations verbales de nos représentants et préposés ne valent qu’après confirmation écrite de notre société.\n2. Après acceptation de la commande par nos soins et à l’expiration d’un délai de 3 jours à compter de cette acceptation, aucune modification de la commande ne pourra intervenir. En outre, aucune annulation de commande ne pourra intervenir à l’expiration d’un délai de 3 jours à compter de l’acceptation de la commande par nos soins, sauf accord d’annulation écrit de notre part. Dans ce cas, l’acheteur restera redevable au minimum d’une indemnité forfaitaire de 30 % du prix de la commande et dans tous les cas, à l’ensemble des frais engagés."
+  },
+  {
+    "titre": "VI CONDITIONS DE PAIEMENT",
+    "texte": "1. Sauf stipulations particulières, le paiement du prix s’effectue à quarante- cinq jours fin de mois, date d’établissement de la facture, en Euros, à notre siège social à Eragny. Aucun escompte pour paiement anticipé n’est accepté.\n2. Les paiements doivent être effectués par chèque ou virement bancaire ou billets à ordre ou traites acceptées, retournés avant la livraison. Même si ceux-ci sont remis à l’escompte ou à l’encaissement, la dette ne se trouve éteinte que par le paiement effectif à l’échéance du principal et de tout frais, intérêts et accessoires correspondants qui restent toujours à la charge de l’acheteur.\n3. Pour une première commande ou en cas de doute sur la solvabilité du client, OTEnergie se réserve le droit de demander un acompte ou l’intégralité du paiement à la commande.\n4. Pénalité pour paiement tardif : tout retard de paiement entraînera une pénalité, égale au dernier taux de refinancement de la BCE, majoré de 10 points, calculé au prorata temporis sur les sommes restant dues. Le taux retenu ne saurait être inférieur à trois fois le taux d’intérêt légal (art L441-6 Code de Com). Indemnité de recouvrement : tout professionnel en situation de retard de paiement est de plein droit débiteur, à l'égard du créancier, d'une indemnité forfaitaire pour frais de recouvrement d'un montant minimum fixé à 40 € par facture. (art. L441-6 et art. D.441-5 du Code de Commerce). Clause pénale : Le défaut de paiement à l’échéance fixée entraînera après mise en demeure par lettre recommandée avec A.R., restée vaine, l’exigibilité, à titre de dommages et intérêts, d’une indemnité égale à 15% des sommes dues. Clause de déchéance de terme : Tout retard de paiement entraîne pour le vendeur l’exigibilité immédiate de l’ensemble des sommes dues par l’acheteur. Clause résolutoire : En cas de défaut de paiement huit jours après une mise en demeure restée sans effet, la vente sera résolue « de plein droit». Si bon nous semble, notre société pourra reprendre la marchandise que l’acheteur sera tenu de restituer à notre première demande, en prenant à sa charge les frais de réexpédition. Réclamation sur facture : aucune réclamation n’est prise en compte passé le délai de quinze jours à compter du jour d’expédition de la facture. Elle doit être formulée par écrit."
+  },
+  {
+    "titre": "VII LIVRAISONS",
+    "texte": "Le Client doit vérifier les marchandises à la livraison. Par transporteur, les risques sont à la charge du Client. Dans tous les cas, il lui appartient :\n1. de vérifier au moment de la réception l’état et la quantité des marchandises reçues en procédant au besoin à l’ouverture des colis en présence du livreur.\n2. de formuler en cas d’avarie ou de manquant des réserves sur le - Les délais ou dates de livraison fermes ne nous obligent que dans la mesure où tous les détails de la commande, les matériels, documents et, le cas échéant, acomptes et autres obligations à la charge de l’acheteur, nous ont été fournis ou ont été exécutés dans le temps prévu.\n3. L’acheteur ne peut s’opposer à des livraisons partielles, lesquelles donnent lieu à des facturations immédiates.\n4. Aussi longtemps que l’acheteur n’exécute pas l’une quelconque de ses obligations, les termes et délais de livraison se trouvent automatiquement prorogés, sans préjudice de tous dommages et intérêts à notre profit.\n5. Si l’expédition départ usine ou départ établissement ne peut être effectuée ou est retardée, faute d’instruction ou de communication des documents nécessaires de la part de l’acheteur, pour des motifs qui ne nous sont pas imputables, l’emmagasinage se fait aux frais, risques et périls de l’acheteur. Notre société se réserve en outre le droit, soit de facturer le matériel comme étant livré et/ou de l’expédier aux frais, risques et périls de l’acheteur.\n6. Dans le cas de livraisons successives, chaque livraison est subordonnée au paiement effectif de la précédente."
+  },
+  {
+    "titre": "IX COUT DU TRANSPORT - DOUANES - ASSURANCES",
+    "texte": "Toutes les opérations de douanes, manutentions, déchargements sont à la charge, aux frais, risques et périls de l’acheteur auquel il appartient d’exercer, s’il y a lieu, ses recours contre les transporteurs, même en cas d’expédition franco. Les expéditions sont faites en port prépayé par transport choisi par OTEnergie, les frais de transport étant répercutés à l’acheteur dans les conditions précisées ci-après. Pour toute livraison, il sera facturé un montant forfaitaire net hors taxe lié au montant net hors taxe des marchandises commandées. Ce montant forfaitaire correspondant aux frais de traitement et de port est précisé dans nos devis et tarifs. Il est calculé d’après les tranches suivantes : 1ère tranche : inférieure à 350 euros, 2ème tranche : de 350 à 900 euros. Au-delà de 900 euros, les frais de port resteront à la charge de OTEnergie à condition que les livraisons soient effectuées sur le territoire métropolitain. Les livraisons partielles à l’initiative de notre société sont sans surcoût pour le client. Lorsque l’acheteur choisit son transporteur, l’expédition sera faite en port dû. Pour les livraisons et installations hors du territoire métropolitain, les frais de transport, d’assurance et de douane seront à la charge de l’acheteur."
+  },
+  {
+    "titre": "X ASSISTANCE TECHNIQUE",
+    "texte": "Sur commande de l’acheteur, les montages et raccordements de nos appareils peuvent être effectués par nos soins. Les cotes d’encombrements, poids et autres caractéristiques figurant sur nos notices, catalogues sont donnés à titre indicatif et ne peuvent engager notre responsabilité. Il en est de même des conseils et recommandations fournis gracieusement par nos services. L’assistance technique peut comprendre, sur commande du client, l’étude et la mise en service des installations. Tous les éléments nécessaires à cette mise en service - alimentations électriques - circuits hydrauliques et aérauliques diffusant leur puissance - réseaux informatiques et/ou téléphoniques devront être disponibles et efficients durant la durée totale de nos interventions. En cas de manquement à ces pré requis, notre société facturera au client les frais de mobilisation et de déplacement de nos personnels avec un minimum forfaitaire correspondant à leur déplacement d’une demi-journée. De même, la présence des personnels compétents, représentant l’acheteur et collaborant à la mise en service est impérative."
+  },
+  {
+    "titre": "XI- RESERVE DE PROPRIETE",
+    "texte": "1. Tout matériel vendu demeure notre propriété jusqu’au paiement intégral du prix et de ses accessoires, notamment frais de transport et installation. Toutefois, il est formellement convenu que les risques et la garde juridique des marchandises vendues sont transférés à l’acquéreur dès leur remise matérielle.\n2. Le transfert des risques et de la garde juridique du matériel s’opère par leur délivrance entre les mains de l’acheteur ou du transporteur, que ledit transporteur soit désigné par nous ou par l’acheteur. Il en est de même pour toutes livraisons partielles ou lorsque nous devons fournir, par ailleurs, d’autres prestations.\n3. En cas de remise de chèque ou billet à ordre ou lettre de change, seul l’encaissement effectif vaudra paiement et transfert de propriété.\n4. Tant que subsiste notre réserve de propriété, il est interdit à l’acheteur de gager ou grever d’une quelconque sûreté et transporter en dehors des frontières de la France Métropolitaine, le matériel vendu, sans l’accord exprès et préalable de notre société. L’acheteur doit nous faire connaître le lieu où se trouve le matériel vendu sur simple demande écrite et en permettre l’accès à nos représentants, à tout moment."
+  },
+  {
+    "titre": "XII GARANTIE - RETOUR DES PIECES - RESPONSABILITE - ASSURANCES",
+    "texte": "1. Les biens vendus sont garantis contre tous dysfonctionnements provenant d’un défaut de fabrication ou de conception pendant une durée de 12 mois. La garantie est strictement limitée à la remise en l’état ou au remplacement des produits affectés d’un vice ou d’un défaut de conformité, à l’exclusion de tout autre dédommagement, à quelque titre que ce soit.\n2. Pour la vente de matériel, la période de garantie commence à compter de la date de livraison. Pour une mise en place de systèmes et de logiciels, la période de garantie commence à compter de la date de réception des lots techniques concernés. En ce qui concerne les logiciels, la garantie s’étend à 18 mois à compter de la réception.\n3. Toute garantie est exclue pour des incidents tenant à des cas fortuits ou de force majeure ainsi que pour les remplacements ou les réparations qui résulteraient de l’usure normale du matériel, de détériorations ou d’accident provenant de négligence, défaut d’entretien, manipulation et stockage non appropriés et d’utilisation anormale ou non-conforme aux prescriptions de OTEnergie. L’intervention d’un tiers est exclusive de toute garantie conventionnelle et/ ou légale.\n4. Modalités : Notre garantie ne pourra s’exercer qu’à la condition que les matériels considérés défectueux soient retournés franco de port et d’emballage dans nos ateliers. Le vendeur s’engage à remettre en état les appareils qui seraient reconnus défectueux et retournés franco de port après vérification par ses soins.\n5. La garantie ne peut jouer au-delà des prix facturés pour les matériels ou logiciels concernés.\n6. Les équipements ou éléments visés aux articles 1792-2-3-4 du Code Civil sont garantis selon les termes desdits articles sous réserve de l’identification, par nos soins, des éléments incriminés par rapport à l’ensemble de ceux constituant l’ouvrage. L’exécution de nos obligations de garantie ci-dessus définies, exclut tout recours à notre encontre tant au titre d’une résolution du contrat que d’une demande de dommages et intérêts ou de toute autre nature. En outre, et dans tous les cas, les matériels ayant fait l’objet d’une réparation ou d’un échange standard dans le cadre de la garantie contractuelle ci-dessus définie, seront eux-mêmes garantis selon les modalités initialement prévues. Toutefois, la période de garantie de ces mêmes matériels ne saurait être inférieure à 3 mois.\n7. La responsabilité de OTEnergie au titre des articles 1386-1 et suivants du Code Civil est exclue à l’égard des utilisateurs professionnels, pour tout dommage causé aux autres biens."
+  },
+  {
+    "titre": "XIII GESTION DEEE",
+    "texte": "Elimination des déchets issus des Equipements Electriques & Electroniques et des piles et accumulateurs (Directives 2012/19/CE et 2006/66/CE) OTEnergie dans sa démarche de respect de la réglementation européenne relative à la DEEE a adhéré au régime collectif de collecte mis en place par les organismes agréés suivants : FR028254_058F7T : produits électriques, électroniques avec Ecosystème FR028254_06Y5CD : piles, batteries et accumulateurs avec Screlec FR028254_01XUIC : emballages avec Citeo En cas de revente de la fourniture, le client s'engage à informer son client de ces mêmes instructions."
+  },
+  {
+    "titre": "XIV FORCE MAJEURE",
+    "texte": "OTEnergie n’est tenu pour l’exécution de ses obligations contractuelles qu’autant que rien d’anormal ne vient entraver sa production ou ses expéditions. Notamment, et sans que cette liste ne soit limitative, les grèves totales ou partielles, les accidents, les émeutes, l’état de guerre, les sabotages, les incendies, le gel, les épidémies, les inondations, les interruptions de transport, les difficultés d’approvisionnement en matières premières ou combustibles et tout cas de force majeure nous autorisent à retarder ou à annuler tout ou partie de la commande dont l’exécution a été suspendue, à l’exclusion de toute indemnité. Les quantités prêtes au moment de l’annulation seront remises au client qui est tenu d’en prendre livraison."
+  },
+  {
+    "titre": "XV POLITIQUE DE CONFIDENTIALITE",
+    "texte": "OTEnergie accorde une grande importance au traitement et à la protection des données personnelles, conformément à la législation en vigueur. Nos salariés sont informés de la nature confidentielle des données personnelles, ont reçu une formation appropriée sur leurs responsabilités et ont conclu des accords de confidentialité écrits. Vous trouverez notre politique de confidentialité pour les clients et partenaires commerciaux sous l’adresse internet suivante : https://www.otenergie.fr"
+  },
+  {
+    "titre": "XVI DROIT APPLICABLE - CLAUSE ATTRIBUTIVE DE JURIDICTION",
+    "texte": "Pour toutes contestations relatives aux ventes réalisées par OTEnergie et à l’application ou à l’interprétation des présentes conditions générales, seul sera compétent le tribunal de commerce de Pontoise. Toutes les ventes conclues par OTEnergie sont soumises à la loi française."
+  }
+];
+
+/* ---------- vt_identite.js ---------- */
+// vt_identite.js — parseurs déterministes d'identité pour les Visites Techniques (VT) OT Énergie.
+//
+// Doctrine du projet (cf CONTRAT.md §5) : ZÉRO appel IA, 100% parsing déterministe.
+// Le bloc « Informations générales » (page 2, template International Horizon Development) est
+// un tableau à 2 colonnes que l'extraction texte aplatit : les libellés de la colonne DROITE se
+// retrouvent collés à la valeur de la colonne GAUCHE. On coupe donc chaque valeur au premier
+// libellé connu rencontré ensuite (gauche ou droite), quel qu'il soit.
+//
+// RÈGLE ABSOLUE : ne jamais inventer une valeur. Un champ non trouvé reste une chaîne vide ''.
+//
+// Vanilla JS pur — pas d'import/export/require — destiné à être collé dans un <script> monofichier.
+
+// ---- utilitaires bas niveau -------------------------------------------------------------
+
+// Apostrophe : accepte la typographique (’) ET la droite (').
+var AP = "[’']";
+
+// Plage "lettre" (ASCII + Latin-1 accentué) utilisée pour les bornes de mot maison, car \b de
+// JS ne traite pas les lettres accentuées comme des "word chars" en mode non-unicode.
+var LETTER = 'A-Za-zÀ-ÖØ-öø-ÿ';
+var BOUND_L = '(?<![' + LETTER + '])';
+var BOUND_R = '(?![' + LETTER + '])';
+
+// Libellés connus du bloc « Informations générales » — gauche ET droite, template Horizon Dev.
+// Chaque entrée est un fragment de regex (déjà échappé où nécessaire).
+var LABEL_DEFS = [
+  'Informations\\s+générales',
+  'Nom',
+  'Prénom',
+  'Numéro\\s+étage',
+  'Numéro\\s+appartement',
+  'Téléphone',
+  'Adresse',
+  'Ville',
+  'Code\\s+postal',
+  'Compteur\\s+électrique',
+  'Date\\s+et\\s+heure',
+  'Type\\s+propriétaire',
+  'Type\\s+d' + AP + 'étude\\s*/\\s*Forme',
+  'Année\\s+de\\s+construction',
+  'Orientation',
+  'Mitoyenneté',
+  'Nombre\\s+de\\s+niveau',
+  'Shab\\s*\\(m2\\)',
+  'Type\\s+de\\s+plancher\\s+bas',
+  'Type\\s+de\\s+plancher\\s+haut',
+  'Énergie\\s+principale',
+  'Émetteur\\s+de\\s+chauffage',
+  'Chauffage\\s+d' + AP + 'appoint',
+  'ECS',
+  'Ventilation',
+  'Température\\s+confort',
+  'Altitude',
+  'Latitude',
+  'Longitude',
+  'Enfouissement',
+  'Contexte',
+  'Visite\\s+technique',
+];
+
+var ALL_LABELS_RE = new RegExp(BOUND_L + '(?:' + LABEL_DEFS.join('|') + ')' + BOUND_R, 'g');
+
+function vtIdentiteAnchorRe(pattern) {
+  return new RegExp(BOUND_L + '(?:' + pattern + ')' + BOUND_R);
+}
+
+function vtIdentiteFlatten(text) {
+  return String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+}
+
+// Isole le bloc « Informations générales » … « Visite technique » (footer) si les deux bornes
+// sont trouvables ; sinon on retombe sur le texte complet aplati (robustesse : bloc partiel).
+function vtIdentiteIsolateBlock(flat) {
+  var header = vtIdentiteAnchorRe('Informations\\s+générales').exec(flat);
+  if (!header) return flat;
+  var rest = flat.slice(header.index + header[0].length);
+  var footer = vtIdentiteAnchorRe('Visite\\s+technique').exec(rest);
+  return footer ? rest.slice(0, footer.index) : rest;
+}
+
+// Coupe la valeur qui suit `pattern` au premier libellé connu rencontré ensuite.
+// Retourne '' si `pattern` n'est pas trouvé — on n'invente jamais.
+function vtIdentiteCaptureAfter(block, pattern) {
+  var m = vtIdentiteAnchorRe(pattern).exec(block);
+  if (!m) return '';
+  var start = m.index + m[0].length;
+  ALL_LABELS_RE.lastIndex = start;
+  var next = ALL_LABELS_RE.exec(block);
+  var end = next ? next.index : block.length;
+  return block.slice(start, end).trim();
+}
+
+// Retire le mot isolé "Ite" (insensible à la casse) d'une chaîne, ex. "Untel Ite" -> "Untel".
+// Utilisé à la fois par isPrenomPollue (règle 4) et resolveBailleur (règle 2b).
+function vtIdentiteStripIteWord(s) {
+  return String(s == null ? '' : s)
+    .replace(/\bite\b/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ---- API publique -------------------------------------------------------------------------
+
+// Parse le bloc « Informations générales » du texte brut d'UNE VT (typiquement le texte de la
+// page 2). Retourne TOUJOURS toutes les clés ; chaîne vide si non trouvé. N'invente jamais.
+function parseVtIdentite(text) {
+  var result = {
+    nom: '', prenom: '', tel: '', adresse: '', ville: '', cp: '',
+    typeProprietaire: '', numAppt: '', numEtage: '', shab: '',
+  };
+
+  var flat = vtIdentiteFlatten(text);
+  if (!flat) return result;
+
+  var block = vtIdentiteIsolateBlock(flat);
+
+  result.nom = vtIdentiteCaptureAfter(block, 'Nom');
+  result.prenom = vtIdentiteCaptureAfter(block, 'Prénom');
+  result.numEtage = vtIdentiteCaptureAfter(block, 'Numéro\\s+étage');
+  result.numAppt = vtIdentiteCaptureAfter(block, 'Numéro\\s+appartement');
+  result.tel = vtIdentiteCaptureAfter(block, 'Téléphone');
+  result.adresse = vtIdentiteCaptureAfter(block, 'Adresse');
+  result.ville = vtIdentiteCaptureAfter(block, 'Ville');
+  result.cp = vtIdentiteCaptureAfter(block, 'Code\\s+postal');
+  result.typeProprietaire = vtIdentiteCaptureAfter(block, 'Type\\s+propriétaire');
+  result.shab = vtIdentiteCaptureAfter(block, 'Shab\\s*\\(m2\\)');
+
+  return result;
+}
+
+// Règle 4 : le Prénom est empoisonné (résidu / numéro de lot) s'il est purement numérique, égal
+// au Numéro appartement, contenant "ITE" (insensible à la casse), ou égal au Nom — y compris au
+// Nom "nettoyé" du mot Ite (cas observé : Nom="Untel Ite", Prénom="Untel").
+function isPrenomPollue(prenom, ident) {
+  var p = String(prenom == null ? '' : prenom).trim();
+  if (!p) return false; // absent != pollué
+
+  if (/^[0-9]+$/.test(p)) return true;
+
+  if (ident) {
+    var numAppt = String(ident.numAppt == null ? '' : ident.numAppt).trim();
+    if (numAppt && p === numAppt) return true;
+  }
+
+  if (/ite/i.test(p)) return true;
+
+  if (ident) {
+    var nom = String(ident.nom == null ? '' : ident.nom).trim();
+    if (nom && (p === nom || p === vtIdentiteStripIteWord(nom))) return true;
+  }
+
+  return false;
+}
+
+// Renvoie { value, conflict } : value si toutes les valeurs non vides concordent (sinon ''),
+// conflict = liste (ordre d'apparition) des valeurs divergentes si désaccord, sinon null.
+function vtIdentiteResolveConstant(values) {
+  var nonEmpty = [];
+  for (var i = 0; i < values.length; i++) {
+    var v = String(values[i] == null ? '' : values[i]).trim();
+    if (v) nonEmpty.push(v);
+  }
+  if (nonEmpty.length === 0) return { value: '', conflict: null };
+  var unique = [];
+  for (var j = 0; j < nonEmpty.length; j++) {
+    if (unique.indexOf(nonEmpty[j]) === -1) unique.push(nonEmpty[j]);
+  }
+  if (unique.length === 1) return { value: unique[0], conflict: null };
+  return { value: '', conflict: unique };
+}
+
+// vts = [{ role:'habitation'|'ite', ident: <retour de parseVtIdentite> }, …]
+// Applique la règle 2 du CONTRAT (nom du bailleur) + règle 1 (tél/adresse chantier constants).
+function resolveBailleur(vts) {
+  vts = Array.isArray(vts) ? vts : [];
+  var habitations = [];
+  var all = [];
+  var ites = [];
+  for (var i = 0; i < vts.length; i++) {
+    var v = vts[i];
+    if (!v || !v.ident) continue;
+    all.push(v);
+    if (v.role === 'habitation') habitations.push(v);
+    if (v.role === 'ite') ites.push(v);
+  }
+
+  var result = {
+    nom: '', prenom: '', tel: '', adresseFacturation: '',
+    chantier: { adresse: '', cp: '', ville: '' },
+    auto: {},
+    conflits: {},
+  };
+
+  // Règle 2 : nom du bailleur
+  var habNoms = [];
+  for (var h = 0; h < habitations.length; h++) {
+    var n = String(habitations[h].ident.nom || '').trim();
+    if (n) habNoms.push(n);
+  }
+  var uniqueHabNoms = [];
+  for (var u = 0; u < habNoms.length; u++) {
+    if (uniqueHabNoms.indexOf(habNoms[u]) === -1) uniqueHabNoms.push(habNoms[u]);
+  }
+
+  if (uniqueHabNoms.length === 1) {
+    // 2a : toutes les VT habitation concordent -> c'est le bailleur.
+    result.nom = uniqueHabNoms[0];
+    result.auto.nom = true;
+  } else if (ites.length > 0) {
+    // 2b : VT ite présente -> son Nom débarrassé du mot "Ite" est le candidat.
+    var candidate = vtIdentiteStripIteWord(ites[0].ident.nom);
+    if (candidate) {
+      result.nom = candidate;
+      result.auto.nom = true;
+    }
+    if (uniqueHabNoms.length > 1) {
+      result.conflits.nom = habNoms.slice();
+    }
+  } else if (uniqueHabNoms.length > 1) {
+    // 2c : ni concordance, ni VT ite -> ne rien pré-remplir, signaler le conflit.
+    result.conflits.nom = habNoms.slice();
+  }
+  // uniqueHabNoms.length === 0 (aucune donnée) -> rien à faire, tout reste vide.
+
+  // Règle 1 : téléphone constant sur le dossier (toutes VT, habitation + ite) -> tél bailleur.
+  var telValues = [];
+  for (var t = 0; t < all.length; t++) telValues.push(all[t].ident.tel);
+  var tel = vtIdentiteResolveConstant(telValues);
+  if (tel.value) { result.tel = tel.value; result.auto.tel = true; }
+  else if (tel.conflict) { result.conflits.tel = tel.conflict; }
+
+  // Règle 1 : adresse / ville / code postal constants sur le dossier -> adresse du chantier.
+  var adrValues = [], cpValues = [], villeValues = [];
+  for (var a = 0; a < all.length; a++) {
+    adrValues.push(all[a].ident.adresse);
+    cpValues.push(all[a].ident.cp);
+    villeValues.push(all[a].ident.ville);
+  }
+  var adr = vtIdentiteResolveConstant(adrValues);
+  if (adr.value) { result.chantier.adresse = adr.value; result.auto['chantier.adresse'] = true; }
+  else if (adr.conflict) { result.conflits['chantier.adresse'] = adr.conflict; }
+
+  var cp = vtIdentiteResolveConstant(cpValues);
+  if (cp.value) { result.chantier.cp = cp.value; result.auto['chantier.cp'] = true; }
+  else if (cp.conflict) { result.conflits['chantier.cp'] = cp.conflict; }
+
+  var ville = vtIdentiteResolveConstant(villeValues);
+  if (ville.value) { result.chantier.ville = ville.value; result.auto['chantier.ville'] = true; }
+  else if (ville.conflict) { result.conflits['chantier.ville'] = ville.conflict; }
+
+  // prenom / adresseFacturation : AUCUNE source fiable dans les VT -> jamais inventés.
+  return result;
+}
+
+// Règle 3 : Nom de l'occupant d'un lot. Retourne '' si aucun occupant n'est déductible.
+function resolveOccupant(vt, vts) {
+  if (!vt || !vt.ident || vt.role !== 'habitation') return '';
+  vts = Array.isArray(vts) ? vts : [];
+
+  var habNoms = [];
+  for (var i = 0; i < vts.length; i++) {
+    var v = vts[i];
+    if (!v || !v.ident || v.role !== 'habitation') continue;
+    var n = String(v.ident.nom || '').trim();
+    if (n) habNoms.push(n);
+  }
+  var uniqueHabNoms = [];
+  for (var u = 0; u < habNoms.length; u++) {
+    if (uniqueHabNoms.indexOf(habNoms[u]) === -1) uniqueHabNoms.push(habNoms[u]);
+  }
+  // Si tous les Nom des VT habitation sont identiques (= bailleur), aucun occupant connu.
+  if (uniqueHabNoms.length <= 1) return '';
+
+  var nom = String(vt.ident.nom || '').trim();
+  if (!nom) return '';
+
+  var prenom = String(vt.ident.prenom || '').trim();
+  if (prenom && !isPrenomPollue(prenom, vt.ident)) {
+    return nom + ' ' + prenom;
+  }
+  return nom;
+}
+
+// Règle 5 : référence de lot affichée, ex. 'Lot A1'. '' si numAppt absent.
+function refLot(ident) {
+  if (!ident) return '';
+  var n = String(ident.numAppt == null ? '' : ident.numAppt).trim();
+  if (!n) return '';
+  return 'Lot A' + n;
+}
+
+/* ---------- pdf_proposition.js ---------- */
+/* ==========================================================================
+   Générateur PDF — Proposition de travaux OT Énergie
+   --------------------------------------------------------------------------
+   Fichier destiné à être collé tel quel dans un <script> d'un monofichier
+   HTML. Vanilla JS pur : pas d'import/export ES module, pas de
+   module.exports en dur (seul le pied de fichier, gardé, l'expose pour
+   Node/tests).
+
+   Contrat de données : voir CONTRAT.md — buildPropositionPdf(model) ne lit
+   QUE les clés listées dans la section 2 du contrat. Aucun calcul métier :
+   tout ce qui est chiffré (totaux, sous-totaux, TVA) arrive déjà calculé.
+   ========================================================================== */
+
+// Résolution PARESSEUSE, volontairement : rien ne s'évalue au chargement du
+// script. Un `require('jspdf')` exécuté au niveau module planterait tout le
+// <script> (et donc toute l'application hôte) si window.jspdf n'est pas
+// encore posé au moment où ce fichier est parsé (ordre de chargement des
+// balises <script>). En ne résolvant qu'à l'appel de buildPropositionPdf,
+// le risque est contenu à la génération du PDF elle-même.
+function _resolveJsPDF() {
+  if (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) {
+    return window.jspdf.jsPDF;
+  }
+  // Environnement Node (tests) : jspdf-autotable patche jsPDF.API par effet
+  // de bord au moment du require.
+  const { jsPDF } = require('jspdf');
+  require('jspdf-autotable');
+  return jsPDF;
+}
+
+/* --------------------------------------------------------------------------
+   Charte graphique OT Énergie
+   -------------------------------------------------------------------------- */
+const COLOR_BLUE = '#3F56A5';
+const COLOR_MAGENTA = '#C1367C';
+const COLOR_GREEN = '#759542';
+const COLOR_GRAY_TEXT = '#333333';
+const COLOR_GRAY_LINE = '#DDDDDD';
+const COLOR_GRAY_LIGHT_TEXT = '#7A7A7A';
+const COLOR_ALT_ROW = '#F7F8FB';
+const COLOR_SUBTOTAL_BG = '#EEF0F6';
+const COLOR_RED = '#CC3327';
+const COLOR_WHITE = '#FFFFFF';
+
+/* --------------------------------------------------------------------------
+   Mise en page — constantes A4 portrait (mm)
+   -------------------------------------------------------------------------- */
+const MARGIN = 18;
+const CONTENT_TOP = 40;              // réserve la zone d'en-tête intérieur
+const CONTENT_BOTTOM_LIMIT = 266;    // au-delà, on réserve la zone de pied de page
+const FOOTER_RESERVE = 297 - CONTENT_BOTTOM_LIMIT; // pour margin.bottom d'autoTable
+// autoTable estime la hauteur d'une ligne (pour décider si elle tient sur la
+// page) légèrement différemment de ce qu'il dessine réellement — écart plus
+// sensible sur du texte accentué. Une marge basse un peu plus large, réservée
+// UNIQUEMENT à cette décision de pagination (le pied de page réel, lui, reste
+// calé sur CONTENT_BOTTOM_LIMIT), absorbe cet écart et évite qu'un mot isolé
+// se retrouve orphelin en haut de la page suivante.
+const AUTOTABLE_BOTTOM_MARGIN = FOOTER_RESERVE + 10;
+const LOGO_RATIO = 178 / 418;        // ratio natif du logo (h/w) — jamais déformer
+
+/* --------------------------------------------------------------------------
+   Textes légaux fixes (boilerplate) — hors modèle, jamais issus de `model`
+   au-delà des variables interpolées explicitement listées dans le contrat.
+   Glyphes Ʈ/ligatures réparés à la source (voir textes_legaux.md).
+   -------------------------------------------------------------------------- */
+const NE_PREVOIT_PAS_TEXT =
+  "Notre offre ne comprend pas « Toutes prestations et produits non mentionnées dans notre offre ». " +
+  "Certains points restent à affiner et devront être totalement validés avant acceptation des deux parties.";
+
+const PRIX_TEXT =
+  "Les quantités devront être validées avant engagement définitif par OTEnergie. " +
+  "Les prix s'entendent hors taxes, nets de tout autre frais, TVA au taux en vigueur en sus. " +
+  "Notre proposition a été calculée sur la base des horaires en vigueur dans notre société " +
+  "(hors heures de nuit, fin de semaine, jours fériés…) et sans interruption de chantier.";
+
+const RECEPTION_TEXT =
+  "Pour être prise en compte, toute commande doit être écrite sur un support imprimé indiquant la raison " +
+  "sociale, l'adresse de facturation, un numéro d'ordre, la date et signée du nom du signataire. " +
+  "Toutes commandes passées, verbalement, par téléphone ne seront pas prises en compte. " +
+  "Toute commande passée devient définitive après acceptation par la Direction Commerciale de OTEnergie " +
+  "ou de son représentant. Toutes les modifications sollicitées à la demande du client et après accord de " +
+  "notre Direction ou de son représentant, devront obligatoirement être figurées par écrit et signées par " +
+  "les deux parties pour être valables. Aucune réclamation faite après coup, ne pourra être prise en " +
+  "considération. Toute annulation de commande par nos clients les rendra responsables du paiement de " +
+  "dommages intérêts en notre faveur en compensation du préjudice subi par nous du fait de cette annulation.";
+
+const DELAIS_VALIDATION_TEXT =
+  "Notre offre de prix est valable deux mois à partir de la date de proposition. Passé ce délai, nous nous " +
+  "réservons le droit de réviser nos prix, prestations techniques et nos délais.";
+
+const GARANTIES_TEXT =
+  "Notre garantie comprend les pièces, la main d'œuvre et les déplacements (aux jours et heures ouvrables) " +
+  "sur le matériel ou prestations prévues dans la commande, pendant la première année qui suit la réception " +
+  "des travaux. Cette garantie est strictement limitée au remplacement des pièces défectueuses, suite d'un " +
+  "défaut de la matière ou de construction. Toute intervention sur du matériel endommagé pour des causes ne " +
+  "relevant pas de la garantie (foudre, surtensions, mauvaise manipulation, demande d'intervention non " +
+  "justifiée) fera l'objet d'une facturation.";
+
+/* --------------------------------------------------------------------------
+   Helpers couleur
+   -------------------------------------------------------------------------- */
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.substring(0, 2), 16), parseInt(h.substring(2, 4), 16), parseInt(h.substring(4, 6), 16)];
+}
+function setText(doc, hex) { const c = hexToRgb(hex); doc.setTextColor(c[0], c[1], c[2]); }
+function setFill(doc, hex) { const c = hexToRgb(hex); doc.setFillColor(c[0], c[1], c[2]); }
+function setDraw(doc, hex) { const c = hexToRgb(hex); doc.setDrawColor(c[0], c[1], c[2]); }
+
+/* --------------------------------------------------------------------------
+   Helpers nombres — format français strict, sans toLocaleString
+   (espace insécable   imposée par nous-mêmes)
+   -------------------------------------------------------------------------- */
+function groupThousands(intStr) {
+  let out = '';
+  const len = intStr.length;
+  for (let i = 0; i < len; i++) {
+    if (i > 0 && (len - i) % 3 === 0) out += ' ';
+    out += intStr[i];
+  }
+  return out;
+}
+
+function formatNumber(n, decimals) {
+  decimals = decimals === undefined ? 2 : decimals;
+  const num = Number(n) || 0;
+  const neg = num < 0;
+  const abs = Math.abs(num);
+  const fixed = abs.toFixed(decimals);
+  const parts = fixed.split('.');
+  const intPart = groupThousands(parts[0]);
+  const result = parts.length > 1 ? intPart + ',' + parts[1] : intPart;
+  return (neg ? '-' : '') + result;
+}
+
+function eur(n) {
+  return formatNumber(n, 2) + ' €';
+}
+
+// La prime CEE doit TOUJOURS s'afficher en négatif, quel que soit le signe
+// stocké dans le modèle — c'est une déduction, jamais une addition.
+function eurNegatif(n) {
+  return '-' + formatNumber(Math.abs(Number(n) || 0), 2) + ' €';
+}
+
+function formatQte(qte) {
+  const n = Number(qte) || 0;
+  const isInt = Math.abs(n - Math.round(n)) < 1e-9;
+  return formatNumber(n, isInt ? 0 : 2);
+}
+
+/* --------------------------------------------------------------------------
+   Helpers de mise en page génériques
+   -------------------------------------------------------------------------- */
+function ensureSpace(doc, y, needed) {
+  if (y + needed > CONTENT_BOTTOM_LIMIT) {
+    doc.addPage();
+    return CONTENT_TOP;
+  }
+  return y;
+}
+
+function centerText(doc, text, y, pageWidth) {
+  const w = doc.getTextWidth(text);
+  doc.text(text, (pageWidth - w) / 2, y);
+}
+
+function drawLogo(doc, model, x, y, w) {
+  if (!model.logoDataUrl) return 0;
+  const h = w * LOGO_RATIO;
+  try {
+    doc.addImage(model.logoDataUrl, 'JPEG', x, y, w, h, undefined, 'FAST');
+  } catch (e) {
+    // logo invalide/absent : on continue sans bloquer la génération du PDF
+  }
+  return h;
+}
+
+// Bloc "titre + paragraphe(s)" : garantit que le titre ne reste jamais seul
+// en bas de page (on réserve la place de sa première ligne AVANT de dessiner
+// le titre). Le débordement au-delà de la première ligne est un flux normal.
+function renderHeadingParagraph(doc, y, heading, paragraphs) {
+  const W = doc.internal.pageSize.getWidth();
+  const width = W - 2 * MARGIN;
+
+  y = ensureSpace(doc, y, 6 + 4.6 + 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  setText(doc, COLOR_BLUE);
+  doc.text(heading, MARGIN, y);
+  y += 6.5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  setText(doc, COLOR_GRAY_TEXT);
+  for (const para of paragraphs) {
+    if (!para) continue;
+    // Les \n internes (ex. CGV fournies par model.cgv.articles) sont des
+    // ruptures de ligne volontaires : on les respecte avant le retour à la
+    // ligne automatique par largeur, que splitTextToSize seul ne garantit pas.
+    const subParas = String(para).split('\n');
+    for (const sub of subParas) {
+      const lines = sub.length ? doc.splitTextToSize(sub, width) : [''];
+      for (const line of lines) {
+        if (y > CONTENT_BOTTOM_LIMIT) {
+          doc.addPage();
+          y = CONTENT_TOP;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          setText(doc, COLOR_GRAY_TEXT);
+        }
+        doc.text(line, MARGIN, y);
+        y += 4.6;
+      }
+    }
+  }
+  return y + 5;
+}
+
+function renderHeadingBullets(doc, y, heading, items) {
+  const W = doc.internal.pageSize.getWidth();
+  const width = W - 2 * MARGIN - 6;
+
+  y = ensureSpace(doc, y, 6 + 4.6 + 2);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  setText(doc, COLOR_BLUE);
+  doc.text(heading, MARGIN, y);
+  y += 6.5;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  setText(doc, COLOR_GRAY_TEXT);
+  for (const item of (items || [])) {
+    const lines = doc.splitTextToSize(String(item), width);
+    lines.forEach((line, i) => {
+      if (y > CONTENT_BOTTOM_LIMIT) {
+        doc.addPage();
+        y = CONTENT_TOP;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        setText(doc, COLOR_GRAY_TEXT);
+      }
+      if (i === 0) {
+        setText(doc, COLOR_MAGENTA);
+        doc.text('•', MARGIN, y);
+        setText(doc, COLOR_GRAY_TEXT);
+      }
+      doc.text(line, MARGIN + 5, y);
+      y += 4.6;
+    });
+  }
+  return y + 5;
+}
+
+/* --------------------------------------------------------------------------
+   Sanitisation défensive du texte libre
+   --------------------------------------------------------------------------
+   `designation`, `notes`, `sousTitre`… sont du texte libre saisi côté
+   application (contrat : "texte libre multiligne"). Les polices standard
+   jsPDF (helvetica, encodage proche de Windows-1252) ne couvrent PAS tout
+   Unicode : un caractère hors de ce jeu (ex. ≥, ≤) ne se contente pas d'un
+   glyphe manquant, il corrompt le rendu de toute la ligne. On neutralise ce
+   risque une fois, à l'entrée de buildPropositionPdf, sans jamais toucher au
+   contenu sémantique du texte (aucun calcul métier, uniquement des
+   équivalents ASCII pour les symboles à risque).
+   -------------------------------------------------------------------------- */
+const CHAR_REPLACEMENTS = {
+  '≥': '>=',   // ≥
+  '≤': '<=',   // ≤
+  '×': 'x',    // ×
+  '÷': '/',    // ÷
+  '™': '(TM)', // ™
+  '©': '(C)',  // ©
+  '®': '(R)',  // ®
+};
+// Jeu de caractères conservés tel quel : ASCII imprimable + \n, plus le bloc
+// Latin-1 supplement/Latin Extended-A (couvre é è à ç ° € m² œ, déjà
+// vérifiés par le contrat) et la plage de ponctuation "cp1252" usuelle
+// (tirets typographiques, guillemets, puce, €). Tout le reste est retiré
+// plutôt que de risquer de corrompre la ligne entière.
+const SAFE_TEXT_RE = /[^\u0009\u000A\u0020-\u007E\u00A0-\u017F\u0192\u02C6\u02DC\u2013\u2014\u2018\u2019\u201A\u201C\u201D\u201E\u2020\u2021\u2022\u2026\u2030\u2039\u203A\u20AC\u2122]/g;
+
+function safeText(s) {
+  if (s === null || s === undefined) return '';
+  let out = String(s);
+  for (const from in CHAR_REPLACEMENTS) {
+    if (out.indexOf(from) !== -1) out = out.split(from).join(CHAR_REPLACEMENTS[from]);
+  }
+  return out.replace(SAFE_TEXT_RE, '');
+}
+
+function sanitizeStringFields(obj) {
+  const out = {};
+  for (const k in (obj || {})) out[k] = safeText(obj[k]);
+  return out;
+}
+
+function sanitizeModel(model) {
+  const m = model || {};
+  const c = m.conditions || {};
+  const cgv = m.cgv || {};
+  return {
+    logoDataUrl: m.logoDataUrl, // data URI — jamais passé dans safeText
+    emetteur: sanitizeStringFields(m.emetteur),
+    devis: sanitizeStringFields(m.devis),
+    chantier: sanitizeStringFields(m.chantier),
+    destinataire: sanitizeStringFields(m.destinataire),
+    chargeAffaires: sanitizeStringFields(m.chargeAffaires),
+    sections: (m.sections || []).map((s) => ({
+      titre: safeText(s.titre),
+      sousTitre: safeText(s.sousTitre),
+      notes: safeText(s.notes),
+      sousTotalHT: s.sousTotalHT,
+      lignes: (s.lignes || []).map((l) => ({
+        designation: safeText(l.designation),
+        unite: safeText(l.unite),
+        qte: l.qte,
+        puHT: l.puHT,
+        totalHT: l.totalHT,
+      })),
+    })),
+    totaux: m.totaux || {},
+    conditions: {
+      offrePrevoit: (c.offrePrevoit || []).map(safeText),
+      garantieMois: c.garantieMois,
+      delai: safeText(c.delai),
+      acomptePct: c.acomptePct,
+      validiteTexte: safeText(c.validiteTexte),
+    },
+    cgv: {
+      inclure: !!cgv.inclure,
+      articles: (cgv.articles || []).map((a) => ({ titre: safeText(a.titre), texte: safeText(a.texte) })),
+    },
+  };
+}
+
+/* --------------------------------------------------------------------------
+   PAGE 1 — Couverture (sans en-tête ni pied de page intérieur)
+   -------------------------------------------------------------------------- */
+function drawCover(doc, model) {
+  const W = doc.internal.pageSize.getWidth();
+
+  drawLogo(doc, model, MARGIN, 20, 50);
+
+  setFill(doc, COLOR_BLUE);
+  doc.rect(0, 58, W, 15, 'F');
+  setFill(doc, COLOR_MAGENTA);
+  doc.rect(0, 73, W, 4.5, 'F');
+
+  let y = 110;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(32);
+  setText(doc, COLOR_BLUE);
+  centerText(doc, 'Proposition', y, W);
+  y += 14;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(22);
+  centerText(doc, 'de travaux', y, W);
+
+  y += 10;
+  setDraw(doc, COLOR_GREEN);
+  doc.setLineWidth(0.9);
+  doc.line(W / 2 - 16, y, W / 2 + 16, y);
+
+  const boxW = 152;
+  const boxX = (W - boxW) / 2;
+  const boxY = y + 16;
+  const boxH = 62;
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(boxX, boxY, boxW, boxH, 2, 2, 'S');
+  setFill(doc, COLOR_MAGENTA);
+  doc.rect(boxX, boxY, 2.2, boxH, 'F');
+
+  let iy = boxY + 11;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  setText(doc, COLOR_BLUE);
+  doc.text('CHANTIER', boxX + 11, iy);
+  iy += 7.5;
+
+  const destinataire = model.destinataire || {};
+  const destName = destinataire.personneMorale ||
+    [destinataire.prenom, destinataire.nom].filter(Boolean).join(' ') || '';
+  if (destName) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    setText(doc, COLOR_GRAY_TEXT);
+    doc.text(destName, boxX + 11, iy);
+    iy += 6;
+  }
+  if (destinataire.personneMorale && (destinataire.nom || destinataire.prenom)) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.text([destinataire.prenom, destinataire.nom].filter(Boolean).join(' '), boxX + 11, iy);
+    iy += 5.5;
+  }
+
+  const chantier = model.chantier || {};
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  if (chantier.adresse) { doc.text(chantier.adresse, boxX + 11, iy); iy += 5; }
+  const cpVille = [chantier.cp, chantier.ville].filter(Boolean).join(' ');
+  if (cpVille) { doc.text(cpVille, boxX + 11, iy); iy += 5; }
+
+  iy += 4;
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.2);
+  doc.line(boxX + 11, iy, boxX + boxW - 11, iy);
+  iy += 8;
+
+  const devis = model.devis || {};
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text('N° DE DEVIS', boxX + 11, iy);
+  doc.text('DATE', boxX + boxW / 2 + 4, iy);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  doc.text(devis.numero || '', boxX + 11, iy + 6.5);
+  doc.text(devis.dateEmission || '', boxX + boxW / 2 + 4, iy + 6.5);
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN, 274, W - MARGIN, 274);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(doc, COLOR_GRAY_LIGHT_TEXT);
+  const emetteur = model.emetteur || {};
+  const brand = [emetteur.raisonSociale, emetteur.site].filter(Boolean).join('   •   ');
+  centerText(doc, brand, 280, W);
+}
+
+/* --------------------------------------------------------------------------
+   EN-TÊTE / PIED DE PAGE des pages intérieures — appliqués en passe finale
+   -------------------------------------------------------------------------- */
+function drawInteriorHeader(doc, model) {
+  const W = doc.internal.pageSize.getWidth();
+  const devis = model.devis || {};
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  const lines = [
+    'Date : ' + (devis.dateEmission || ''),
+    'Devis n° : ' + (devis.numero || ''),
+    'Projet : ' + (devis.refProjet || ''),
+  ];
+  let ly = 16;
+  lines.forEach((l) => { doc.text(l, MARGIN, ly); ly += 4.4; });
+
+  drawLogo(doc, model, W - MARGIN - 26, 12, 26);
+
+  setDraw(doc, COLOR_BLUE);
+  doc.setLineWidth(0.6);
+  doc.line(MARGIN, 32, W - MARGIN, 32);
+}
+
+function drawFooter(doc, model, idx, total) {
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const top = H - 24;
+  const e = model.emetteur || {};
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN, top, W - MARGIN, top);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  setText(doc, COLOR_BLUE);
+  doc.text(e.raisonSociale || '', MARGIN, top + 5);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  setText(doc, COLOR_GRAY_LIGHT_TEXT);
+
+  const col1 = [e.capital, e.siret, e.tva];
+  const col2 = [e.adresse1, e.adresse2, e.tel];
+  const col3 = ['E-mail : ' + (e.email || ''), e.site, ''];
+  const colX = [MARGIN, MARGIN + 62, MARGIN + 124];
+  const rows = [col1, col2, col3];
+
+  for (let c = 0; c < 3; c++) {
+    let ry = top + 9.3;
+    for (let r = 0; r < 3; r++) {
+      const t = rows[c][r];
+      if (t) doc.text(t, colX[c], ry);
+      ry += 4;
+    }
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  setText(doc, COLOR_GRAY_TEXT);
+  const label = 'Page ' + idx + ' / ' + total;
+  const w = doc.getTextWidth(label);
+  doc.text(label, W - MARGIN - w, top + 21.5);
+}
+
+function applyHeadersFooters(doc, model) {
+  const totalPages = doc.internal.getNumberOfPages();
+  const numberedTotal = totalPages - 1; // la couverture n'est jamais numérotée
+  for (let p = 2; p <= totalPages; p++) {
+    doc.setPage(p);
+    drawInteriorHeader(doc, model);
+    drawFooter(doc, model, p - 1, numberedTotal);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   PAGE 2 — Courrier d'accompagnement
+   -------------------------------------------------------------------------- */
+function drawCourrier(doc, model) {
+  doc.addPage();
+  const W = doc.internal.pageSize.getWidth();
+  let y = CONTENT_TOP;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  setText(doc, COLOR_BLUE);
+  doc.text('Objet : Proposition de travaux', MARGIN, y);
+  y += 11;
+
+  const colW = 82;
+  const leftX = MARGIN;
+  const rightX = MARGIN + colW + 10;
+  let ly = y;
+  const ry = y;
+
+  const emetteur = model.emetteur || {};
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  setText(doc, COLOR_GRAY_TEXT);
+  doc.text(emetteur.raisonSociale || '', leftX, ly);
+  ly += 5.2;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  [emetteur.capital, emetteur.adresse1, emetteur.adresse2, emetteur.tel, emetteur.email, emetteur.site]
+    .filter(Boolean)
+    .forEach((t) => { doc.text(t, leftX, ly); ly += 4.6; });
+
+  const destinataire = model.destinataire || {};
+  const boxH = 48;
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  doc.roundedRect(rightX, ry, colW, boxH, 1.5, 1.5, 'S');
+  let dy = ry + 7;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text('DESTINATAIRE', rightX + 6, dy);
+  dy += 6;
+
+  const destTitle = destinataire.personneMorale ||
+    [destinataire.prenom, destinataire.nom].filter(Boolean).join(' ');
+  if (destTitle) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setText(doc, COLOR_GRAY_TEXT);
+    doc.text(destTitle, rightX + 6, dy);
+    dy += 5;
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  if (destinataire.personneMorale && (destinataire.nom || destinataire.prenom)) {
+    doc.text(
+      "A l'attention de " + [destinataire.prenom, destinataire.nom].filter(Boolean).join(' '),
+      rightX + 6, dy
+    );
+    dy += 4.4;
+  }
+  const addrLines = doc.splitTextToSize(destinataire.adresseFacturation || '', colW - 12);
+  addrLines.forEach((l) => { doc.text(l, rightX + 6, dy); dy += 4.2; });
+  if (destinataire.tel) { doc.text('Tél : ' + destinataire.tel, rightX + 6, dy); dy += 4.2; }
+  if (destinataire.email) { doc.text(destinataire.email, rightX + 6, dy); dy += 4.2; }
+
+  y = Math.max(ly, ry + boxH) + 10;
+
+  const devis = model.devis || {};
+  doc.autoTable({
+    rowPageBreak: 'avoid',
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
+    head: [['Réf. Projet', 'V/réf.', 'N/réf.', 'Date']],
+    body: [[devis.refProjet || '', '', devis.numero || '', devis.dateEmission || '']],
+    theme: 'plain',
+    styles: {
+      font: 'helvetica', fontSize: 8.5, textColor: hexToRgb(COLOR_GRAY_TEXT),
+      lineWidth: 0.1, lineColor: hexToRgb(COLOR_GRAY_LINE), cellPadding: 2.8,
+    },
+    headStyles: { fillColor: hexToRgb(COLOR_BLUE), textColor: 255, fontStyle: 'bold' },
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  const chantier = model.chantier || {};
+  const chantierAddr = [chantier.adresse, [chantier.cp, chantier.ville].filter(Boolean).join(' ')]
+    .filter(Boolean).join(', ');
+
+  const intro = [
+    'Madame, Monsieur,',
+    '',
+    "Nous vous remercions de la confiance que vous accordez à OTenergie et avons le plaisir de vous " +
+      "adresser, ci-après, notre proposition de travaux pour l'opération de rénovation énergétique du " +
+      "bien situé " + chantierAddr + '.',
+    '',
+    "Cette offre a été établie à l'issue de notre visite technique et détaille, section par section, la " +
+      "nature des prestations, les quantités et les prix associés. Nous restons à votre entière " +
+      "disposition pour toute précision complémentaire et nous tenons prêts à démarrer les travaux dans " +
+      "les meilleurs délais dès réception de votre accord.",
+    '',
+    "Nous vous prions d'agréer, Madame, Monsieur, l'expression de nos salutations distinguées.",
+  ];
+
+  const introWidth = W - 2 * MARGIN;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  for (const para of intro) {
+    if (para === '') { y += 3; continue; }
+    const lines = doc.splitTextToSize(para, introWidth);
+    for (const line of lines) {
+      if (y > CONTENT_BOTTOM_LIMIT) {
+        doc.addPage();
+        y = CONTENT_TOP;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9.5);
+        setText(doc, COLOR_GRAY_TEXT);
+      }
+      doc.text(line, MARGIN, y);
+      y += 5;
+    }
+  }
+
+  y = ensureSpace(doc, y + 14, 30);
+  const chargeAffaires = model.chargeAffaires || {};
+  const sigX = W - MARGIN - 72;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  doc.text("Le chargé d'affaires,", sigX, y);
+  y += 14;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(chargeAffaires.nom || '', sigX, y);
+  y += 5;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  if (chargeAffaires.tel) { doc.text('Tél : ' + chargeAffaires.tel, sigX, y); y += 4.2; }
+  if (chargeAffaires.mobile) { doc.text('Mobile : ' + chargeAffaires.mobile, sigX, y); y += 4.2; }
+}
+
+/* --------------------------------------------------------------------------
+   PAGE 3 — Récapitulatif de l'offre + bloc totaux
+   -------------------------------------------------------------------------- */
+function drawTotalsBlock(doc, totaux, y) {
+  const t = totaux || {};
+  const W = doc.internal.pageSize.getWidth();
+  const boxW = 90;
+  const boxX = W - MARGIN - boxW;
+  const rowH = 7.4;
+
+  const rows = [
+    ['Total de base H.T :', eur(t.baseHT), false],
+    ['Total de base TVA :', eur(t.baseTVA), false],
+    ['Total de base TTC :', eur(t.baseTTC), false],
+    ['Prime CEE (estimée)', eurNegatif(t.primeCee), true],
+  ];
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  doc.setFillColor(255, 255, 255);
+  doc.roundedRect(boxX, y, boxW, rowH * 4 + 6, 1.2, 1.2, 'S');
+
+  let ry = y + 6.5;
+  rows.forEach(([label, value, isRed], i) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    setText(doc, COLOR_GRAY_TEXT);
+    doc.text(label, boxX + 6, ry);
+
+    doc.setFont('helvetica', isRed ? 'bold' : 'normal');
+    setText(doc, isRed ? COLOR_RED : COLOR_GRAY_TEXT);
+    const vw = doc.getTextWidth(value);
+    doc.text(value, boxX + boxW - 6 - vw, ry);
+
+    if (i < rows.length - 1) {
+      setDraw(doc, COLOR_GRAY_LINE);
+      doc.setLineWidth(0.15);
+      doc.line(boxX + 6, ry + 2.6, boxX + boxW - 6, ry + 2.6);
+    }
+    ry += rowH;
+  });
+
+  const resteY = y + rowH * 4 + 6 + 5;
+  const resteH = 18;
+  setFill(doc, COLOR_MAGENTA);
+  doc.roundedRect(boxX, resteY, boxW, resteH, 1.5, 1.5, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(255, 255, 255);
+  doc.text('Reste à charge TTC :', boxX + 6, resteY + 7.5);
+
+  doc.setFontSize(15);
+  const val = eur(t.resteTTC);
+  const vw2 = doc.getTextWidth(val);
+  doc.text(val, boxX + boxW - 6 - vw2, resteY + 14.5);
+
+  return resteY + resteH;
+}
+
+function drawRecap(doc, model) {
+  doc.addPage();
+  const W = doc.internal.pageSize.getWidth();
+  let y = CONTENT_TOP;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  setText(doc, COLOR_BLUE);
+  doc.text("Récapitulatif de l'offre", MARGIN, y);
+  y += 10;
+
+  const sections = model.sections || [];
+  const sectionsMeta = sections.map((s) => ({ titre: s.titre || '', sousTitre: s.sousTitre || '' }));
+  const body = sections.map((s) => [
+    (s.titre || '') + (s.sousTitre ? ('\n' + s.sousTitre) : ''),
+    eur(s.sousTotalHT),
+  ]);
+
+  doc.autoTable({
+    rowPageBreak: 'avoid',
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
+    head: [['Section', 'Montant H.T.']],
+    body,
+    theme: 'plain',
+    styles: {
+      font: 'helvetica', fontSize: 9.5, textColor: hexToRgb(COLOR_GRAY_TEXT),
+      lineWidth: 0.1, lineColor: hexToRgb(COLOR_GRAY_LINE),
+      cellPadding: { top: 4.5, bottom: 4.5, left: 4, right: 4 },
+    },
+    headStyles: { fillColor: hexToRgb(COLOR_BLUE), textColor: 255, fontStyle: 'bold', fontSize: 9.5 },
+    alternateRowStyles: { fillColor: hexToRgb(COLOR_ALT_ROW) },
+    columnStyles: {
+      0: { cellWidth: W - 2 * MARGIN - 46 },
+      1: { cellWidth: 46, halign: 'right', valign: 'middle', fontStyle: 'bold' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        data.cell.text = []; // rendu manuel dans didDrawCell (titre bold + sous-titre gris)
+      }
+    },
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.column.index === 0) {
+        const meta = sectionsMeta[data.row.index] || { titre: '', sousTitre: '' };
+        const tx = data.cell.x + 4;
+        const ty = data.cell.y + (meta.sousTitre ? 5.6 : data.cell.height / 2 + 1.6);
+        // Le titre peut être générique et se répéter d'une ligne à l'autre
+        // (ex. "Travaux du logement" sur plusieurs lots) : c'est le
+        // sous-titre qui identifie le lot. On lui donne donc AUTANT — voire
+        // plus — de poids typographique que le titre, avec l'accent
+        // magenta pour qu'il ressorte même répété cinq fois de suite.
+        if (meta.sousTitre) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.6);
+          setText(doc, COLOR_GRAY_LIGHT_TEXT);
+          doc.text(meta.titre, tx, ty);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9.8);
+          setText(doc, COLOR_MAGENTA);
+          doc.text(meta.sousTitre, tx, ty + 5.4);
+        } else {
+          // Pas de sous-titre : le titre est le seul repère, il garde tout
+          // son poids.
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9.7);
+          setText(doc, COLOR_GRAY_TEXT);
+          doc.text(meta.titre, tx, ty);
+        }
+      }
+    },
+  });
+
+  y = doc.lastAutoTable.finalY + 14;
+  y = ensureSpace(doc, y, 62);
+  drawTotalsBlock(doc, model.totaux, y);
+}
+
+/* --------------------------------------------------------------------------
+   PAGES 4+ — Détail de l'offre
+   -------------------------------------------------------------------------- */
+function drawDetail(doc, model) {
+  doc.addPage();
+  const W = doc.internal.pageSize.getWidth();
+  let y = CONTENT_TOP;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  setText(doc, COLOR_BLUE);
+  doc.text("Détail de l'offre", MARGIN, y);
+  y += 10;
+
+  const sections = model.sections || [];
+  const width = W - 2 * MARGIN;
+
+  sections.forEach((s) => {
+    // Hauteur du bloc titre (titre + sous-titre + notes), calculée AVANT de
+    // décider d'un saut de page : le titre ne doit jamais être isolé de la
+    // première ligne de son tableau.
+    let headingH = 6.5;
+    if (s.sousTitre) headingH += 6;
+    let noteLines = [];
+    if (s.notes) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.3);
+      noteLines = doc.splitTextToSize('Remarque : ' + s.notes, width);
+      headingH += noteLines.length * 4;
+    }
+    headingH += 2;
+
+    y = ensureSpace(doc, y, headingH + 16);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    setText(doc, COLOR_BLUE);
+    doc.text(s.titre || '', MARGIN, y);
+    y += 6.5;
+
+    if (s.sousTitre) {
+      // Le titre de section peut être générique et se répéter (ex. "Travaux
+      // du logement" sur plusieurs lots) : le sous-titre porte alors seul
+      // l'identification du lot. Poids typographique fort + accent magenta
+      // pour qu'il ressorte clairement, même répété sur des sections
+      // consécutives au titre identique.
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10.5);
+      setText(doc, COLOR_MAGENTA);
+      doc.text(s.sousTitre, MARGIN, y);
+      y += 6;
+    }
+
+    if (noteLines.length) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8.3);
+      setText(doc, COLOR_GRAY_LIGHT_TEXT);
+      noteLines.forEach((l) => { doc.text(l, MARGIN, y); y += 4; });
+    }
+    y += 2;
+
+    const lignes = s.lignes || [];
+    const body = lignes.map((l) => [
+      l.designation || '',
+      l.unite || '',
+      formatQte(l.qte),
+      eur(l.puHT),
+      eur(l.totalHT),
+    ]);
+
+    // NB : pas de `foot`/`showFoot` ici. Combiné à un corps qui s'étale sur
+    // plusieurs pages (section à beaucoup de lignes), ce mécanisme d'autoTable
+    // provoque un bug de calcul de hauteur de ligne au voisinage d'un saut de
+    // page : le dernier mot d'une désignation repliée sur 2 lignes se
+    // retrouvait orphelin en haut de la page suivante, avec des cellules
+    // vides — exactement la coupure de ligne de tableau interdite. Le
+    // sous-total est donc dessiné à la main juste après la table.
+    doc.autoTable({
+      rowPageBreak: 'avoid',
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
+      head: [['Désignation', 'Unité', 'Qté', 'PU H.T.', 'Total H.T.']],
+      body,
+      theme: 'plain',
+      styles: {
+        font: 'helvetica', fontSize: 8.7, textColor: hexToRgb(COLOR_GRAY_TEXT),
+        lineWidth: 0.1, lineColor: hexToRgb(COLOR_GRAY_LINE),
+        cellPadding: { top: 2.6, bottom: 2.6, left: 3, right: 3 }, valign: 'middle',
+      },
+      headStyles: { fillColor: hexToRgb(COLOR_BLUE), textColor: 255, fontStyle: 'bold', fontSize: 8.7 },
+      alternateRowStyles: { fillColor: hexToRgb(COLOR_ALT_ROW) },
+      columnStyles: {
+        0: { cellWidth: 78 },
+        1: { cellWidth: 16, halign: 'center' },
+        2: { cellWidth: 22, halign: 'right' },
+        3: { cellWidth: 26, halign: 'right' },
+        4: { cellWidth: 32, halign: 'right' },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY;
+    y = ensureSpace(doc, y, 11);
+    const subtotalW = W - 2 * MARGIN;
+    setFill(doc, COLOR_SUBTOTAL_BG);
+    doc.rect(MARGIN, y, subtotalW, 8.5, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    setText(doc, COLOR_BLUE);
+    doc.text('Sous-total H.T.', MARGIN + subtotalW - 60, y + 5.6);
+    const subtotalVal = eur(s.sousTotalHT);
+    const subtotalValW = doc.getTextWidth(subtotalVal);
+    doc.text(subtotalVal, MARGIN + subtotalW - 4 - subtotalValW, y + 5.6);
+    y += 8.5 + 10;
+  });
+}
+
+/* --------------------------------------------------------------------------
+   Conditions particulières + bloc conditions commerciales / signature
+   -------------------------------------------------------------------------- */
+function drawConditionsAndSignature(doc, model) {
+  doc.addPage();
+  const W = doc.internal.pageSize.getWidth();
+  let y = CONTENT_TOP;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  setText(doc, COLOR_BLUE);
+  doc.text('Conditions particulières', MARGIN, y);
+  y += 11;
+
+  const c = model.conditions || {};
+  const devis = model.devis || {};
+
+  y = renderHeadingParagraph(doc, y, '1. Objet du projet', [
+    "Le présent document constitue la proposition de travaux relative à l'opération " +
+      (devis.refProjet || '') + '.',
+  ]);
+
+  y = renderHeadingBullets(doc, y, '2. Notre offre prévoit', c.offrePrevoit || []);
+
+  y = renderHeadingBullets(doc, y, '3. Conditions générales', [
+    'Validité de notre offre de prix : ' + (c.validiteTexte || ''),
+    'Garantie ' + (c.garantieMois != null ? c.garantieMois : '') + ' mois à compter de la réception des travaux.',
+    'Délai de livraison : ' + (c.delai || ''),
+    'Acompte de ' + (c.acomptePct != null ? c.acomptePct : '') + ' % à la commande.',
+  ]);
+
+  y = renderHeadingParagraph(doc, y, '4. Notre offre ne prévoit pas', [NE_PREVOIT_PAS_TEXT]);
+  y = renderHeadingParagraph(doc, y, '5. Prix', [PRIX_TEXT]);
+  y = renderHeadingParagraph(doc, y, '6. Réception des commandes', [RECEPTION_TEXT]);
+  y = renderHeadingParagraph(doc, y, '7. Délais de validation de notre proposition', [DELAIS_VALIDATION_TEXT]);
+  y = renderHeadingParagraph(doc, y, '8. Garanties', [GARANTIES_TEXT]);
+
+  // Bloc conditions commerciales
+  y = ensureSpace(doc, y + 2, 24);
+  const totaux = model.totaux || {};
+  doc.autoTable({
+    rowPageBreak: 'avoid',
+    startY: y,
+    margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
+    head: [['%', 'Montant à payer', 'Description', 'Mode', 'Conditions']],
+    body: [['100,00', eur(totaux.resteTTC), 'Terme de paiement 100%', '', '']],
+    theme: 'plain',
+    styles: {
+      font: 'helvetica', fontSize: 8.7, textColor: hexToRgb(COLOR_GRAY_TEXT),
+      lineWidth: 0.1, lineColor: hexToRgb(COLOR_GRAY_LINE), cellPadding: 3,
+    },
+    headStyles: { fillColor: hexToRgb(COLOR_BLUE), textColor: 255, fontStyle: 'bold' },
+    columnStyles: { 0: { halign: 'right', cellWidth: 16 }, 1: { halign: 'right', cellWidth: 36 } },
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  y = ensureSpace(doc, y, 46);
+  doc.setFont('helvetica', 'italic');
+  doc.setFontSize(9.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  centerText(doc, 'Faire précéder de la mention manuscrite "Bon pour accord"', y, W);
+  y += 16;
+
+  const cols = ['Nom du signataire', 'Fait à :', 'Le :', "Cachet de l'entreprise"];
+  const gap = 4;
+  const colW = (W - 2 * MARGIN - gap * 3) / 4;
+  const sigH = 28;
+  cols.forEach((label, i) => {
+    const x = MARGIN + i * (colW + gap);
+    setDraw(doc, COLOR_GRAY_LINE);
+    doc.setLineWidth(0.2);
+    doc.rect(x, y, colW, sigH, 'S');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    setText(doc, COLOR_GRAY_LIGHT_TEXT);
+    doc.text(label, x + 3, y + 6);
+  });
+}
+
+/* --------------------------------------------------------------------------
+   CGV — uniquement si model.cgv.inclure === true
+   -------------------------------------------------------------------------- */
+function drawCgv(doc, model) {
+  doc.addPage();
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  setText(doc, COLOR_BLUE);
+  doc.text('Conditions Générales de Vente', MARGIN, CONTENT_TOP);
+  let y = CONTENT_TOP + 11;
+
+  const articles = (model.cgv && model.cgv.articles) || [];
+  articles.forEach((a) => {
+    y = renderHeadingParagraph(doc, y, a.titre || '', [a.texte || '']);
+  });
+}
+
+/* --------------------------------------------------------------------------
+   Orchestrateur
+   -------------------------------------------------------------------------- */
+function buildPropositionPdf(model) {
+  const JsPDFCtor = _resolveJsPDF();
+  const doc = new JsPDFCtor({ unit: 'mm', format: 'a4', compress: true });
+  model = sanitizeModel(model);
+
+  drawCover(doc, model);          // page 1 — couverture (déjà créée par défaut)
+  drawCourrier(doc, model);       // page 2
+  drawRecap(doc, model);          // page 3
+  drawDetail(doc, model);         // pages 4+
+  drawConditionsAndSignature(doc, model); // conditions particulières + signature
+
+  if (model.cgv && model.cgv.inclure) {
+    drawCgv(doc, model);
+  }
+
+  applyHeadersFooters(doc, model);
+
+  return doc;
+}
+
+/* ---------- step7_core.js ---------- */
+/* ============================================================================
+   ÉTAPE 7 — PROPOSITION DE TRAVAUX
+   Construit le devis PDF envoyable au client à partir des prix déjà calculés
+   à l'étape 4. AUCUN appel IA ici : tout est déterministe.
+
+   Trois invariants portent cet onglet :
+   1. On ne RECALCULE rien : on lit calcTravaux()/calcVT(), corrections manuelles
+      de l'étape 4 comprises. L'étape 7 ne peut pas faire diverger les chiffres.
+   2. Le destinataire du devis est le BAILLEUR, jamais l'occupant du logement.
+      Ce sont deux personnes différentes (cf. propResolveIdentites).
+   3. Ce qui part dans le PDF passe par une LISTE BLANCHE explicite
+      (propBuildPdfModel) : une colonne ajoutée au master ne peut pas atterrir
+      par accident dans un document client.
+   ============================================================================ */
+
+/* ── Désignations commerciales ────────────────────────────────────────────────
+   Les libellés techniques internes (ITE, ITI, Rampants, BMD3216…) ne doivent
+   JAMAIS apparaître tels quels dans un document client. Chaque catégorie porte
+   une désignation vendable, éditable ligne par ligne ensuite. */
+const PROP_DESIGNATIONS = {
+  ITE:      "Isolation thermique par l'extérieur — système sous enduit mince, comprenant échafaudage, préparation du support, pose de l'isolant et finition",
+  ITI:      "Isolation thermique des murs par l'intérieur — fourniture et pose de l'isolant, ossature, parement et finitions",
+  Combles:  "Isolation des combles — fourniture et pose de l'isolant en plancher haut, y compris protection des points singuliers",
+  Plancher: "Isolation du plancher bas — fourniture et pose de l'isolant en sous-face, y compris traitement des points singuliers",
+  Fenetres: "Remplacement des menuiseries extérieures — fourniture et pose, dépose et évacuation des anciennes menuiseries",
+};
+// Éléments additionnels (barème à la pièce)
+const PROP_DESIGNATIONS_PC = {
+  'Radiateur':      "Fourniture et pose de radiateurs — y compris raccordements et mise en service",
+  'VMC':            "Fourniture et pose d'une ventilation mécanique contrôlée — y compris réseaux et bouches",
+  'Ballon Thermo':  "Fourniture et pose d'un chauffe-eau thermodynamique — y compris raccordements et mise en service",
+  'Ballon Hybride': "Fourniture et pose d'un ballon hybride — y compris raccordements et mise en service",
+  'Toit/Terasse':   "Isolation de toiture-terrasse — fourniture et pose de l'isolant et de son étanchéité",
+  'Pac Air/Air':    "Fourniture et pose d'une pompe à chaleur air/air — y compris raccordements et mise en service",
+};
+// Mention type relevée sur le récap Guiard, proposée en note de section quand la
+// catégorie s'y prête (planchers hauts / bas).
+const PROP_NOTE_DECHETTERIE = "Cette estimation de travaux comprend la dépose et la mise en déchetterie des isolants situés en planchers hauts et planchers bas.";
+
+const PROP_UNITES = ['m²','u','ml','forfait'];
+function propUniteFor(cat){ return (cat==='__pc__' || PROP_DESIGNATIONS_PC[cat]) ? 'u' : 'm²'; }
+
+function propDesignation(ligne){
+  if(ligne.pc) return PROP_DESIGNATIONS_PC[ligne.cat] || ligne.label || 'Prestation';
+  return PROP_DESIGNATIONS[ligne.cat] || ligne.label || 'Prestation';
+}
+
+/* ── Chargement des bibliothèques PDF ─────────────────────────────────────────
+   CDN d'abord (chargé dans le <head>), repli sur vendor/ si le CDN est
+   injoignable. On ne bloque JAMAIS le démarrage de l'app pour ça : la
+   vérification n'a lieu qu'au moment où on génère réellement un PDF. */
+let _pdfLibsPromise = null;
+function propPdfReady(){ return !!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable); }
+function ensurePdfLibs(){
+  if(propPdfReady()) return Promise.resolve(true);
+  if(_pdfLibsPromise) return _pdfLibsPromise;
+  const inject = src => new Promise((res, rej)=>{
+    const s = document.createElement('script'); s.src = src;
+    s.onload = ()=>res(true); s.onerror = ()=>rej(new Error('Chargement impossible : '+src));
+    document.head.appendChild(s);
+  });
+  _pdfLibsPromise = (async ()=>{
+    if(!(window.jspdf && window.jspdf.jsPDF)) await inject('vendor/jspdf.umd.min.js');
+    if(!propPdfReady()) await inject('vendor/jspdf.plugin.autotable.min.js');
+    if(!propPdfReady()) throw new Error('jsPDF indisponible (CDN et copie locale vendor/ injoignables).');
+    return true;
+  })();
+  return _pdfLibsPromise;
+}
+
+/* ── Disponibilité de l'étape ─────────────────────────────────────────────────
+   L'onglet reste inaccessible tant que l'étape 4 n'a pas produit de prix de
+   vente : sans prix, la proposition n'aurait aucune ligne chiffrée. */
+function propGate(){
+  if(!state.vts.length) return 'Charge au moins une Visite Technique à l\'étape 1.';
+  if(!state.chargesTable) return 'Le barème de prix n\'est pas chargé (onglet Paramètres).';
+  const { tot } = calcGlobal();
+  if(num(tot.venteTravaux) <= 0) return 'L\'étape 4 n\'a pas encore produit de prix de vente. Complète l\'extraction et la valorisation, puis reviens ici.';
+  return null;
+}
+
+/* ── Identités : bailleur (destinataire) vs occupant (repère de lot) ──────────
+   Règles validées sur 8 VT réelles de 2 immeubles — cf. propResolveIdentites
+   dans le bloc « IDENTITÉS VT ». */
+
+/* ── Prix de vente : LE point de bascule entre les deux modes ─────────────────
+   Isolé dans UNE fonction et une seule. Le mode « barème » suit l'étape 4
+   (surface × prix de vente HT). Le mode « rac » reconstruit le prix comme les
+   récaps OT Énergie le font : Prime CEE + reste à charge commercial fixé par
+   lot, le barème ne servant plus qu'à répartir ce montant entre les postes.
+
+   ⚠️ Point métier resté ouvert avec OT Énergie : en mode « rac », la section
+   ITE garde le barème. Dans les récaps réels, la part d'ITE d'un lot semble
+   déjà couverte par le couple Prime + RAC de ce lot. Tant que ce n'est pas
+   tranché, l'ITE est facturée à part — c'est le comportement le plus lisible
+   et le moins surprenant. Bascule = changer cette fonction, rien d'autre. */
+function propPrixVenteSection(sec, lignesBarèmeHT){
+  const totalBareme = lignesBarèmeHT.reduce((s,l)=>s+num(l.totalHT), 0);
+  if(state.prop.mode !== 'rac' || sec.kind !== 'hab') return { lignes: lignesBarèmeHT, cibleHT: null };
+  const tva = propTvaOf(sec);
+  const cibleTTC = num(sec.primeCee) + num(sec.racTTC);
+  const cibleHT  = cibleTTC / (1 + tva/100);
+  if(totalBareme <= 0 || cibleHT <= 0) return { lignes: lignesBarèmeHT, cibleHT };
+  const k = cibleHT / totalBareme;   // répartition au prorata du barème
+  return { lignes: lignesBarèmeHT.map(l=>Object.assign({}, l, { puHT: round2(num(l.puHT)*k) })), cibleHT };
+}
+
+/* ── Construction initiale depuis les calculs ─────────────────────────────────
+   Ne recalcule rien : lit calcTravaux() ligne à ligne, corrections de l'étape 4
+   comprises. Section ITE d'abord (travaux du bâtiment), puis une section par
+   habitation. La « Part ITE » répartie sur chaque habitation est volontairement
+   ÉCARTÉE des sections habitation : elle ferait double emploi avec la section
+   ITE, et le total resterait identique (Σ des parts = total ITE). */
+function propBuildSections(){
+  const secs = [];
+  let seq = 0;
+  const nid = p => p + (++seq);
+
+  const mkLignes = (vt, opts) => {
+    const t = calcTravaux(vt);
+    const out = [];
+    t.lignes.forEach(l=>{
+      if(l.itePart) return;                       // part ITE répartie : portée par la section ITE
+      if(opts && opts.onlyIte && l.cat !== 'ITE') return;
+      if(opts && opts.skipIte && l.cat === 'ITE') return;
+      const q = round2(num(l.surf));
+      if(q <= 0 && num(l.vente) <= 0) return;     // rien à facturer
+      out.push({ id:nid('l'), cat:l.cat, designation:propDesignation(l), unite: l.pc ? 'u' : propUniteFor(l.cat),
+                 qte:q, puHT:round2(num(l.vente)), disabled:false, manuelle:false });
+    });
+    return out;
+  };
+
+  // 1) Section ITE — travaux au niveau du bâtiment
+  const ites = iteVts();
+  if(ites.length){
+    const lignes = [];
+    ites.forEach(v=>{ mkLignes(v, {onlyIte:true}).forEach(l=>lignes.push(l)); });
+    if(lignes.length) secs.push({ id:nid('s'), kind:'ite', vtKey:'', refLot:'', occupant:'', titreLibre:'',
+                                  tvaPct:null, racTTC:0, primeCee:0, primeForced:false, notes:'', lignes, collapsed:false });
+  }
+
+  // 2) Une section par habitation
+  const idents = propResolveIdentites();
+  habitations().forEach(vt=>{
+    const res = calcVT(vt);
+    const ident = idents.parLot[ovKey(vt)] || {};
+    const lignes = mkLignes(vt, {});
+    // Sans VT ITE dédiée, l'habitation porte sa propre ITE : elle reste dans sa section.
+    secs.push({ id:nid('s'), kind:'hab', vtKey:ovKey(vt),
+                refLot: ident.refLot || '', occupant: ident.occupant || '', titreLibre:'',
+                tvaPct:null, racTTC:0, primeCee:round2(num(res.prime)), primeForced:false,
+                notes: lignes.some(l=>l.cat==='Combles'||l.cat==='Plancher') ? PROP_NOTE_DECHETTERIE : '',
+                lignes, collapsed:false });
+  });
+  return secs;
+}
+
+function propNumeroDevis(){
+  const an = new Date().getFullYear();
+  // Format observé chez OT (« DKP E 25 005 ») transposé : OTE-AAAA-NNN.
+  // Le compteur suit le nombre de propositions déjà archivées cette année.
+  let n = 1;
+  try{
+    const done = (HistoryStore._lsAll()||[]).filter(h => h && h.resume && h.resume.typeDoc === 'Proposition de travaux'
+                  && String(h.created_at||'').slice(0,4) === String(an));
+    n = done.length + 1;
+  }catch(_){ n = 1; }
+  return 'OTE-'+an+'-'+String(n).padStart(3,'0');
+}
+
+function propCreate(){
+  const s = state.settings;
+  const idents = propResolveIdentites();
+  const today = new Date();
+  const p = {
+    mode: 'bareme',
+    tvaPct: num(s.tvaDefaut) || 5.5,
+    cgvIncluses: false,
+    devis: { numero: propNumeroDevis(), dateEmission: today.toISOString().slice(0,10),
+             validiteMois: num(s.validiteMois) || 2, refProjet: state.nomDossier || '' },
+    chantier: Object.assign({ adresse:'', cp:'', ville:'' }, idents.chantier),
+    bailleur: { typeProprietaire:'', personneMorale:'', nom: idents.bailleur.nom || '', prenom:'',
+                tel: idents.bailleur.tel || '', email:'', adresseFacturation:'' },
+    autoFields: Object.assign({}, idents.auto),
+    conflits: Object.assign({}, idents.conflits),
+    manuel: false,
+    chargeAffaires: { nom: s.caNom||'', tel: s.caTel||'', mobile: s.caMobile||'' },
+    conditions: {
+      offrePrevoit: [
+        "Étude technique et dimensionnement des travaux d'isolation",
+        "Fourniture et pose des matériels et matériaux décrits au détail de l'offre",
+        "Dépose et évacuation en déchetterie des isolants existants le cas échéant",
+        "Constitution du dossier de valorisation des Certificats d'Économies d'Énergie (CEE)",
+        "Nettoyage et remise en état des zones d'intervention"
+      ].join('\n'),
+      garantieMois: 12,
+      delai: '2 à 4 semaines à réception de commande',
+      acomptePct: num(s.acomptePct) || 30,
+    },
+    sections: propBuildSections(),
+    notes: '',
+  };
+  return p;
+}
+
+function propEnsure(){
+  if(!state.prop) state.prop = propCreate();
+  // Tolérance aux dossiers archivés avant l'ajout d'un champ
+  const p = state.prop;
+  p.autoFields = p.autoFields || {}; p.conflits = p.conflits || {};
+  p.sections = p.sections || [];
+  return p;
+}
+
+/* ── Calculs de la proposition ────────────────────────────────────────────── */
+function propTvaOf(sec){ return (sec && sec.tvaPct !== null && sec.tvaPct !== undefined && sec.tvaPct !== '') ? num(sec.tvaPct) : num(state.prop.tvaPct); }
+function propLigneTotal(l){ return round2(num(l.qte) * num(l.puHT)); }
+function propLignesActives(sec){ return (sec.lignes||[]).filter(l=>!l.disabled); }
+
+// Lignes d'une section APRÈS application du mode de chiffrage. C'est la seule
+// source de vérité pour l'affichage, les totaux et le PDF — ils ne peuvent pas diverger.
+function propSectionLignes(sec){
+  const base = propLignesActives(sec).map(l=>Object.assign({}, l, { totalHT: propLigneTotal(l) }));
+  const { lignes } = propPrixVenteSection(sec, base);
+  return lignes.map(l=>Object.assign({}, l, { totalHT: round2(num(l.qte)*num(l.puHT)) }));
+}
+function propSectionSousTotal(sec){ return round2(propSectionLignes(sec).reduce((s,l)=>s+num(l.totalHT), 0)); }
+
+function propTotaux(){
+  const p = state.prop;
+  let baseHT = 0, baseTVA = 0, primeCee = 0;
+  (p.sections||[]).forEach(sec=>{
+    const st = propSectionSousTotal(sec);
+    baseHT  += st;
+    baseTVA += st * propTvaOf(sec)/100;
+    primeCee += num(sec.primeCee);
+  });
+  baseHT = round2(baseHT); baseTVA = round2(baseTVA);
+  const baseTTC = round2(baseHT + baseTVA);
+  primeCee = round2(primeCee);
+  return { baseHT, baseTVA, baseTTC, primeCee, resteTTC: round2(baseTTC - primeCee) };
+}
+
+/* ── Libellés ─────────────────────────────────────────────────────────────── */
+function propSectionTitre(sec){
+  if(sec.kind === 'ite') return "Isolation thermique par l'extérieur";
+  if(sec.kind === 'libre') return sec.titreLibre || 'Travaux complémentaires';
+  return 'Travaux du logement';
+}
+// « Lot A1 — M. RICHARD Marie », ou « Lot A1 » seul si l'occupant est vide (lot
+// vacant, ou intitulé neutre voulu par l'utilisateur). Jamais de tiret orphelin.
+function propSectionSousTitre(sec){
+  const ref = (sec.refLot||'').trim(), occ = (sec.occupant||'').trim();
+  if(ref && occ) return ref + ' — ' + occ;
+  return ref || occ || '';
+}
+
+/* ── Rendu ────────────────────────────────────────────────────────────────── */
+function renderStep7(){
+  const box = $('#step7Body'); if(!box) return;
+  const blocked = propGate();
+  if(blocked){
+    box.innerHTML = '<div class="alert warn">🔒 <strong>Étape indisponible.</strong> '+esc(blocked)+'</div>'
+      + '<div class="actions"><button class="btn ghost" data-goto="step4">← Aller à l\'étape 4</button></div>';
+    return;
+  }
+  const p = propEnsure();
+  if(!FROZEN) saveLS();
+  const tot = propTotaux();
+  const ro = FROZEN ? ' disabled' : '';
+
+  box.innerHTML =
+    propInfosHtml(p, ro) +
+    propModeHtml(p, ro) +
+    (p.sections||[]).map(sec=>propSectionHtml(sec, ro)).join('') +
+    propAddSectionHtml(ro) +
+    propTotauxHtml(tot, p, ro) +
+    propConditionsHtml(p, ro) +
+    propActionsHtml(ro);
+
+  propBind(box);
+}
+
+function propBadge(p, path){ return (p.autoFields && p.autoFields[path]) ? '<span class="auto-badge">auto</span>' : ''; }
+/* Deux situations très différentes derrière un « conflit », et il ne faut pas les
+   confondre à l'écran :
+   — les VT divergent ET rien n'a pu être déduit  -> champ vide, l'utilisateur tranche ;
+   — les VT habitation divergent MAIS la VT ITE porte le nom du dossier -> on pré-remplit
+     avec ce candidat, en disant d'où il vient et ce qui diverge.
+   Annoncer « champ laissé vide » alors qu'il est rempli induirait en erreur. */
+function propConflitHtml(p, path, label){
+  const c = p.conflits && p.conflits[path];
+  if(!c || !c.length) return '';
+  const parts = path.split('.');
+  const rempli = String((p[parts[0]]||{})[parts[1]] || '').trim();
+  const liste = c.map(v=>'« '+esc(v)+' »').join(', ');
+  if(rempli){
+    return '<div class="prop-conflit">⚠️ <strong>'+esc(label)+' — les VT des logements ne concordent pas :</strong> '+liste
+         + '. Ce sont vraisemblablement les <strong>occupants</strong>. La valeur retenue, <strong>'+esc(rempli)
+         + '</strong>, vient de la VT ITE (elle porte en général le nom du dossier). <strong>À vérifier.</strong></div>';
+  }
+  return '<div class="prop-conflit">⚠️ <strong>'+esc(label)+' — valeurs divergentes entre les VT du dossier :</strong> '+liste
+       + '. Champ laissé vide volontairement : renseigne-le toi-même.</div>';
+}
+
+function propInfosHtml(p, ro){
+  const f = (id, label, val, path, ph, type) =>
+    '<div class="col"><label class="fld">'+esc(label)+(path?propBadge(p,path):'')+'</label>'
+    + '<input type="'+(type||'text')+'" data-prop="'+id+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'"'+ro+' /></div>';
+
+  return '<div class="prop-sec"><div class="head" data-toggle="infos"><span class="caret">▾</span>'
+    + '<span class="ttl">Informations du devis</span>'
+    + '<span class="sub">destinataire, chantier, références</span></div><div class="body">'
+
+    + '<h3 style="font-size:13px;color:var(--text-muted);margin:0 0 8px">Devis</h3>'
+    + '<div class="row">'
+    + f('devis.numero','Numéro de devis', p.devis.numero, null, 'OTE-2026-001')
+    + f('devis.dateEmission','Date d\'émission', p.devis.dateEmission, null, '', 'date')
+    + f('devis.validiteMois','Validité (mois)', p.devis.validiteMois, null, '2', 'number')
+    + f('devis.refProjet','Réf. Projet', p.devis.refProjet, null, 'Nom du dossier')
+    + '</div>'
+
+    + '<hr/><h3 style="font-size:13px;color:var(--text-muted);margin:0 0 8px">Adresse du chantier</h3>'
+    + '<div class="row">'
+    + f('chantier.adresse','Adresse', p.chantier.adresse, 'chantier.adresse', 'Non renseignée dans les VT')
+    + f('chantier.cp','Code postal', p.chantier.cp, 'chantier.cp', '')
+    + f('chantier.ville','Ville', p.chantier.ville, 'chantier.ville', '')
+    + '</div>'
+
+    + '<hr/><h3 style="font-size:13px;color:var(--text-muted);margin:0 0 4px">Destinataire du devis — le bailleur</h3>'
+    + '<p class="hint" style="margin:0 0 8px">C\'est la personne qui <strong>paie et signe</strong>. Ce n\'est jamais l\'occupant du logement : celui-ci n\'apparaît qu\'en titre de section, pour identifier le lot.</p>'
+    + propConflitHtml(p,'bailleur.nom','Nom du bailleur')
+    + propConflitHtml(p,'bailleur.tel','Téléphone du bailleur')
+    + '<div class="row">'
+    + '<div class="col"><label class="fld">Type de propriétaire</label><select data-prop="bailleur.typeProprietaire"'+ro+'>'
+    + ['','SCI','Particulier','Autre'].map(v=>'<option value="'+esc(v)+'"'+(p.bailleur.typeProprietaire===v?' selected':'')+'>'+(v||'— à préciser —')+'</option>').join('')
+    + '</select></div>'
+    + f('bailleur.personneMorale','Nom de la personne morale', p.bailleur.personneMorale, 'bailleur.personneMorale', 'SCI, société de gestion…')
+    + '</div><div class="row">'
+    + f('bailleur.nom','Nom', p.bailleur.nom, 'bailleur.nom', 'Non déductible des VT')
+    + f('bailleur.prenom','Prénom', p.bailleur.prenom, 'bailleur.prenom', 'Non renseigné dans les VT')
+    + '</div><div class="row">'
+    + f('bailleur.tel','Téléphone', p.bailleur.tel, 'bailleur.tel', '')
+    + f('bailleur.email','E-mail', p.bailleur.email, 'bailleur.email', 'Absent des VT — à saisir')
+    + '</div><div class="row">'
+    + f('bailleur.adresseFacturation','Adresse de facturation', p.bailleur.adresseFacturation, 'bailleur.adresseFacturation', 'Si différente de l\'adresse du chantier')
+    + '</div>'
+    + '<div style="margin-top:8px"><button class="btn small ghost allow-frozen" id="propManuel" title="Vide tout le bloc destinataire et retire les badges « auto ». À utiliser quand le vrai destinataire n\'est pas dans les VT : mandataire, syndic, société de gestion, changement de propriétaire."'+ro+'>✎ Saisir manuellement</button></div>'
+
+    + '<hr/><h3 style="font-size:13px;color:var(--text-muted);margin:0 0 8px">Chargé d\'affaires</h3>'
+    + '<div class="row">'
+    + f('chargeAffaires.nom','Nom', p.chargeAffaires.nom, null, 'Paramétrable dans ⚙️ Paramètres')
+    + f('chargeAffaires.tel','Téléphone fixe', p.chargeAffaires.tel, null, '')
+    + f('chargeAffaires.mobile','Mobile', p.chargeAffaires.mobile, null, '')
+    + '</div></div></div>';
+}
+
+function propModeHtml(p, ro){
+  const t = propTotaux();
+  const warnTva = num(p.tvaPct) === 5.5
+    ? '<small style="color:var(--text-muted)">5,5 % — taux de la rénovation énergétique résidentielle. Passe à 20 % pour un dossier tertiaire.</small>' : '';
+  return '<div class="prop-sec"><div class="body" style="display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">'
+    + '<div><label class="fld">Mode de chiffrage</label><div class="prop-modes">'
+    + '<button data-mode="bareme" class="'+(p.mode==='bareme'?'on':'')+'"'+ro+'>Barème</button>'
+    + '<button data-mode="rac" class="'+(p.mode==='rac'?'on':'')+'"'+ro+'>Prime CEE + RAC</button>'
+    + '</div></div>'
+    + '<div style="max-width:230px"><label class="fld">TVA globale (%)</label>'
+    + '<input type="number" step="0.1" data-prop="tvaPct" value="'+esc(p.tvaPct)+'"'+ro+' />'+warnTva+'</div>'
+    + '<div><label class="fld">Conditions générales de vente</label>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input type="checkbox" data-prop="cgvIncluses"'+(p.cgvIncluses?' checked':'')+ro+' /> Joindre les CGV en dernière page</label></div>'
+    + '<span style="flex:1"></span>'
+    + '<div style="text-align:right"><label class="fld">Total HT</label><strong style="font-size:17px;color:var(--ot-bleu)">'+eur(t.baseHT)+'</strong></div>'
+    + '</div>'
+    + (p.mode==='rac' ? '<div class="prop-conflit" style="border-left-color:var(--ot-bleu);background:#eef2fb">ℹ️ <strong>Mode Prime CEE + RAC.</strong> Le prix de vente de chaque logement vaut <strong>Prime CEE + reste à charge</strong>, réparti sur ses postes au prorata du barème. La section ITE reste chiffrée au barème — point à valider avec OT Énergie.</div>' : '')
+    + '</div>';
+}
+
+function propSectionHtml(sec, ro){
+  const lignes = propSectionLignes(sec);
+  const st = propSectionSousTotal(sec);
+  const sousTitre = propSectionSousTitre(sec);
+  const isHab = sec.kind === 'hab';
+  const forcedMode = state.prop.mode === 'rac' && isHab;
+
+  const rows = (sec.lignes||[]).map((l, idx)=>{
+    const off = !!l.disabled;
+    const lock = (off || ro) ? ' disabled' : '';
+    const shown = lignes.find(x=>x.id===l.id);
+    const puAff = shown ? shown.puHT : num(l.puHT);
+    const totAff = shown ? shown.totalHT : 0;
+    return '<tr'+(off?' class="row-off"':'')+(off?' title="Ligne exclue — absente des totaux et du PDF. ↺ pour la rétablir."':'')+'>'
+      + '<td><textarea rows="2" data-pl="'+sec.id+'|'+l.id+'|designation"'+lock+'>'+esc(l.designation)+'</textarea></td>'
+      + '<td style="width:88px"><select data-pl="'+sec.id+'|'+l.id+'|unite"'+lock+'>'
+        + PROP_UNITES.map(u=>'<option'+(l.unite===u?' selected':'')+'>'+u+'</option>').join('')+'</select></td>'
+      + '<td class="num" style="width:104px"><input type="number" step="0.01" data-pl="'+sec.id+'|'+l.id+'|qte" value="'+esc(l.qte)+'"'+lock+' /></td>'
+      + '<td class="num" style="width:118px"><input type="number" step="0.01" data-pl="'+sec.id+'|'+l.id+'|puHT" value="'+esc(round2(puAff))+'"'+lock+(forcedMode?' title="Recalculé depuis Prime CEE + RAC. Repasse en mode Barème pour saisir un prix unitaire."':'')+' /></td>'
+      + '<td class="num" style="width:120px;white-space:nowrap">'+(off?'—':eur(totAff))+'</td>'
+      + '<td style="white-space:nowrap;width:92px">'
+        + '<button class="btn danger small allow-frozen" data-poff="'+sec.id+'|'+l.id+'"'+(off||ro?' disabled':'')+' title="Exclure : la ligne reste visible, grisée, mais sort des totaux et du PDF">✕</button> '
+        + '<button class="btn small ghost allow-frozen" data-pon="'+sec.id+'|'+l.id+'"'+(!off||ro?' disabled':'')+' title="Rétablir la ligne">↺</button>'
+      + '</td></tr>';
+  }).join('');
+
+  const racBloc = (state.prop.mode==='rac' && isHab)
+    ? '<div class="row" style="margin-bottom:10px">'
+      + '<div class="col" style="max-width:190px"><label class="fld">Prime CEE (étape 3)</label><input type="number" step="0.01" data-ps="'+sec.id+'|primeCee" value="'+esc(round2(sec.primeCee))+'"'+(sec.primeForced?'':' readonly')+ro+' style="'+(sec.primeForced?'':'background:#f4f6fb')+'" /></div>'
+      + '<div class="col" style="max-width:60px;align-self:flex-end"><button class="btn small ghost allow-frozen" data-pforce="'+sec.id+'" title="'+(sec.primeForced?'Revenir à la valeur calculée à l\'étape 3':'Forcer manuellement la prime CEE')+'"'+ro+'>'+(sec.primeForced?'↺':'✏️')+'</button></div>'
+      + '<div class="col" style="max-width:190px"><label class="fld">Reste à charge du lot (TTC)</label><input type="number" step="0.01" data-ps="'+sec.id+'|racTTC" value="'+esc(round2(sec.racTTC))+'"'+ro+' /></div>'
+      + '<div class="col" style="align-self:flex-end">'+propRacEcartHtml(sec)+'</div>'
+      + '</div>' : '';
+
+  const titreEdit = sec.kind==='libre'
+    ? '<div class="col"><label class="fld">Intitulé de la section</label><input type="text" data-ps="'+sec.id+'|titreLibre" value="'+esc(sec.titreLibre)+'" placeholder="Travaux complémentaires"'+ro+' /></div>'
+    : '';
+  const lotEdit = (isHab || sec.kind==='libre')
+    ? '<div class="col" style="max-width:170px"><label class="fld">Référence du lot</label><input type="text" data-ps="'+sec.id+'|refLot" value="'+esc(sec.refLot)+'" placeholder="Lot A1"'+ro+' /></div>'
+      + '<div class="col"><label class="fld">Occupant du lot</label><input type="text" data-ps="'+sec.id+'|occupant" value="'+esc(sec.occupant)+'" placeholder="Laisser vide pour un intitulé neutre"'+ro+' />'
+      + '<small style="color:var(--text-muted)">Repère qui permet au bailleur d\'identifier l\'habitation. Ne paie pas, ne signe pas.</small></div>'
+    : '';
+
+  return '<div class="prop-sec'+(sec.collapsed?' closed':'')+'" data-sec="'+sec.id+'">'
+    + '<div class="head" data-psec-toggle="'+sec.id+'"><span class="caret">'+(sec.collapsed?'▸':'▾')+'</span>'
+    + '<span class="ttl">'+esc(propSectionTitre(sec))+'</span>'
+    + (sousTitre?'<span class="sub">'+esc(sousTitre)+'</span>':'')
+    + '<span class="st">'+eur(st)+'</span></div>'
+    + '<div class="body">'
+    + ((titreEdit||lotEdit)?'<div class="row" style="margin-bottom:10px">'+titreEdit+lotEdit+'<div class="col" style="max-width:150px"><label class="fld">TVA section (%)</label><input type="number" step="0.1" data-ps="'+sec.id+'|tvaPct" value="'+esc(sec.tvaPct==null?'':sec.tvaPct)+'" placeholder="'+esc(state.prop.tvaPct)+'"'+ro+' /></div></div>':'')
+    + racBloc
+    + '<table><thead><tr><th>Désignation</th><th style="width:88px">Unité</th><th class="num" style="width:96px">Quantité</th><th class="num" style="width:110px">P.U. HT</th><th class="num" style="width:120px">Total HT</th><th style="width:92px"></th></tr></thead>'
+    + '<tbody>'+(rows||'<tr><td colspan="6" style="color:var(--text-muted)">Aucune ligne. Utilise « ＋ Ajouter une ligne ».</td></tr>')+'</tbody></table>'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">'
+    + '<button class="btn small ghost allow-frozen" data-padd="'+sec.id+'"'+ro+'>＋ Ajouter une ligne</button>'
+    + (sec.kind==='libre'?'<button class="btn small danger allow-frozen" data-pdelsec="'+sec.id+'"'+ro+'>🗑 Supprimer la section</button>':'')
+    + '<span style="flex:1"></span><strong style="color:var(--ot-bleu)">Sous-total HT : '+eur(st)+'</strong></div>'
+    + '<label class="fld" style="margin-top:10px;display:block">Note de section (imprimée sous le tableau)</label>'
+    + '<textarea class="prop-notes" data-ps="'+sec.id+'|notes" placeholder="Précision libre — ex. dépose et mise en déchetterie des isolants existants"'+ro+'>'+esc(sec.notes)+'</textarea>'
+    + '</div></div>';
+}
+
+/* Mode RAC : on affiche le prix de vente RÉELLEMENT obtenu, pas la cible théorique.
+   Un écart de quelques centimes est inévitable et n'est pas un défaut : on ne peut pas
+   avoir à la fois des prix unitaires au centime, des totaux de ligne égaux à
+   quantité × P.U., et une somme qui retombe exactement sur la cible. On privilégie
+   les deux premiers — c'est ce que le client vérifie — et on affiche l'écart au lieu
+   de le masquer. Au-delà d'un euro, on le signale franchement. */
+function propRacEcartHtml(sec){
+  const cibleTTC = num(sec.primeCee) + num(sec.racTTC);
+  const reelTTC  = round2(propSectionSousTotal(sec) * (1 + propTvaOf(sec)/100));
+  const ecart    = round2(reelTTC - cibleTTC);
+  if(cibleTTC <= 0) return '<small style="color:var(--text-muted)">Renseigne un reste à charge pour chiffrer ce lot.</small>';
+  let s = '<small style="color:var(--text-muted)">Prix de vente TTC du lot : <strong>'+eur(reelTTC)+'</strong>';
+  if(Math.abs(ecart) >= 0.01){
+    const gros = Math.abs(ecart) >= 1;
+    s += '<br><span style="color:'+(gros?'#c47f17':'var(--text-muted)')+'">'
+       + (gros?'⚠️ ':'') + 'visé ' + eur(cibleTTC) + ' · écart ' + (ecart>0?'+':'') + eur(ecart)
+       + (gros ? ' — ajuste un prix unitaire si tu veux tomber juste.' : ' (arrondi des prix unitaires)')
+       + '</span>';
+  }
+  return s + '</small>';
+}
+
+function propAddSectionHtml(ro){
+  return '<div style="margin:6px 0 16px"><button class="btn small ghost allow-frozen" id="propAddSec"'+ro+'>＋ Ajouter une section libre</button>'
+    + ' <small style="color:var(--text-muted)">pour des travaux hors périmètre CEE</small></div>';
+}
+
+function propTotauxHtml(t, p, ro){
+  return '<div class="prop-tot">'
+    + '<div class="l"><span>Total de base H.T</span><span>'+eur(t.baseHT)+'</span></div>'
+    + '<div class="l"><span>Total de base TVA</span><span>'+eur(t.baseTVA)+'</span></div>'
+    + '<div class="l"><span>Total de base TTC</span><span>'+eur(t.baseTTC)+'</span></div>'
+    + '<div class="l prime"><span>Prime CEE (estimée)</span><span>'+(t.primeCee>0?'-':'')+eur(t.primeCee)+'</span></div>'
+    + '<div class="l rac"><span>Reste à charge TTC</span><span>'+eur(t.resteTTC)+'</span></div>'
+    + '</div>';
+}
+
+/* Conditions particulières — repliées par défaut : ce sont des valeurs qu'on ne
+   touche qu'occasionnellement, elles ne doivent pas encombrer l'écran de travail. */
+function propConditionsHtml(p, ro){
+  const c = p.conditions;
+  return '<div class="prop-sec closed" style="margin-top:16px"><div class="head" data-toggle="cond"><span class="caret">▸</span>'
+    + '<span class="ttl">Conditions particulières</span>'
+    + '<span class="sub">validité, garanties, délais, acompte, ce que l\'offre ne comprend pas</span></div><div class="body">'
+    + '<label class="fld">Notre offre prévoit <small style="font-weight:400;text-transform:none;color:var(--text-muted)">— une ligne par puce</small></label>'
+    + '<textarea class="prop-notes" style="min-height:120px" data-prop="conditions.offrePrevoit"'+ro+'>'+esc(c.offrePrevoit)+'</textarea>'
+    + '<div class="row" style="margin-top:10px">'
+    + '<div class="col" style="max-width:170px"><label class="fld">Garantie (mois)</label><input type="number" step="1" data-prop="conditions.garantieMois" value="'+esc(c.garantieMois)+'"'+ro+' /></div>'
+    + '<div class="col"><label class="fld">Délai de livraison</label><input type="text" data-prop="conditions.delai" value="'+esc(c.delai)+'"'+ro+' /></div>'
+    + '<div class="col" style="max-width:190px"><label class="fld">Acompte à la commande (%)</label><input type="number" step="5" data-prop="conditions.acomptePct" value="'+esc(c.acomptePct)+'"'+ro+' /></div>'
+    + '</div>'
+    + '<div class="prop-conflit" style="border-left-color:var(--ot-vert);background:#f3f7ec;margin-top:12px">ℹ️ Les clauses transversales du devis OT (prix, réception des commandes, délais de validation, garanties) sont reprises telles quelles dans le PDF. La clause de réserve COVID-19 du document source n\'est <strong>pas</strong> reprise.</div>'
+    + '</div></div>';
+}
+
+function propActionsHtml(ro){
+  return '<div class="actions" style="margin-top:18px">'
+    + '<button class="btn ghost" data-goto="step6">← Retour</button>'
+    + '<button class="btn small ghost allow-frozen" id="propReset"'+ro+' title="Reconstruit toutes les sections depuis les calculs des étapes 2 à 4. Les modifications faites ici seront perdues.">↺ Réinitialiser depuis les calculs</button>'
+    + '<span style="flex:1"></span>'
+    + '<button class="btn blue allow-frozen" id="propSim">👁️ Simulation</button>'
+    + '</div><div id="propMsg" style="margin-top:12px"></div>';
+}
+
+/* ── Liaison des événements ───────────────────────────────────────────────────
+   Même convention que le reste de l'app : clé composite dans un data-attribut,
+   split('|'), puis re-render. */
+function propFind(secId, ligneId){
+  const sec = (state.prop.sections||[]).find(s=>s.id===secId);
+  if(!sec) return {};
+  return { sec, ligne: ligneId ? (sec.lignes||[]).find(l=>l.id===ligneId) : null };
+}
+function propSetPath(path, value){
+  const p = state.prop, parts = path.split('.');
+  let o = p;
+  for(let i=0;i<parts.length-1;i++) o = o[parts[i]];
+  o[parts[parts.length-1]] = value;
+  if(p.autoFields && p.autoFields[path]){ delete p.autoFields[path]; }   // touché => plus « auto »
+}
+
+function propBind(box){
+  const rerender = ()=>{ saveLS(); renderStep7(); };
+
+  // Champs du bloc informations
+  box.querySelectorAll('[data-prop]').forEach(inp=>{
+    const path = inp.dataset.prop;
+    const ev = (inp.type==='checkbox' || inp.tagName==='SELECT') ? 'change' : 'input';
+    inp.addEventListener(ev, e=>{
+      const el = e.currentTarget;
+      let v = el.type==='checkbox' ? el.checked : el.value;
+      if(['devis.validiteMois','tvaPct','conditions.garantieMois','conditions.acomptePct'].includes(path)) v = num(v);
+      propSetPath(path, v);
+      if(path==='tvaPct' || path==='cgvIncluses' || el.type==='checkbox') rerender(); else saveLS();
+    });
+    if(ev==='input') inp.addEventListener('blur', ()=>renderStep7());
+  });
+
+  // Mode de chiffrage
+  box.querySelectorAll('[data-mode]').forEach(b=> b.addEventListener('click', e=>{
+    state.prop.mode = e.currentTarget.dataset.mode; rerender();
+  }));
+
+  // Champs de section
+  box.querySelectorAll('[data-ps]').forEach(inp=>{
+    const [secId, field] = inp.dataset.ps.split('|');
+    inp.addEventListener('input', e=>{
+      const { sec } = propFind(secId); if(!sec) return;
+      const v = e.currentTarget.value;
+      sec[field] = ['tvaPct'].includes(field) ? (v===''?null:num(v)) : (['racTTC','primeCee'].includes(field) ? num(v) : v);
+      saveLS();
+      if(['racTTC','primeCee','tvaPct'].includes(field)) renderStep7();
+    });
+    inp.addEventListener('blur', ()=>renderStep7());
+  });
+
+  // Champs de ligne
+  box.querySelectorAll('[data-pl]').forEach(inp=>{
+    const [secId, ligneId, field] = inp.dataset.pl.split('|');
+    const ev = inp.tagName==='SELECT' ? 'change' : 'input';
+    inp.addEventListener(ev, e=>{
+      const { ligne } = propFind(secId, ligneId); if(!ligne) return;
+      const v = e.currentTarget.value;
+      ligne[field] = ['qte','puHT'].includes(field) ? num(v) : v;
+      saveLS();
+      if(['qte','puHT'].includes(field)) propRefreshTotaux();
+      if(ev==='change') renderStep7();
+    });
+    if(ev==='input') inp.addEventListener('blur', ()=>renderStep7());
+  });
+
+  // Exclusion réversible par grisé — même motif que l'onglet 2
+  box.querySelectorAll('[data-poff]').forEach(b=> b.addEventListener('click', e=>{
+    const [secId, ligneId] = e.currentTarget.dataset.poff.split('|');
+    const { ligne } = propFind(secId, ligneId); if(ligne) ligne.disabled = true; rerender();
+  }));
+  box.querySelectorAll('[data-pon]').forEach(b=> b.addEventListener('click', e=>{
+    const [secId, ligneId] = e.currentTarget.dataset.pon.split('|');
+    const { ligne } = propFind(secId, ligneId); if(ligne) ligne.disabled = false; rerender();
+  }));
+
+  // Prime CEE : surcharge manuelle explicite (cohérent avec l'étape 4)
+  box.querySelectorAll('[data-pforce]').forEach(b=> b.addEventListener('click', e=>{
+    const { sec } = propFind(e.currentTarget.dataset.pforce); if(!sec) return;
+    if(sec.primeForced){                       // retour à la valeur calculée
+      const vt = habitations().find(v=>ovKey(v)===sec.vtKey);
+      sec.primeCee = vt ? round2(num(calcVT(vt).prime)) : sec.primeCee;
+      sec.primeForced = false;
+    } else sec.primeForced = true;
+    rerender();
+  }));
+
+  // Ajout / suppression
+  box.querySelectorAll('[data-padd]').forEach(b=> b.addEventListener('click', e=>{
+    const { sec } = propFind(e.currentTarget.dataset.padd); if(!sec) return;
+    sec.lignes.push({ id:'l'+Date.now()+Math.floor(Math.random()*1000), cat:'', designation:'',
+                      unite:'forfait', qte:1, puHT:0, disabled:false, manuelle:true });
+    rerender();
+  }));
+  const addSec = box.querySelector('#propAddSec');
+  if(addSec) addSec.addEventListener('click', ()=>{
+    state.prop.sections.push({ id:'s'+Date.now(), kind:'libre', vtKey:'', refLot:'', occupant:'',
+      titreLibre:'Travaux complémentaires', tvaPct:null, racTTC:0, primeCee:0, primeForced:false,
+      notes:'', lignes:[{ id:'l'+Date.now(), cat:'', designation:'', unite:'forfait', qte:1, puHT:0, disabled:false, manuelle:true }],
+      collapsed:false });
+    rerender();
+  });
+  box.querySelectorAll('[data-pdelsec]').forEach(b=> b.addEventListener('click', e=>{
+    const id = e.currentTarget.dataset.pdelsec;
+    if(!confirm('Supprimer cette section et toutes ses lignes ?')) return;
+    state.prop.sections = state.prop.sections.filter(s=>s.id!==id); rerender();
+  }));
+
+  // Repli des sections
+  box.querySelectorAll('[data-psec-toggle]').forEach(h=> h.addEventListener('click', e=>{
+    if(e.target.closest('input,select,textarea,button')) return;
+    const { sec } = propFind(e.currentTarget.dataset.psecToggle); if(!sec) return;
+    sec.collapsed = !sec.collapsed; rerender();
+  }));
+  // Panneaux repliables hors sections (informations du devis, conditions particulières).
+  // Repli purement visuel : pas d'état persisté, donc pas de re-render.
+  box.querySelectorAll('[data-toggle]').forEach(head=> head.addEventListener('click', e=>{
+    if(e.target.closest('input,select,textarea,button')) return;
+    const sec = head.parentElement;
+    sec.classList.toggle('closed');
+    head.querySelector('.caret').textContent = sec.classList.contains('closed') ? '▸' : '▾';
+  }));
+
+  // Saisie manuelle du destinataire
+  const man = box.querySelector('#propManuel');
+  if(man) man.addEventListener('click', ()=>{
+    const p = state.prop;
+    p.bailleur = { typeProprietaire:'', personneMorale:'', nom:'', prenom:'', tel:'', email:'', adresseFacturation:'' };
+    Object.keys(p.autoFields||{}).forEach(k=>{ if(k.indexOf('bailleur.')===0) delete p.autoFields[k]; });
+    Object.keys(p.conflits||{}).forEach(k=>{ if(k.indexOf('bailleur.')===0) delete p.conflits[k]; });
+    p.manuel = true;
+    rerender();
+  });
+
+  // Réinitialisation
+  const rst = box.querySelector('#propReset');
+  if(rst) rst.addEventListener('click', ()=>{
+    if(!confirm('Reconstruire la proposition depuis les calculs des étapes 2 à 4 ?\n\nToutes les modifications faites dans cet onglet (désignations, quantités, prix, lignes ajoutées, sections libres) seront perdues.')) return;
+    state.prop = propCreate(); rerender();
+  });
+
+  // Simulation
+  const sim = box.querySelector('#propSim');
+  if(sim) sim.addEventListener('click', propSimulate);
+}
+
+// Rafraîchit les sous-totaux et le bloc totaux sans re-rendre les champs en cours
+// de saisie (sinon le curseur saute à chaque frappe).
+function propRefreshTotaux(){
+  (state.prop.sections||[]).forEach(sec=>{
+    const el = document.querySelector('[data-sec="'+sec.id+'"] .st');
+    if(el) el.textContent = eur(propSectionSousTotal(sec));
+  });
+  const t = propTotaux();
+  const box = document.querySelector('.prop-tot');
+  if(box){
+    const ls = box.querySelectorAll('.l span:last-child');
+    if(ls.length>=5){
+      ls[0].textContent = eur(t.baseHT); ls[1].textContent = eur(t.baseTVA); ls[2].textContent = eur(t.baseTTC);
+      ls[3].textContent = (t.primeCee>0?'-':'')+eur(t.primeCee); ls[4].textContent = eur(t.resteTTC);
+    }
+  }
+}
+
+/* ---------- step7_glue.js ---------- */
+/* ── Résolution des identités du dossier ──────────────────────────────────────
+   S'appuie sur vt.ident, capturé au moment de l'extraction (parseVtIdentite).
+   On ne peut PAS relire vt.text ici : saveLS le vide volontairement (les PDF
+   sont trop volumineux pour localStorage). L'identité, elle, est un petit objet
+   persisté avec la VT — elle survit au rechargement et à l'archivage. */
+function propIdentOf(vt){
+  if(vt.ident) return vt.ident;
+  if(vt.text) { try{ return (vt.ident = parseVtIdentite(vt.text)); }catch(_){ } }
+  return null;
+}
+
+function propResolveIdentites(){
+  const rows = state.vts.map(vt=>({ vt, role: vt.role, ident: propIdentOf(vt) })).filter(r=>r.ident);
+  const vide = { bailleur:{nom:'',tel:''}, chantier:{adresse:'',cp:'',ville:''}, auto:{}, conflits:{}, parLot:{} };
+  if(!rows.length) return vide;
+
+  const b = resolveBailleur(rows.map(r=>({ role:r.role, ident:r.ident })));
+  const out = {
+    bailleur: { nom:b.nom||'', tel:b.tel||'' },
+    chantier: b.chantier || {adresse:'',cp:'',ville:''},
+    auto: {}, conflits: {}, parLot: {},
+  };
+  if(out.bailleur.nom) out.auto['bailleur.nom'] = true;
+  if(out.bailleur.tel) out.auto['bailleur.tel'] = true;
+  ['adresse','cp','ville'].forEach(k=>{ if(out.chantier[k]) out.auto['chantier.'+k] = true; });
+  if(b.conflits){
+    if(b.conflits.nom && b.conflits.nom.length) out.conflits['bailleur.nom'] = b.conflits.nom;
+    if(b.conflits.tel && b.conflits.tel.length) out.conflits['bailleur.tel'] = b.conflits.tel;
+  }
+  rows.filter(r=>r.role==='habitation').forEach(r=>{
+    out.parLot[ovKey(r.vt)] = {
+      refLot:   refLot(r.ident) || '',
+      occupant: resolveOccupant({ role:r.role, ident:r.ident }, rows.map(x=>({ role:x.role, ident:x.ident }))) || '',
+    };
+  });
+  return out;
+}
+
+/* ── LISTE BLANCHE — ce qui a le droit d'entrer dans le PDF ───────────────────
+   Projection explicite, champ par champ. Volontairement PAS de spread ni de
+   JSON.parse(JSON.stringify(...)) : une colonne ajoutée un jour au master (ou
+   au state) ne doit pas pouvoir se retrouver dans un devis client par défaut.
+
+   Ne DOIVENT JAMAIS figurer ici : revenus du ménage (Précaire / Classique),
+   avis d'imposition, prix d'achat, coût de revient, marges, régie, décision
+   GO / NO-GO, commentaires internes, et les libellés techniques de catégorie. */
+function propBuildPdfModel(){
+  const p = state.prop, s = state.settings, t = propTotaux();
+  const d = new Date(p.devis.dateEmission || Date.now());
+  const fdate = dt => isNaN(dt) ? '' : String(dt.getDate()).padStart(2,'0')+'/'+String(dt.getMonth()+1).padStart(2,'0')+'/'+dt.getFullYear();
+  const validite = new Date(d.getTime()); validite.setMonth(validite.getMonth() + (num(p.devis.validiteMois)||2));
+
+  const sections = (p.sections||[])
+    .map(sec=>{
+      const lignes = propSectionLignes(sec).map(l=>({
+        designation: String(l.designation||'').trim() || 'Prestation',
+        unite: String(l.unite||''),
+        qte: round2(num(l.qte)),
+        puHT: round2(num(l.puHT)),
+        totalHT: round2(num(l.totalHT)),
+      }));
+      return {
+        titre: propSectionTitre(sec),
+        sousTitre: propSectionSousTitre(sec),
+        notes: String(sec.notes||'').trim(),
+        lignes,
+        sousTotalHT: round2(lignes.reduce((a,l)=>a+l.totalHT,0)),
+      };
+    })
+    .filter(sec=>sec.lignes.length);
+
+  return {
+    logoDataUrl: PROP_LOGO_OT,
+    emetteur: {
+      raisonSociale:'OTenergie', capital: s.otLegal||'', siret:'SIRET 89060530600020', tva:'TVA FR12890605306',
+      adresse1: s.otAdr1||'', adresse2: s.otAdr2||'', tel: s.otTel||'', email: s.otEmail||'', site: s.otSite||'',
+    },
+    devis: { numero: String(p.devis.numero||''), dateEmission: fdate(d), dateValidite: fdate(validite),
+             refProjet: String(p.devis.refProjet||'') },
+    chantier: { adresse:String(p.chantier.adresse||''), cp:String(p.chantier.cp||''), ville:String(p.chantier.ville||'') },
+    destinataire: {
+      typeProprietaire: String(p.bailleur.typeProprietaire||''),
+      personneMorale:   String(p.bailleur.personneMorale||''),
+      nom:              String(p.bailleur.nom||''),
+      prenom:           String(p.bailleur.prenom||''),
+      tel:              String(p.bailleur.tel||''),
+      email:            String(p.bailleur.email||''),
+      adresseFacturation: String(p.bailleur.adresseFacturation||''),
+    },
+    chargeAffaires: { nom:String(p.chargeAffaires.nom||''), tel:String(p.chargeAffaires.tel||''), mobile:String(p.chargeAffaires.mobile||'') },
+    sections,
+    totaux: { baseHT:t.baseHT, baseTVA:t.baseTVA, baseTTC:t.baseTTC, primeCee:t.primeCee, resteTTC:t.resteTTC },
+    conditions: {
+      offrePrevoit: String(p.conditions.offrePrevoit||'').split('\n').map(x=>x.trim()).filter(Boolean),
+      garantieMois: num(p.conditions.garantieMois)||12,
+      delai: String(p.conditions.delai||''),
+      acomptePct: num(p.conditions.acomptePct)||0,
+      validiteTexte: 'Validité de notre offre de prix : '+fdate(validite),
+    },
+    cgv: { inclure: !!p.cgvIncluses, articles: PROP_CGV_ARTICLES },
+  };
+}
+
+function propFileName(){
+  const clean = s => String(s||'').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40);
+  return 'Proposition_'+(clean(state.nomDossier)||'dossier')+'_'+(clean(state.prop.devis.numero)||'devis')+'.pdf';
+}
+
+/* ── Simulation : le VRAI PDF, dans un iframe plein écran ─────────────────────
+   Pas de maquette HTML approximative : on génère le PDF en mémoire et on
+   l'affiche via URL.createObjectURL. Ce qu'on voit est exactement ce qui part.
+
+   L'overlay est monté sur <body> et JAMAIS dans une .view : « section.view »
+   porte un transform (animation fade) qui crée un bloc conteneur et piège même
+   un position:fixed. Même piège que la vignette photo, même parade. */
+let _simUrl = null;
+function propSimOverlay(){
+  let o = document.getElementById('simOverlay');
+  if(o) return o;
+  o = document.createElement('div');
+  o.id = 'simOverlay';
+  o.innerHTML = '<div class="bar"><span class="t">👁️ Simulation — proposition de travaux</span>'
+    + '<span style="color:var(--text-muted);font-size:13px" id="simSub"></span><span style="flex:1"></span>'
+    + '<button class="btn success" id="simDl">⬇️ Télécharger</button>'
+    + '<button class="btn ghost" id="simEdit">✏️ Éditer</button></div>'
+    + '<iframe id="simFrame" title="Aperçu du devis"></iframe>';
+  document.body.appendChild(o);
+  o.querySelector('#simEdit').addEventListener('click', propSimClose);
+  o.querySelector('#simDl').addEventListener('click', propDownload);
+  return o;
+}
+function propSimClose(){
+  const o = document.getElementById('simOverlay');
+  if(o) o.classList.remove('on');
+  const f = document.getElementById('simFrame'); if(f) f.src = 'about:blank';
+  if(_simUrl){ URL.revokeObjectURL(_simUrl); _simUrl = null; }
+}
+// Échap = « Éditer » (le tableau et toutes les modifications sont conservés)
+document.addEventListener('keydown', e=>{
+  if(e.key === 'Escape'){
+    const o = document.getElementById('simOverlay');
+    if(o && o.classList.contains('on')) propSimClose();
+  }
+});
+
+async function propSimulate(){
+  const btn = document.getElementById('propSim');
+  const msg = document.getElementById('propMsg');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Génération…'; }
+  try{
+    await ensurePdfLibs();
+    const doc = buildPropositionPdf(propBuildPdfModel());
+    const blob = doc.output('blob');
+    if(_simUrl) URL.revokeObjectURL(_simUrl);
+    _simUrl = URL.createObjectURL(blob);
+    const o = propSimOverlay();
+    const t = propTotaux();
+    o.querySelector('#simSub').textContent = state.prop.devis.numero + ' · reste à charge ' + eur(t.resteTTC);
+    o.querySelector('#simFrame').src = _simUrl;
+    o.classList.add('on');
+    if(msg) msg.innerHTML = '';
+  }catch(e){
+    if(msg) msg.innerHTML = '<div class="alert err">❌ Génération impossible : '+esc(e.message)+'</div>';
+    else alert('Génération impossible : '+e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '👁️ Simulation'; }
+  }
+}
+
+/* ── Téléchargement + entrée d'historique ─────────────────────────────────────
+   Même mécanisme que l'export Excel : on archive un snapshot du dossier, avec
+   un résumé typé « Proposition de travaux ». L'entrée apparaît dans l'onglet
+   Historique et dans son export .xlsx. */
+async function propDownload(){
+  const btn = document.getElementById('simDl');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳…'; }
+  try{
+    await ensurePdfLibs();
+    const doc = buildPropositionPdf(propBuildPdfModel());
+    doc.save(propFileName());
+
+    if(!FROZEN){
+      const t = propTotaux();
+      const snap = buildDossierSnapshot();
+      snap.resume = Object.assign({}, snap.resume, {
+        typeDoc: 'Proposition de travaux',
+        numeroDevis: state.prop.devis.numero,
+        propHT: t.baseHT, propTVA: t.baseTVA, propTTC: t.baseTTC,
+        propPrime: t.primeCee, propReste: t.resteTTC,
+      });
+      try{
+        await HistoryStore.save(snap);
+        if(btn){ btn.textContent = '✅ Téléchargé'; }
+        const msg = document.getElementById('propMsg');
+        if(msg) msg.innerHTML = '<div class="alert ok">📄 <strong>'+esc(propFileName())+'</strong> téléchargé et enregistré dans l\'historique.</div>';
+      }catch(e){
+        if(btn) btn.textContent = '⚠️ PDF ok, historique KO';
+        const msg = document.getElementById('propMsg');
+        if(msg) msg.innerHTML = '<div class="alert warn">📄 PDF téléchargé, mais l\'enregistrement dans l\'historique a échoué : '+esc(e.message)+'</div>';
+      }
+    } else if(btn) btn.textContent = '✅ Téléchargé';
+  }catch(e){
+    alert('Téléchargement impossible : '+e.message);
+  }finally{
+    setTimeout(()=>{ if(btn){ btn.disabled=false; btn.textContent='⬇️ Télécharger'; } }, 1800);
+  }
+}
+/* ===== FIN BLOC ETAPE 7 ===== */
+
 /* ============================================================================
    INITIALISATION
    ============================================================================ */
@@ -3872,6 +6318,7 @@ function hydrateParamsUI(){
   $('#vtIte').value = state.settings.vtIte;
   $('#regiePct').value = state.settings.regiePct;
   $('#seuilGo').value = state.settings.seuilGo;
+  PROP_SETTING_KEYS.forEach(k=>{ const inp = $('#'+k); if(inp) inp.value = state.settings[k]; });
   refreshCas();
   $('#nomDossier').value = state.nomDossier || '';
   renderValoInfo();
@@ -3913,6 +6360,7 @@ function renderResumeBanner(){
     state.cas = d.cas; state.nomDossier = d.nomDossier; state.vts = d.vts;
     state.overrides = Object.assign({global:{},vt:{}}, d.overrides);
     state.chargesEdited = d.chargesEdited || {};   // le surlignage rosé revient avec SON dossier
+    state.prop = d.prop || null;                   // la proposition de travaux revient avec SON dossier
     Object.assign(state.general, d.general||{});
     _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
     $('#nomDossier').value = state.nomDossier;
@@ -3926,6 +6374,9 @@ loadLS();
 loadValoTemplate();   // template de valorisation depuis son stockage dédié (VALO_KEY)
 if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));   // barème par défaut prêt à l'emploi
 if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENTS_DEFAULT)); // barème des éléments (prix à renseigner dans Paramètres)
+// Fond d'écran de l'étape 7 : pas de visuel dédié, on reprend celui de l'étape 6
+// (sans cette ligne, applyBackground retomberait sur le fond de l'étape 1).
+if(window.BG_IMAGES && !window.BG_IMAGES.step7) window.BG_IMAGES.step7 = window.BG_IMAGES.step6 || window.BG_IMAGES.step5;
 hydrateParamsUI();
 renderVtList();
 renderResumeBanner();
