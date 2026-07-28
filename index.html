@@ -714,7 +714,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-28.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-28.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
@@ -5415,8 +5415,11 @@ function buildPropositionPdf(model) {
 
   drawCover(doc, model);          // page 1 — couverture (déjà créée par défaut)
   drawCourrier(doc, model);       // page 2
-  drawRecap(doc, model);          // page 3
-  drawDetail(doc, model);         // pages 4+
+  // ORDRE VOULU : on détaille d'abord, on récapitule ensuite. Le devis GTB source
+  // fait l'inverse (récap puis détail) ; Aymeric a tranché pour l'ordre naturel de
+  // lecture — le client voit le détail des travaux, puis la synthèse et les totaux.
+  drawDetail(doc, model);         // pages 3+ — détail de l'offre
+  drawRecap(doc, model);          // récapitulatif + BLOC TOTAUX, après le détail
   drawConditionsAndSignature(doc, model); // conditions particulières + signature
 
   if (model.cgv && model.cgv.inclure) {
