@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8" />
+<title>Revue Projet OT — Guide utilisateur</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -11,11 +12,12 @@
     --ink:#1A1A2E; --muted:#5a6577; --line:#dde3ef; --bg:#F4F7FC;
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Nunito',sans-serif;color:var(--ink);font-size:13px;line-height:1.55}
+  body{font-family:'Nunito',sans-serif;color:var(--ink);font-size:13px;line-height:1.55;background:var(--bg)}
   h1,h2,h3,.mont{font-family:'Montserrat',sans-serif}
   @page{ size:A4; margin:0; }
-  .page{ width:210mm; min-height:296mm; padding:20mm 18mm; position:relative; page-break-after:always; background:#fff; }
+  .page{ width:210mm; min-height:296mm; padding:20mm 18mm; position:relative; page-break-after:always; background:#fff; margin:0 auto 12px; }
   .page:last-child{ page-break-after:auto; }
+  @media screen{ body{padding:14px 0} .page{box-shadow:0 3px 18px rgba(27,63,139,.14);border-radius:6px} }
 
   /* ---------- COUVERTURE ---------- */
   .cover{ background:linear-gradient(150deg,#12296a 0%,#1B3F8B 55%,#2a56b8 100%); color:#fff; display:flex; flex-direction:column; justify-content:center; padding:26mm; }
@@ -53,7 +55,19 @@
   .foot-note{ position:absolute; bottom:12mm; left:18mm; right:18mm; border-top:1px solid var(--line); padding-top:8px;
     display:flex; justify-content:space-between; font-size:10.5px; color:var(--muted); font-family:'Montserrat'; font-weight:600 }
   .two{ display:flex; gap:14px } .two > *{ flex:1 }
-  .grid5{ display:grid; grid-template-columns:1fr 1fr; gap:10px }
+
+  /* ---------- ASTUCES ---------- */
+  .astuce{ border:1px solid var(--line); border-left:4px solid var(--teal); border-radius:0 10px 10px 0;
+    padding:12px 16px; margin-bottom:11px; background:#fff }
+  .astuce h3{ font-size:13.5px; color:var(--primary); font-weight:700; margin-bottom:5px;
+    display:flex; align-items:center; gap:8px }
+  .astuce p{ font-size:12.3px; color:#2b3448; margin-bottom:4px }
+  .astuce p:last-child{ margin-bottom:0 }
+  .astuce .ou{ display:inline-block; background:#eef2fb; border:1px solid var(--line); border-radius:5px;
+    padding:1px 7px; font-size:11px; font-weight:700; color:var(--primary); font-family:'Montserrat' }
+  .ico{ display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;
+    background:var(--green-bg);border:1px solid #cfe2d6;font-size:12px;flex:0 0 22px }
+  code{ background:#f2f5fb; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:11.5px; font-family:ui-monospace,Consolas,monospace; color:var(--primary-dark) }
 </style>
 </head>
 <body>
@@ -63,7 +77,7 @@
   <div class="logo">OT</div>
   <div class="kicker">OT Énergie · Pré-chiffrage CEE</div>
   <h1>Revue Projet OT</h1>
-  <div class="sub">Guide utilisateur — évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO.</div>
+  <div class="sub">Guide utilisateur — évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO, puis proposition de travaux à envoyer au client.</div>
   <div class="url">🔗 thenicejacket-sys.github.io/revue-projet-ot</div>
   <div class="foot"><span>Guide utilisateur</span><span>Version juillet 2026</span></div>
 </section>
@@ -71,18 +85,18 @@
 <!-- ============ DÉMARRAGE ============ -->
 <section class="page">
   <div class="ph"><div class="n">✦</div><h2>À quoi ça sert &amp; comment démarrer</h2></div>
-  <p class="lead">Revue Projet OT réalise un <b>pré-chiffrage rapide</b> d'un dossier de rénovation : il lit les Visites Techniques (VT) en PDF, calcule la prime CEE, estime les coûts et la marge, et vous aide à décider <b>GO / NO-GO</b>. Tout se passe dans votre navigateur — aucune donnée n'est envoyée sur un serveur (sauf l'extraction IA).</p>
+  <p class="lead">Revue Projet OT réalise un <b>pré-chiffrage rapide</b> d'un dossier de rénovation : il lit les Visites Techniques (VT) en PDF, calcule la prime CEE, estime les coûts et la marge, vous aide à décider <b>GO / NO-GO</b>, puis génère la <b>proposition de travaux</b> à envoyer au client. Tout se passe dans votre navigateur — aucune donnée n'est envoyée sur un serveur (sauf l'extraction IA).</p>
 
   <div class="card">
     <h3>Démarrer en 3 points</h3>
     <ul class="clean">
       <li>Ouvrez le lien — l'application <b>se met à jour toute seule</b> (le numéro de version est visible dans le bandeau du haut).</li>
       <li>Allez dans l'onglet <b>⚙️ Paramètres</b> et collez votre <b>clé OpenRouter</b> (nécessaire à l'extraction IA). Chacun utilise sa propre clé.</li>
-      <li>Vérifiez le <b>barème de prix</b> (achat / vente) — pré-rempli, modifiable, puis « Enregistrer ».</li>
+      <li>Vérifiez le <b>barème de prix</b> (achat / vente) et l'<b>objectif de marge</b>, puis « Enregistrer ».</li>
     </ul>
   </div>
 
-  <div class="tip">💡 <b>Le parcours</b> : 1 Chargement → 2 Extraction → 3 Valorisation → 4 Charges &amp; marges → 5 Rapport → 6 Sauvegarde. Deux onglets annexes : <b>Historique</b> et <b>Paramètres</b>.</div>
+  <div class="tip">💡 <b>Le parcours</b> : 1 Chargement → 2 Extraction → 3 Valorisation CEE → 4 Charges &amp; marges → 5 Proposition de travaux. Deux onglets annexes : <b>Historique</b> et <b>Paramètres</b>.</div>
 
   <div class="card">
     <h3>Les 3 cas de dossier</h3>
@@ -91,79 +105,184 @@
       <li><b>Cas 2 — Maison / pavillon</b> : 1 VT ITE (extérieur) + 1 VT intérieure.</li>
       <li><b>Cas 3 — Immeuble</b> : 1 VT ITE façade + N VT d'appartements.</li>
     </ul>
-    <div class="tip" style="margin-top:6px">La <b>VT ITE</b> est toujours placée <b>en tête</b> ; les habitations suivent. Les coûts de l'ITE sont <b>répartis sur les habitations au prorata de leur surface Shab</b> (une habitation marquée « ITE : Non » est exclue de la répartition).</div>
+    <div class="tip" style="margin-top:6px">Le cas est <b>détecté automatiquement</b> d'après les rôles des VT. La <b>VT ITE</b> est toujours placée <b>en tête</b> ; les habitations suivent. Les coûts de l'ITE sont <b>répartis sur les habitations au prorata de leur surface Shab</b> (une habitation marquée « ITE : Non » est exclue de la répartition).</div>
   </div>
+
+  <div class="warn">⚠️ <b>Plus d'étape « Sauvegarde »</b> : dès que l'étape 4 produit des calculs valides, le dossier part <b>tout seul</b> dans l'historique et s'y met à jour. Un bandeau sous les calculs vous le confirme.</div>
 </section>
 
 <!-- ============ ÉTAPES 1-2-3 ============ -->
 <section class="page">
-  <div class="ph"><div class="n">1</div><h2>Le parcours en 6 étapes</h2></div>
+  <div class="ph"><div class="n">1</div><h2>Le parcours en 5 étapes</h2></div>
 
   <div class="step"><div class="badge">1</div><div class="body">
     <h3>Chargement des VT</h3>
-    <p>Saisissez le <span class="k">Nom du dossier</span> (obligatoire), choisissez le <span class="k">cas</span> (1/2/3), puis glissez-déposez les PDF de VT. Pour chaque VT, indiquez son <span class="k">rôle</span> : <b>VT ITE dédiée</b> ou <b>Habitation</b>.</p>
+    <p>Saisissez le <span class="k">Nom du dossier</span> (obligatoire), puis glissez-déposez les PDF de VT. Pour chaque VT, indiquez son <span class="k">rôle</span> : <b>VT ITE dédiée</b> ou <b>Habitation</b>. Le <span class="k">libellé</span> de chaque VT (« Habitation 1 »…) est <b>modifiable</b> — et c'est ce nom qui servira à désigner le lot dans la proposition de travaux.</p>
   </div></div>
 
   <div class="step"><div class="badge">2</div><div class="body">
     <h3>Extraction &amp; sélection</h3>
-    <p>Cliquez <span class="k">« Extraire toutes les VT »</span> : l'IA remplit les 5 catégories (ITE, ITI, Combles, Plancher, Fenêtres). <b>Cochez / décochez</b> chaque ligne — <b>seules les lignes cochées sont calculées</b>. Tout est éditable si besoin. Réduisez une catégorie avec <b>➖ / ➕</b> (le total reste visible). Le <b>%</b> à gauche est un simple repère indicatif (il n'entre pas dans le calcul). Pour chaque habitation, le champ <span class="k">ITE</span> (Oui par défaut) indique si elle participe à la répartition des coûts de la VT ITE ; mettez <b>Non</b> pour une habitation non concernée (sous combles, sous-sol…). Le champ <span class="k">Audit</span> (1 par défaut) fixe le nombre d'audits VT facturés à cette habitation — la charge = nombre × montant Audit VT des Paramètres ; mettez 0 si l'habitation n'a pas d'audit.</p>
+    <p>Cliquez <span class="k">« Extraire toutes les VT »</span> : l'IA remplit les 5 catégories (ITE, ITI, Combles, Plancher, Fenêtres). <b>Cochez / décochez</b> chaque ligne — <b>seules les lignes cochées sont calculées</b>. Tout est éditable. Le champ <span class="k">ITE</span> (Oui par défaut) indique si l'habitation participe à la répartition des coûts de la VT ITE ; le champ <span class="k">Audit</span> fixe le nombre d'audits facturés. Un panneau <b>🔎 Contrôle d'extraction</b> sous chaque VT compare ce que la VT annonce et ce qui a été extrait.</p>
   </div></div>
 
   <div class="step"><div class="badge">3</div><div class="body">
     <h3>Valorisation CEE</h3>
-    <p>Renseignez le <span class="k">Pollueur</span>. Par habitation : <span class="k">revenus</span> (Classique / Précaire), <span class="k">Coup de Pouce</span> (<b>Oui</b> par défaut), <span class="k">nb de sauts</span>. La <span class="k">surface habitable</span> est déjà pré-remplie depuis l'extraction. La <b>prime CEE</b> s'affiche automatiquement. Cliquez <b>« Lancer le calcul global »</b>.</p>
+    <p>Renseignez le <span class="k">Pollueur</span>. Par habitation : <span class="k">Revenus ménages</span>, <span class="k">nb de sauts</span> ; le type de revenus et le Coup de Pouce en sont déduits et affichés verrouillés. La <span class="k">surface habitable</span> est pré-remplie depuis l'extraction. La <b>prime CEE</b> s'affiche automatiquement.</p>
   </div></div>
 
-  <div class="warn">⚠️ Sur les <b>fenêtres</b>, la colonne « Pièce » affiche le type de pièce <b>si la VT l'indique</b> ; sinon elle garde l'orientation (Nord/Sud). L'IA n'invente jamais une information absente de la VT.</div>
+  <div class="step"><div class="badge">4</div><div class="body">
+    <h3>Charges &amp; marges</h3>
+    <p>Coût de revient (charges + Audit VT + frais VT ITE + régie), prix de vente, prime CEE, marge brute, reste à charge, <span class="k">marge commerciale</span> et décision <b>GO / NO-GO</b>. Tous les widgets sont éditables ; survolez-les pour voir la formule, <b>↺</b> revient au calcul automatique. Un <b>bouclier 🛡️</b> recalcule tout par un chemin indépendant à chaque affichage. En bas : le bouton <b>📊 Télécharger le rapport (.xlsx)</b>.</p>
+  </div></div>
+
+  <div class="step"><div class="badge">5</div><div class="body">
+    <h3>Proposition de travaux</h3>
+    <p>Construit le <b>devis PDF</b> envoyable au client à partir des prix de l'étape 4. Sections pré-remplies (ITE puis un bloc par logement), désignations commerciales, destinataire, conditions. <b>👁️ Simulation</b> affiche le vrai PDF ; <b>⬇️ Télécharger</b> l'enregistre et met à jour l'historique.</p>
+  </div></div>
 
   <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
 </section>
 
-<!-- ============ ÉTAPES 4-5 + RÉSULTATS ============ -->
+<!-- ============ ASTUCES ============ -->
 <section class="page">
-  <div class="ph"><div class="n">2</div><h2>Résultats &amp; rapport</h2></div>
+  <div class="ph"><div class="n">💡</div><h2>Astuces — ce qui ne se devine pas</h2></div>
+  <p class="lead">Les commandes utiles mais discrètes, et les questions qui reviennent le plus souvent.</p>
 
-  <div class="step"><div class="badge">4</div><div class="body">
-    <h3>Charges &amp; marges</h3>
-    <p>Pour chaque habitation et pour l'ITE : coût de revient (charges + Audit VT + frais fixe VT ITE + régie), prix de vente, <span class="k">prime CEE</span>, <span class="k">marge brute</span> (prime CEE − achats travaux), <span class="k">reste à charge</span>, <span class="k">marge commerciale</span> (vente − coût de revient) et décision <b>GO / NO-GO</b>. En bas, le <b>Total projet / immeuble</b> agrège l'ensemble. <b>Tous les widgets sont éditables</b> : cliquez sur une valeur pour la corriger, ou forcez la décision GO / NO-GO (d'autres critères que la marge peuvent motiver un NO-GO). Survolez un widget pour voir sa <b>formule de calcul</b> (légende type Excel), et cliquez sur <b>↺</b> pour revenir au calcul automatique. Le dossier et vos corrections sont <b>sauvegardés automatiquement</b> (bouton 💾 en bas) ; à la réouverture, la page démarre <b>vierge</b> et un bandeau vous propose de <b>reprendre le dossier précédent</b> en un clic. Un <b>bouclier de vérification 🛡️</b> en tête de page recalcule tout par un chemin indépendant à chaque affichage (12 contrôles : sommes, régie, audits, répartition ITE, marges, décision…) et le moteur de calcul s'autoteste sur des scénarios de référence à chaque chargement. Le bouton <b>🔍 Scan IA</b> offre en option un second regard métier (plausibilité, ordres de grandeur) — il ne remplace jamais les contrôles automatiques.</p>
-  </div></div>
+  <div class="astuce">
+    <h3><span class="ico">✔</span> Marge en euros ou en pourcentage : le petit tick</h3>
+    <p><span class="ou">Où</span> Paramètres → <b>Objectif de marge commerciale</b>. Deux champs côte à côte : un <b>montant (€)</b> et un <b>pourcentage (%)</b>. La petite <b>case à cocher</b> devant chaque libellé désigne celui qui sert au calcul — l'autre reste saisissable mais s'estompe.</p>
+    <p><b>C'est cet objectif qui décide du GO / NO-GO.</b> Cocher l'un décoche l'autre ; il y en a toujours un d'actif.</p>
+  </div>
 
-  <div class="step"><div class="badge">5</div><div class="body">
-    <h3>Rapport</h3>
-    <p>Cliquez <span class="k">« Rapport Excel (.xlsx) »</span>. Le fichier contient une feuille <b>Synthèse</b> (1 ligne par habitation + total) et une feuille <b>Détail complet</b> (chaque ligne de calcul, jusqu'au résultat). La Synthèse inclut la section <b>« Contrôles de cohérence »</b> : tous les contrôles automatiques sont rejoués au moment exact de l'export et leur résultat est écrit dans le fichier — la preuve de vérification accompagne les chiffres.</p>
-  </div></div>
+  <div class="astuce">
+    <h3><span class="ico">%</span> Montant fixe ou pourcentage : quelle différence ?</h3>
+    <p><b>Montant</b> — le même seuil en euros s'applique au total <i>et</i> à chaque habitation. C'est le mode historique.</p>
+    <p><b>Pourcentage</b> — le seuil se calcule sur le <b>coût de revient de ce qu'on évalue</b>, il devient donc proportionnel : à 40 %, une habitation à 9 000 € de coût vise 6 000 € de marge quand une à 29 000 € en vise 19 500 €. Plus juste sur un immeuble aux lots très inégaux.</p>
+    <p>Le pourcentage se lit <b>sur le prix de vente HT</b> (taux de marque) : <code>vente = coût ÷ (1 − marge%)</code>.</p>
+  </div>
 
-  <div class="step"><div class="badge">6</div><div class="body">
-    <h3>Sauvegarde</h3>
-    <p>Cliquez <span class="k">« Sauvegarder dans l'historique »</span> : le dossier est figé et archivé dans l'<b>historique partagé</b> (nom, titres des fichiers chargés, extraction, valorisation, charges &amp; marges, résultats). Une fois sauvegardé, il est <b>consultable par tous les utilisateurs et non modifiable</b>. Depuis l'onglet <b>Historique</b>, un <b>double-clic</b> rouvre n'importe quel dossier en lecture seule et permet de régénérer son rapport Excel.</p>
-  </div></div>
+  <div class="astuce">
+    <h3><span class="ico">⛔</span> C'est NO-GO : comment le savoir, et quoi faire</h3>
+    <p><span class="ou">Où</span> Étape 4, bloc <b>Total projet</b>, widget <b>Décision</b>. Un bandeau rose apparaît juste en dessous et chiffre l'écart : <b>ce qu'il manque en euros</b>, ce que ça représente <b>en part de marge attendue</b>, et surtout la <b>hausse nécessaire sur les prix de vente</b>.</p>
+    <p>C'est ce dernier chiffre qui décide : <b>+3 %</b> se négocie, <b>+25 %</b> veut dire que le projet ne tient pas. Le bouton <b>⚖️ Ajuster les prix pour atteindre le GO</b> répartit la hausse sur toutes les catégories au prorata de leur poids — aucun poste ne prend plus que sa part.</p>
+    <p>Au-delà de <b>+30 %</b>, le bouton disparaît volontairement : à ce niveau ce n'est plus un arrondi commercial.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">⟳</span> Viser une marge précise et recalculer</h3>
+    <p><span class="ou">Où</span> Paramètres → objectif de marge → <b>⟳ Recalculer l'étape 4</b> (le bouton n'apparaît qu'une fois un dossier calculé).</p>
+    <p>Avant de cliquer, l'aperçu annonce le <b>prix de vente visé</b> et le sens de la variation. Contrairement au bouton GO qui ne fait que combler un manque, celui-ci vise la valeur exacte : si votre marge <b>dépasse</b> déjà l'objectif, il <b>baisse</b> les prix.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">🔴</span> Prix en rouge, prix en rosé : la différence</h3>
+    <p><b>Rosé</b> = prix que <i>vous</i> avez modifié à la main. Il met à jour le barème des Paramètres, donc vos prochains dossiers.</p>
+    <p><b>Rouge</b> = prix relevé par un ajustement automatique. Il ne vaut que <b>pour ce dossier</b> : le barème n'est pas touché. Survolez-le pour voir la valeur d'origine ; <b>↺ Prix d'origine</b> restaure tout.</p>
+    <p>Dans les deux cas, un article a <b>un seul prix dans tout le dossier</b> — jamais un tarif différent d'une habitation à l'autre.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">⇄</span> Mettre les prix de vente au niveau des prix d'achat</h3>
+    <p><span class="ou">Où</span> Paramètres → à droite du titre <b>Barème de prix</b>, bouton <b>⇄ Vente = Achat</b>.</p>
+    <p>Un clic met chaque prix de vente au niveau de son prix d'achat : <b>marge nulle</b>, une base de départ propre. Vous enregistrez, puis vous remontez à l'objectif voulu avec le recalcul de marge. <b>Recliquer restaure</b> les prix de vente précédents. Les prix <b>d'achat ne sont jamais modifiés</b> — ce sont vos coûts réels.</p>
+  </div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+<!-- ============ ASTUCES (suite) ============ -->
+<section class="page">
+  <div class="ph"><div class="n">💡</div><h2>Astuces — lignes, dossiers, documents</h2></div>
+
+  <div class="astuce">
+    <h3><span class="ico">✕</span> Masquer une ligne, la remettre, en ajouter une</h3>
+    <p><span class="ou">Où</span> Étape 2 (extraction) et étape 5 (proposition), au bout de chaque ligne.</p>
+    <p><b>✕</b> exclut la ligne : elle reste visible, <b>grisée et barrée</b>, mais sort de tous les totaux — et du PDF client dans la proposition. Rien n'est supprimé, la trace de ce que contenait la VT est conservée. <b>↺</b> la rétablit.</p>
+    <p><b>＋ Ajouter une ligne</b> insère une ligne vierge dans n'importe quelle section. Dans la proposition, <b>＋ Ajouter une section libre</b> crée un bloc entier pour des travaux hors périmètre CEE.</p>
+    <p>Dans l'étape 2, la <b>case à cocher</b> et la croix ✕ ne font pas la même chose : décocher retire la ligne du calcul, la croix la désactive complètement.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">0</span> Une ligne à zéro n'apparaît pas dans le devis</h3>
+    <p>Dans la proposition, toute ligne <b>sans quantité ou sans montant</b> est écartée du PDF : elle n'apporterait rien au client. Elle reste visible à l'écran, <b>sur fond ambre</b>, avec la mention <b>« non imprimée »</b> — pour que vous sachiez pourquoi elle manque.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">📋</span> Reprendre et corriger un dossier archivé</h3>
+    <p><span class="ou">Où</span> onglet <b>Historique</b>, <b>double-clic</b> sur une ligne.</p>
+    <p>Le dossier se rouvre <b>en modification</b> (plus en lecture seule). Un bandeau vous prévient que toute sauvegarde <b>remplacera</b> cette entrée : un dossier n'a qu'<b>une</b> entrée, qui porte le dossier <i>et</i> sa proposition. Refaire un devis met à jour la même ligne au lieu d'empiler des doublons.</p>
+    <p><b>← Quitter sans lier</b> coupe le lien : la prochaine sauvegarde créera une nouvelle entrée.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">👤</span> Le devis part au bailleur, jamais au locataire</h3>
+    <p>Les VT ne portent pas de champ « locataire ». Le <b>Nom</b> qu'elles contiennent est ambigu : parfois le bailleur, parfois l'occupant. L'application tranche seule quand elle peut, et <b>vous prévient quand elle ne peut pas</b> — si les VT des logements ne concordent pas, un avertissement liste les valeurs et vous laisse décider.</p>
+    <p>Le bouton <b>✎ Saisir manuellement</b> vide le bloc destinataire : à utiliser quand le vrai destinataire n'est pas dans les VT (mandataire, syndic, société de gestion).</p>
+    <p>Le badge <span class="pill">auto</span> signale une valeur déduite, pas validée.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">🧑‍💼</span> Chargé d'affaires : présent ou absent du devis</h3>
+    <p><span class="ou">Où</span> Étape 5 → Informations du devis → bloc <b>Chargé d'affaires</b>, icône <b>👁 Inclus / Non inclus</b>.</p>
+    <p>Toutes les propositions n'en portent pas. Exclu, le bloc signature <b>ne figure pas du tout</b> dans le PDF. Vos saisies sont conservées si vous rebasculez.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">€</span> TVA et validité du devis</h3>
+    <p>TVA à <b>5,5 %</b> par défaut (rénovation énergétique résidentielle), surchargeable <b>par section</b> — utile pour un lot de travaux hors périmètre à 20 %. Validité par défaut : <b>2 mois</b>, conformément aux CGV OT Énergie.</p>
+  </div>
+
+  <div class="warn">⚠️ Le rapport Excel se télécharge depuis le <b>bas de l'étape 4</b>. Les onglets « Rapport » et « Sauvegarde » n'existent plus : l'archivage est automatique.</div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+<!-- ============ RÉFÉRENCE ============ -->
+<section class="page">
+  <div class="ph"><div class="n">2</div><h2>Paramètres, historique, bonnes pratiques</h2></div>
 
   <div class="two">
     <div class="card"><h3>⚙️ Paramètres</h3>
       <ul class="clean">
         <li>Clé API &amp; modèle IA (OpenRouter)</li>
         <li>Template de valorisation (.xlsx)</li>
-        <li>Barème de prix achat / vente</li>
-        <li>Montant Audit VT · Montant VT ITE (70 € par défaut) · % Régie · Seuil GO/NO-GO</li>
+        <li>Barème de prix achat / vente <b>+ bouton ⇄</b></li>
+        <li>Barème des éléments à la pièce</li>
+        <li>Audit VT · frais VT ITE · % Régie</li>
+        <li><b>Objectif de marge</b> : montant ou pourcentage</li>
+        <li>Proposition de travaux : chargé d'affaires, TVA, validité, coordonnées OT</li>
       </ul>
     </div>
     <div class="card"><h3>📋 Historique partagé</h3>
       <ul class="clean">
-        <li><b>Étape 6 · Sauvegarde</b> : archive le dossier figé (nom, titres des fichiers, calculs, résultats)</li>
-        <li>Une fois sauvegardé, le dossier est <b>consultable par tous et non modifiable</b></li>
-        <li><b>Double-clic</b> sur une ligne : rouvre le dossier en lecture seule (onglets 1 à 5 figés)</li>
-        <li>Rapport Excel régénérable depuis un dossier archivé · export Excel de l'historique</li>
+        <li>Alimenté <b>automatiquement</b> dès que l'étape 4 est valide</li>
+        <li>Un dossier = <b>une</b> entrée, mise à jour à chaque sauvegarde</li>
+        <li><b>Double-clic</b> : rouvre le dossier <b>en modification</b></li>
+        <li>Les propositions de travaux y figurent avec leur n° de devis et leurs montants</li>
+        <li>Rapport Excel régénérable · export Excel de l'historique</li>
       </ul>
     </div>
   </div>
 
   <div class="card"><h3>Bonnes pratiques</h3>
     <ul class="clean">
-      <li><b>Le calcul = uniquement les lignes cochées</b> (le % est indicatif).</li>
+      <li><b>Le calcul = uniquement les lignes cochées</b> (le % affiché est indicatif).</li>
       <li>Les calculs utilisent la <b>surface nette</b>.</li>
-      <li>Vos <b>prix / marges restent privés</b> : ils vivent dans votre navigateur, jamais en ligne.</li>
+      <li>Vos <b>prix et marges restent privés</b> : ils vivent dans votre navigateur.</li>
       <li>Un souci d'extraction ? Saisissez les surfaces <b>à la main</b> — tout est éditable.</li>
+      <li>Nommez vos VT clairement dès l'étape 1 : <b>ce nom devient la référence du lot</b> dans le devis client.</li>
+      <li>Avant d'envoyer un devis, passez par <b>👁️ Simulation</b> : c'est le PDF réel, pas un aperçu approximatif.</li>
     </ul>
+  </div>
+
+  <div class="card"><h3>Ce qui ne figure jamais dans un devis client</h3>
+    <ul class="clean">
+      <li>Revenus du ménage (Précaire / Classique), avis d'imposition</li>
+      <li>Prix d'achat, coût de revient, marges, régie</li>
+      <li>Décision GO / NO-GO et commentaires internes</li>
+      <li>Les libellés techniques (ITE, ITI…) — remplacés par des désignations commerciales</li>
+    </ul>
+    <div class="tip" style="margin-top:6px">Cette exclusion est verrouillée par une <b>liste blanche</b> : seuls les champs explicitement autorisés entrent dans le PDF.</div>
   </div>
 
   <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
