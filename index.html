@@ -640,38 +640,13 @@ main{position:relative;z-index:1}
       <div class="row"><div class="col"><div id="margeCibleZone"></div></div></div>
 
       <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Proposition de travaux (étape 7)</h3>
-      <p class="hint" style="margin-top:-4px">Ces valeurs alimentent l'en-tête, le pied de page et la signature du devis PDF. Elles sont pré-remplies dans chaque proposition et restent corrigeables dossier par dossier.</p>
-      <div class="row">
-        <div class="col">
-          <label class="fld">Chargé d'affaires — nom</label>
-          <input type="text" id="caNom" placeholder="Prénom NOM" />
-        </div>
-        <div class="col">
-          <label class="fld">Chargé d'affaires — téléphone fixe</label>
-          <input type="text" id="caTel" placeholder="01.85.90.60.67" />
-        </div>
-        <div class="col">
-          <label class="fld">Chargé d'affaires — mobile</label>
-          <input type="text" id="caMobile" placeholder="06 xx xx xx xx" />
-        </div>
-      </div>
-      <div class="row">
-        <div class="col">
-          <label class="fld">TVA par défaut (%)</label>
-          <input type="number" id="tvaDefaut" value="5.5" step="0.1" />
-          <small>5,5 % en rénovation énergétique résidentielle · 20 % en tertiaire.</small>
-        </div>
-        <div class="col">
-          <label class="fld">Validité du devis (mois)</label>
-          <input type="number" id="validiteMois" value="2" step="1" min="1" />
-          <small>CGV OT : « valables deux mois à partir de la date de notre proposition écrite ».</small>
-        </div>
-        <div class="col">
-          <label class="fld">Acompte à la commande (%)</label>
-          <input type="number" id="acomptePct" value="30" step="5" min="0" max="100" />
-        </div>
-      </div>
+      <!-- Ici, UNIQUEMENT l'identité de l'émetteur : le « papier à en-tête ». Elle est
+           identique sur tous les devis. Tout ce qui varie d'un dossier à l'autre
+           (chargé d'affaires, TVA, validité, acompte) se saisit dans l'étape 5, sur le
+           dossier concerné — le mettre ici laissait croire qu'un devis se prépare
+           depuis les Paramètres. -->
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Coordonnées OT Énergie — en-tête et pied de page du devis</h3>
+      <p class="hint" style="margin-top:-4px">Identité de l'entreprise émettrice, <strong>identique sur tous les devis</strong>. Les éléments propres à un dossier — chargé d'affaires, TVA, validité, acompte — se renseignent dans l'onglet <strong>5 · Proposition de travaux</strong>.</p>
       <div class="row">
         <div class="col">
           <label class="fld">E-mail figurant sur le devis</label>
@@ -768,11 +743,21 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
-const PROP_SETTING_KEYS = ['margeMode','margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
+/* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
+   l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
+   validité et l'acompte varient d'un dossier à l'autre : ils se saisissent dans la
+   proposition elle-même, pas ici. */
+const PROP_SETTING_KEYS = ['margeMode','margeCiblePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
-const PROP_SETTING_NUM  = ['margeCiblePct','tvaDefaut','validiteMois','acomptePct'];
+const PROP_SETTING_NUM  = ['margeCiblePct'];
+/* Valeurs usuelles d'une proposition neuve. Ce sont des CONSTANTES MÉTIER, pas des
+   réglages : 5,5 % est le taux de la rénovation énergétique résidentielle, deux mois
+   la validité inscrite aux CGV OT. Elles restent modifiables dossier par dossier. */
+const PROP_TVA_DEFAUT     = 5.5;
+const PROP_VALIDITE_MOIS  = 2;
+const PROP_ACOMPTE_PCT    = 30;
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // vestige : plus jamais renseigné (un dossier repris est désormais éditable)
 // Entrée d'historique du dossier courant. null = dossier neuf (la prochaine sauvegarde
@@ -801,7 +786,6 @@ const state = {
     // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
     margeMode: 'montant',   // 'montant' (€) | 'pct' (% du prix de vente). Défaut = comportement historique.
     margeCiblePct: 25,      // marge commerciale visée, en % du PRIX DE VENTE HT (taux de marque)
-    caNom:'', caTel:'', caMobile:'', tvaDefaut:5.5, validiteMois:2, acomptePct:30,
     otEmail:'contact@otenenergie.fr',   // ⚠️ double « en » : coquille des documents OT, conservée telle quelle
     otSite:'www.otenergie.fr', otTel:'Tél. : 01.85.90.60.67',
     otAdr1:'33 rue de Piscop', otAdr2:'95350 SAINT-BRICE SOUS FORET', otLegal:'SAS au capital de 50.000€' },
@@ -6229,10 +6213,10 @@ function propCreate(){
   const today = new Date();
   const p = {
     mode: 'bareme',
-    tvaPct: num(s.tvaDefaut) || 5.5,
+    tvaPct: PROP_TVA_DEFAUT,
     cgvIncluses: false,
     devis: { numero: propNumeroDevis(), dateEmission: today.toISOString().slice(0,10),
-             validiteMois: num(s.validiteMois) || 2, refProjet: state.nomDossier || '' },
+             validiteMois: PROP_VALIDITE_MOIS, refProjet: state.nomDossier || '' },
     chantier: Object.assign({ adresse:'', cp:'', ville:'' }, idents.chantier),
     // Adresse de facturation : proposée depuis l'adresse du chantier, car un bailleur
     // possède le plus souvent l'immeuble concerné. Elle porte le badge « auto » et
@@ -6244,10 +6228,11 @@ function propCreate(){
       propAdresseChantier(idents.chantier) ? { 'bailleur.adresseFacturation': true } : {}),
     conflits: Object.assign({}, idents.conflits),
     manuel: false,
-    chargeAffaires: { nom: s.caNom||'', tel: s.caTel||'', mobile: s.caMobile||'' },
+    // Charge d'affaires : propre au dossier, saisi dans la proposition. Vide au depart.
+    chargeAffaires: { nom:'', tel:'', mobile:'' },
     // Toutes les propositions ne portent pas de chargé d'affaires : on l'inclut par
     // défaut seulement si un nom est paramétré, et l'icône permet de basculer.
-    caInclus: !!(s.caNom || s.caTel || s.caMobile),
+    caInclus: false,
     conditions: {
       offrePrevoit: [
         "Étude technique et dimensionnement des travaux d'isolation",
@@ -6258,7 +6243,7 @@ function propCreate(){
       ].join('\n'),
       garantieMois: 12,
       delai: '2 à 4 semaines à réception de commande',
-      acomptePct: num(s.acomptePct) || 30,
+      acomptePct: PROP_ACOMPTE_PCT,
     },
     sections: propBuildSections(),
     notes: '',
@@ -6443,7 +6428,7 @@ function propChargeAffairesHtml(p, ro){
                                                       : 'Aucun bloc signature dans le devis.') + '</small>'
     + '</div>'
     + '<div class="row"' + (on ? '' : ' style="opacity:.45"') + '>'
-    + f('chargeAffaires.nom','Nom', p.chargeAffaires.nom, 'Paramétrable dans ⚙️ Paramètres')
+    + f('chargeAffaires.nom','Nom', p.chargeAffaires.nom, 'Prénom NOM')
     + f('chargeAffaires.tel','Téléphone fixe', p.chargeAffaires.tel, '')
     + f('chargeAffaires.mobile','Mobile', p.chargeAffaires.mobile, '')
     + '</div>';
