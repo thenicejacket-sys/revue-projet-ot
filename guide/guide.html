@@ -19,16 +19,31 @@
   .page:last-child{ page-break-after:auto; }
   @media screen{ body{padding:14px 0} .page{box-shadow:0 3px 18px rgba(27,63,139,.14);border-radius:6px} }
 
-  /* ---------- COUVERTURE ---------- */
-  .cover{ background:linear-gradient(150deg,#12296a 0%,#1B3F8B 55%,#2a56b8 100%); color:#fff; display:flex; flex-direction:column; justify-content:center; padding:26mm; }
-  .cover .logo{ width:66px;height:66px;border-radius:16px;background:rgba(255,255,255,.16);border:1.5px solid rgba(255,255,255,.4);
-    display:flex;align-items:center;justify-content:center;font-family:'Montserrat';font-weight:800;font-size:26px;margin-bottom:26px}
-  .cover .kicker{ text-transform:uppercase; letter-spacing:.28em; font-size:12px; font-weight:700; color:#a9c3f5; margin-bottom:14px }
-  .cover h1{ font-size:46px; font-weight:800; line-height:1.05; margin-bottom:16px }
-  .cover .sub{ font-size:16px; color:#dfe8fb; max-width:135mm; margin-bottom:40px }
-  .cover .url{ display:inline-flex; align-items:center; gap:10px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.3);
-    padding:12px 18px; border-radius:999px; font-family:'Montserrat'; font-weight:700; font-size:14px; align-self:flex-start }
-  .cover .foot{ position:absolute; bottom:22mm; left:26mm; right:26mm; display:flex; justify-content:space-between; font-size:12px; color:#a9c3f5 }
+  /* ---------- COUVERTURE ----------
+     Reprend la page de garde des devis OT Énergie : fond blanc, logo en tête,
+     bandeau bleu institutionnel puis filet magenta. Un aplat bleu pleine page
+     est lourd à l'impression et ne ressemble pas à leurs documents. */
+  :root{ --ot-bleu:#3F56A5; --ot-magenta:#C1367C; --ot-vert:#759542; --ot-filet:#DDDDDD }
+  .cover{ background:#fff; color:var(--ink); padding:0; display:flex; flex-direction:column }
+  .cover .head{ padding:20mm 20mm 0 }
+  .cover .head img{ width:52mm; height:auto; display:block }
+  .cover .bandeau{ height:15mm; background:var(--ot-bleu); margin-top:10mm }
+  .cover .filet{ height:4.5mm; background:var(--ot-magenta) }
+  .cover .corps{ padding:26mm 20mm 0; text-align:center; flex:1 }
+  .cover h1{ font-size:44px; font-weight:800; color:var(--ot-bleu); line-height:1.05; margin-bottom:6px }
+  .cover .h1b{ font-size:26px; font-weight:600; color:var(--ot-bleu); margin-bottom:16px }
+  .cover .trait{ width:34mm; height:2.2px; background:var(--ot-vert); margin:0 auto 22px }
+  .cover .sub{ font-size:14px; color:var(--muted); max-width:128mm; margin:0 auto 26px; line-height:1.6 }
+  .cover .bloc{ border:1px solid var(--ot-filet); border-left:4px solid var(--ot-magenta); border-radius:0 8px 8px 0;
+    max-width:120mm; margin:0 auto; padding:13px 18px; text-align:left }
+  .cover .bloc .lab{ font-family:'Montserrat'; font-weight:700; font-size:9.5px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ot-bleu); margin-bottom:4px }
+  .cover .bloc .val{ font-family:'Montserrat'; font-weight:700; font-size:14px; color:var(--ink) }
+  .cover .bloc .url{ font-size:12px; color:var(--muted); margin-top:2px }
+  .cover .pied{ margin-top:auto; padding:0 20mm 16mm; border-top:1px solid var(--ot-filet);
+    padding-top:9px; display:flex; gap:16px; font-size:9.5px; color:var(--muted); line-height:1.5 }
+  .cover .pied div{ flex:1 }
+  .cover .pied b{ color:var(--ot-bleu); font-family:'Montserrat'; font-size:10.5px }
 
   /* ---------- CONTENU ---------- */
   .ph{ display:flex; align-items:center; gap:12px; border-bottom:3px solid var(--primary); padding-bottom:12px; margin-bottom:22px }
@@ -89,12 +104,27 @@
 
 <!-- ============ COUVERTURE ============ -->
 <section class="page cover">
-  <div class="logo">OT</div>
-  <div class="kicker">OT Énergie · Pré-chiffrage CEE</div>
-  <h1>Revue Projet OT</h1>
-  <div class="sub">Guide utilisateur — évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO, puis proposition de travaux à envoyer au client.</div>
-  <div class="url">🔗 thenicejacket-sys.github.io/revue-projet-ot</div>
-  <div class="foot"><span>Guide utilisateur</span><span>Version juillet 2026</span></div>
+  <div class="head"><img src="../assets/logo-otenergie.jpg" alt="OT Énergie" /></div>
+  <div class="bandeau"></div>
+  <div class="filet"></div>
+
+  <div class="corps">
+    <h1>Guide</h1>
+    <div class="h1b">utilisateur</div>
+    <div class="trait"></div>
+    <div class="sub">Évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO, puis proposition de travaux à envoyer au client.</div>
+    <div class="bloc">
+      <div class="lab">Application</div>
+      <div class="val">Revue Projet OT — Pré-chiffrage CEE / Coup de Pouce</div>
+      <div class="url">thenicejacket-sys.github.io/revue-projet-ot</div>
+    </div>
+  </div>
+
+  <div class="pied">
+    <div><b>OTenergie</b><br>SAS au capital de 50.000€<br>SIRET 89060530600020<br>TVA FR12890605306</div>
+    <div>33 rue de Piscop<br>95350 SAINT-BRICE SOUS FORET<br>Tél. : 01.85.90.60.67</div>
+    <div>E-mail : contact@otenenergie.fr<br>www.otenergie.fr<br><br>Version juillet 2026</div>
+  </div>
 </section>
 
 <!-- ============ DÉMARRAGE ============ -->
