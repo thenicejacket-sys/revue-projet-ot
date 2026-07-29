@@ -592,6 +592,20 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
+      <!-- Marge commerciale cible : on saisit un taux, on clique, les prix de vente
+           du dossier se recalculent pour l'atteindre. Le bouton n'apparaît qu'une fois
+           qu'un dossier est calculé — sans chiffres, il n'y aurait rien à ajuster. -->
+      <div class="row" style="margin-top:4px">
+        <div class="col" style="max-width:260px">
+          <label class="fld">Marge commerciale cible (%)</label>
+          <input type="number" id="margeCiblePct" value="25" step="1" min="0" max="95" />
+          <small>En % du <strong>prix de vente HT</strong> (taux de marque).</small>
+        </div>
+        <div class="col" style="align-self:flex-start;padding-top:18px">
+          <div id="margeCibleZone"></div>
+        </div>
+      </div>
+
       <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Proposition de travaux (étape 7)</h3>
       <p class="hint" style="margin-top:-4px">Ces valeurs alimentent l'en-tête, le pied de page et la signature du devis PDF. Elles sont pré-remplies dans chaque proposition et restent corrigeables dossier par dossier.</p>
@@ -707,11 +721,11 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-28.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
-const PROP_SETTING_KEYS = ['caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
+const PROP_SETTING_KEYS = ['margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
-const PROP_SETTING_NUM  = ['tvaDefaut','validiteMois','acomptePct'];
+const PROP_SETTING_NUM  = ['margeCiblePct','tvaDefaut','validiteMois','acomptePct'];
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
 let FROZEN = null;                 // vestige : plus jamais renseigné (un dossier repris est désormais éditable)
 // Entrée d'historique du dossier courant. null = dossier neuf (la prochaine sauvegarde
@@ -738,6 +752,7 @@ const state = {
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
     // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
     // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
+    margeCiblePct: 25,   // marge commerciale visée, en % du PRIX DE VENTE HT (taux de marque)
     caNom:'', caTel:'', caMobile:'', tvaDefaut:5.5, validiteMois:2, acomptePct:30,
     otEmail:'contact@otenenergie.fr',   // ⚠️ double « en » : coquille des documents OT, conservée telle quelle
     otSite:'www.otenergie.fr', otTel:'Tél. : 01.85.90.60.67',
@@ -974,7 +989,7 @@ function showView(id){
   // ne réécrit que si le dossier a réellement changé.
   if(id==='step4'){ renderStep4(); autoArchiveFromStep4(); }
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
-  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); }
+  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); }
   if(id==='step7') renderStep7();
   if(id==='history') renderHistory();
   applyBackground(id);
@@ -1637,10 +1652,14 @@ function isChargeAuto(cat, field){ return !!(state.chargesAuto && state.chargesA
    ============================================================================ */
 const GO_FIX_HAUSSE_MAX = 0.30;   // garde-fou : +30 % au maximum sur un prix de vente
 
-function calcAjustementGo(){
+/* Moteur générique : viser un MONTANT de marge (€). Deux appelants seulement —
+   le bouton GO vise le seuil GO/NO-GO, le recalcul des Paramètres vise la marge
+   commerciale cible convertie en euros. Un seul moteur, donc jamais deux
+   ajustements concurrents qui écriraient sur les mêmes prix. */
+function calcAjustementVersMarge(margeCible, opts){
   const { tot } = calcGlobal();
-  const seuil = num(state.settings.seuilGo);
-  const deficit = round2(seuil - tot.marge);
+  const cible = num(margeCible);
+  const deficit = round2(cible - tot.marge);   // négatif = la marge dépasse déjà la cible
 
   // Assiette ajustable : surface totale cochée par catégorie du barème.
   const surfaces = {};
@@ -1661,23 +1680,48 @@ function calcAjustementGo(){
   });
   venteAjustable = round2(venteAjustable);
 
-  const dejaGo = deficit <= 0;
-  const hausse = venteAjustable > 0 ? deficit / venteAjustable : Infinity;   // en fraction
+  // Le bouton GO ne descend jamais les prix (il comble un manque). Viser une marge
+  // cible, si : atteindre 25 % quand on est à 30 % suppose de BAISSER les prix.
+  const bidirectionnel = !!(opts && opts.bidirectionnel);
+  const atteint = bidirectionnel ? Math.abs(deficit) < 0.01 : deficit <= 0;
+  const variation = venteAjustable > 0 ? deficit / venteAjustable : Infinity;
   return {
-    dejaGo, deficit, seuil, marge: tot.marge, venteAjustable, postes,
+    dejaGo: atteint, atteint, deficit, seuil: cible, marge: tot.marge,
+    coutRevient: tot.coutRevient, venteActuelle: tot.venteTravaux,
+    venteAjustable, postes, bidirectionnel,
     // Deux lectures du même écart : ce qui manque en part de marge attendue,
     // et ce que ça coûterait sur les prix — c'est la seconde qui décide.
-    pctMarge: seuil > 0 ? (deficit / seuil) : null,
-    pctHausse: isFinite(hausse) ? hausse : null,
-    faisable: isFinite(hausse) && hausse <= GO_FIX_HAUSSE_MAX && postes.length > 0,
+    pctMarge: cible > 0 ? (deficit / cible) : null,
+    pctHausse: isFinite(variation) ? variation : null,
+    faisable: isFinite(variation) && Math.abs(variation) <= GO_FIX_HAUSSE_MAX && postes.length > 0,
     aucunPoste: postes.length === 0,
   };
 }
 
-function appliquerAjustementGo(){
-  const a = calcAjustementGo();
-  if(a.dejaGo || a.aucunPoste) return a;
-  const k = 1 + Math.min(a.pctHausse, GO_FIX_HAUSSE_MAX);
+function calcAjustementGo(){ return calcAjustementVersMarge(num(state.settings.seuilGo)); }
+
+/* Marge commerciale cible exprimée en % du PRIX DE VENTE HT (taux de marque) :
+   marge = m × vente  et  vente = coût + marge  =>  marge = coût × m / (1 − m).
+   À 25 % sur un coût de 51 645 € : vente 68 860 €, marge 17 215 € = 25,0 % de la vente. */
+function margeCibleEuros(pct){
+  const m = num(pct) / 100;
+  if(m >= 1 || m < 0) return null;            // 100 % de marge = prix infini
+  const { tot } = calcGlobal();
+  return round2(tot.coutRevient * m / (1 - m));
+}
+function calcAjustementMargeCible(){
+  const cible = margeCibleEuros(state.settings.margeCiblePct);
+  if(cible === null) return null;
+  return calcAjustementVersMarge(cible, { bidirectionnel: true });
+}
+
+function appliquerAjustementGo(a0){
+  const a = a0 || calcAjustementGo();
+  if(a.atteint || a.aucunPoste) return a;
+  // Le signe est conservé : un déficit négatif fait BAISSER les prix (marge cible).
+  const brut = a.pctHausse;
+  const borne = Math.sign(brut) * Math.min(Math.abs(brut), GO_FIX_HAUSSE_MAX);
+  const k = 1 + borne;
   if(!state.chargesAuto) state.chargesAuto = {};
   if(!state.chargesAutoBak) state.chargesAutoBak = {};
   if(!state.prixDossier) state.prixDossier = {};
@@ -1697,7 +1741,9 @@ function appliquerAjustementGo(){
     state.chargesAuto[chargeEditKey(p.cat, 'vente')] = true;
   });
   saveLS();
-  return calcAjustementGo();
+  // Recalcul APRÈS écriture, sur la MÊME cible : sinon un ajustement vers la marge
+  // cible se relirait avec le seuil GO et annoncerait un résultat qui n'est pas le sien.
+  return calcAjustementVersMarge(a.seuil, { bidirectionnel: a.bidirectionnel });
 }
 
 function annulerAjustementGo(){
@@ -4168,6 +4214,79 @@ function renderChargesEditor(){
    Les prix d'achat ne sont jamais touchés : ce sont les coûts réels. */
 let ALIGN_VENTE_BAK = null;   // { 'ITI': 210, ... } — null = aucun alignement en cours
 
+/* Zone « marge commerciale cible » des Paramètres.
+   Le bouton n'apparaît QUE si un dossier est calculé : sans coût de revient ni
+   prix de vente, il n'y a rien à ajuster et un bouton mort induirait en erreur.
+   On affiche aussi ce que la cible représente concrètement — le prix de vente à
+   atteindre et l'écart — pour que la décision se prenne avant le clic. */
+function renderMargeCible(){
+  const zone = $('#margeCibleZone'); if(!zone) return;
+  const inp = $('#margeCiblePct');
+  const pct = inp ? num(inp.value) : num(state.settings.margeCiblePct);
+  const pretA = propGate ? true : true;
+  const dossierCalcule = state.vts.length > 0 && state.chargesTable
+                         && num(calcGlobal().tot.venteTravaux) > 0;
+  if(!dossierCalcule){
+    zone.innerHTML = '<small style="color:var(--text-muted)">Le bouton de recalcul apparaîtra dès qu\'un dossier aura été calculé à l\'étape 4.</small>';
+    return;
+  }
+  if(pct >= 100 || pct < 0){
+    zone.innerHTML = '<div class="alert err" style="margin:0">Marge cible impossible : elle doit rester sous 100 % du prix de vente.</div>';
+    return;
+  }
+  const a = calcAjustementVersMarge(margeCibleEuros(pct), { bidirectionnel:true });
+  const venteCible = round2(a.coutRevient + a.seuil);
+  const sens = a.deficit > 0 ? 'hausse' : 'baisse';
+  const nbsp = String.fromCharCode(160);
+  const pctTxt = v => (Math.abs(v)*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1})+nbsp+'%';
+  zone.innerHTML =
+    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+    + '<button class="btn success small" id="margeRecalc">⟳ Recalculer l\'étape 4</button>'
+    + (a.atteint
+        ? '<small style="color:var(--green-tx)">✅ Marge déjà à ' + pctTxt(pct/100) + '.</small>'
+        : '<small style="color:var(--text-muted)">Prix de vente visé <strong>' + eur(venteCible) + '</strong>'
+          + ' — ' + sens + ' de <strong>' + pctTxt(a.pctHausse) + '</strong> sur les prix'
+          + (a.faisable ? '' : ' <span style="color:#9c0006">(plafonnée à ' + (GO_FIX_HAUSSE_MAX*100) + '%)</span>')
+          + '.</small>')
+    + '</div>';
+  const b = $('#margeRecalc');
+  if(b) b.addEventListener('click', recalculerAvecMargeCible);
+}
+
+/* Applique la marge cible puis emmène l'utilisateur voir le résultat. Recalculer
+   sans montrer le résultat obligerait à naviguer soi-même pour savoir ce qui a changé. */
+function recalculerAvecMargeCible(){
+  const inp = $('#margeCiblePct');
+  const pct = inp ? num(inp.value) : num(state.settings.margeCiblePct);
+  if(pct >= 100 || pct < 0){ alert('La marge cible doit rester entre 0 et 100 % du prix de vente.'); return; }
+  state.settings.margeCiblePct = pct;
+  const avant = calcAjustementVersMarge(margeCibleEuros(pct), { bidirectionnel:true });
+  const apres = appliquerAjustementGo(avant);
+  saveLS();
+  showView('step4');
+  const g = calcGlobal();
+  const reelPct = g.tot.venteTravaux > 0 ? (g.tot.marge / g.tot.venteTravaux) : 0;
+  const zone = $('#scanIAResult');
+  if(zone){
+    const lignes = (avant.postes||[]).map(p=>{
+      const nv = (findChargeCol(CHARGE_MAP[p.cat])||{}).vente;
+      return '<li>' + esc(CAT_LABEL[p.cat]||p.cat) + ' : ' + eur(p.vente) + ' → <strong>' + eur(nv) + '</strong></li>';
+    }).join('');
+    const nbsp = String.fromCharCode(160);
+    zone.innerHTML = '<div class="alert ' + (apres.atteint ? 'ok' : 'warn') + '">'
+      + (apres.atteint ? '✅ ' : '⚠️ ')
+      + '<strong>Marge commerciale visée : ' + pct.toLocaleString('fr-FR') + nbsp + '%</strong> du prix de vente HT.<br>'
+      + 'Marge obtenue : <strong>' + eur(g.tot.marge) + '</strong> soit <strong>'
+      + (reelPct*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1}) + nbsp + '%</strong> '
+      + 'pour un prix de vente de ' + eur(g.tot.venteTravaux) + ' et un coût de revient de ' + eur(g.tot.coutRevient) + '.'
+      + (apres.atteint ? '' : '<br>Écart restant : ' + eur(Math.abs(apres.deficit)) + ' — la variation a été plafonnée à '
+          + (GO_FIX_HAUSSE_MAX*100) + '%.')
+      + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
+      + '<small>Prix de vente propres à CE dossier (en rouge ci-dessus). Le barème des Paramètres n\'est pas modifié. « ↺ Prix d\'origine » restaure.</small></div>';
+  }
+  autoArchiveFromStep4();
+}
+
 function majAlignUI(){
   const lab = $('#alignLabel'), hint = $('#alignHint'), btn = $('#alignVenteAchat');
   if(!lab || !btn) return;
@@ -4256,6 +4375,10 @@ $('#apiKey').addEventListener('input', e=>{ state.settings.apiKey = e.target.val
 $('#modelCustom').addEventListener('input', e=>{ if($('#model').value==='__custom__'){ state.settings.model = e.target.value.trim(); saveLS(); } });
 const btnAlign = $('#alignVenteAchat');
 if(btnAlign) btnAlign.addEventListener('click', basculerAlignVenteAchat);
+// Saisir un autre taux met à jour l'aperçu (prix visé, sens et ampleur de la variation)
+// sans rien appliquer : rien ne bouge tant qu'on n'a pas cliqué sur Recalculer.
+const inpMarge = $('#margeCiblePct');
+if(inpMarge) inpMarge.addEventListener('input', ()=>{ state.settings.margeCiblePct = num(inpMarge.value); renderMargeCible(); });
 $('#auditVT').addEventListener('input', e=>{ state.settings.auditVT = num(e.target.value); saveLS(); });
 $('#vtIte').addEventListener('input', e=>{ state.settings.vtIte = num(e.target.value); saveLS(); });
 $('#regiePct').addEventListener('input', e=>{ state.settings.regiePct = num(e.target.value); saveLS(); });
