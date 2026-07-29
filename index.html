@@ -692,6 +692,17 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
+      <hr/>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Guide utilisateur</h3>
+      <p class="hint" style="margin-top:-4px">Parcours complet, section <strong>Astuces</strong> (le tick de marge, le GO/NO-GO, l'ajustement des prix, masquer une ligne…). Également accessible par le bouton <strong>📖 Guide</strong> en haut de la page.</p>
+      <div class="flex" style="gap:10px;flex-wrap:wrap">
+        <a class="btn" id="guideOpen" href="guide/guide.html" target="_blank" rel="noopener"
+           style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">📖 Ouvrir le guide</a>
+        <a class="btn success" id="guideDl" href="guide/Guide-Utilisateur-Revue-Projet-OT.pdf" download
+           style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">⬇️ Télécharger le PDF</a>
+        <span style="align-self:center"><small>Le PDF est régénéré à chaque mise à jour du guide.</small></span>
+      </div>
+
       <div class="actions">
         <span><small>Tous les paramètres sont persistés en localStorage.</small></span>
         <button class="btn" id="saveParams">💾 Enregistrer</button>
@@ -744,7 +755,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['margeMode','margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
