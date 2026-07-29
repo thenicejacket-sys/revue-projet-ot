@@ -402,6 +402,7 @@ main{position:relative;z-index:1}
   <button data-view="step2"><span class="num">3</span> Valorisation CEE</button>
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
   <button data-view="step7"><span class="num">5</span> Proposition de travaux</button>
+  <button data-view="step8"><span class="num">6</span> Facturation</button>
   <span class="spacer"></span>
   <button data-view="history" class="param">📋 Historique</button>
   <button data-view="params" class="param">⚙️ Paramètres</button>
@@ -523,6 +524,15 @@ main{position:relative;z-index:1}
       <h2>7 · Proposition de travaux</h2>
       <p class="hint">Construit le <strong>devis PDF</strong> envoyable au client à partir des prix calculés à l'étape 4. Tout est éditable ici sans rien changer aux étapes précédentes.</p>
       <div id="step7Body"></div>
+    </div>
+  </section>
+
+  <!-- ====================================================== ÉTAPE 6 — FACTURE ====================================================== -->
+  <section class="view" id="step8">
+    <div class="card">
+      <h2>6 · Facturation</h2>
+      <p class="hint">Établit les <strong>documents PDF</strong> du dossier à partir de la proposition validée : <strong>facture</strong>, <strong>facture d'acompte</strong> (saisie libre ou reprise d'un document) et <strong>avoir</strong> d'extourne. Tout est repris puis <strong>librement modifiable</strong> : lignes, montants, destinataire, échéance.</p>
+      <div id="step8Body"></div>
     </div>
   </section>
 
@@ -677,6 +687,39 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
+      <!-- Coordonnées bancaires et conditions de paiement : identiques sur toutes les
+           factures, donc ici. Le délai et le taux de pénalités sont des mentions
+           LÉGALEMENT OBLIGATOIRES sur une facture (art. L441-10 du Code de commerce). -->
+      <h3 style="font-size:13px;color:var(--txt-dim);margin:14px 0 6px">Règlement des factures</h3>
+      <div class="row">
+        <div class="col">
+          <label class="fld">Banque</label>
+          <input type="text" id="otBanque" placeholder="Nom de la banque" />
+        </div>
+        <div class="col">
+          <label class="fld">IBAN</label>
+          <input type="text" id="otIban" placeholder="FR76 ...." />
+        </div>
+        <div class="col">
+          <label class="fld">BIC</label>
+          <input type="text" id="otBic" placeholder="XXXXFRPP" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col" style="max-width:260px">
+          <label class="fld">Délai de paiement (jours)</label>
+          <input type="number" id="otDelaiPaiement" value="30" step="1" min="0" />
+        </div>
+        <div class="col" style="max-width:260px">
+          <label class="fld">Pénalités de retard (% / an)</label>
+          <input type="number" id="otPenalitesPct" value="13.15" step="0.01" min="0" />
+          <small>Taux BCE + 10 points. Mention obligatoire sur facture.</small>
+        </div>
+        <div class="col" style="align-self:center">
+          <small>L'indemnité forfaitaire de recouvrement de <strong>40 €</strong> (art. L441-10) est ajoutée automatiquement.</small>
+        </div>
+      </div>
+
       <hr/>
       <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
       <div class="guide-box">
@@ -743,15 +786,16 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
    validité et l'acompte varient d'un dossier à l'autre : ils se saisissent dans la
    proposition elle-même, pas ici. */
 const PROP_SETTING_KEYS = ['margeMode','margeCiblePct',
-                           'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
-const PROP_SETTING_NUM  = ['margeCiblePct'];
+                           'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal',
+                           'otBanque','otIban','otBic','otDelaiPaiement','otPenalitesPct'];
+const PROP_SETTING_NUM  = ['margeCiblePct','otDelaiPaiement','otPenalitesPct'];
 /* Valeurs usuelles d'une proposition neuve. Ce sont des CONSTANTES MÉTIER, pas des
    réglages : 5,5 % est le taux de la rénovation énergétique résidentielle, deux mois
    la validité inscrite aux CGV OT. Elles restent modifiables dossier par dossier. */
@@ -788,8 +832,17 @@ const state = {
     margeCiblePct: 25,      // marge commerciale visée, en % du PRIX DE VENTE HT (taux de marque)
     otEmail:'contact@otenenergie.fr',   // ⚠️ double « en » : coquille des documents OT, conservée telle quelle
     otSite:'www.otenergie.fr', otTel:'Tél. : 01.85.90.60.67',
-    otAdr1:'33 rue de Piscop', otAdr2:'95350 SAINT-BRICE SOUS FORET', otLegal:'SAS au capital de 50.000€' },
-  prop: null,               // état de la proposition de travaux (étape 7) — null tant qu'elle n'a pas été ouverte
+    otAdr1:'33 rue de Piscop', otAdr2:'95350 SAINT-BRICE SOUS FORET', otLegal:'SAS au capital de 50.000€',
+    // Règlement des factures — mentions légalement obligatoires (art. L441-10)
+    otBanque:'', otIban:'', otBic:'', otDelaiPaiement:30, otPenalitesPct:13.15 },
+  prop: null,               // état de la proposition de travaux (étape 5) — null tant qu'elle n'a pas été ouverte
+  // Facturation (étape 6). Un dossier produit une SUITE de documents : facture,
+  // facture(s) d'acompte, avoir d'extourne. `factures` est le journal ; `facture`
+  // est le document affiché — une RÉFÉRENCE vers un élément du journal, jamais une
+  // copie (cf. factureEnsure). `factureActiveId` désigne lequel.
+  factures: [],
+  factureActiveId: '',
+  facture: null,
   valoTable: null,          // [ {sauts,kwhc,fact,shabLabel,pollueur,cdp,cee,kwhcFinal,valo,valoCee} ]
   valoFileName: '',         // nom du .xlsx chargé (affiché dans l'aperçu)
   valoDirty: false,         // chargé mais pas encore enregistré (session-only, jamais persisté)
@@ -938,6 +991,8 @@ function saveLS(){
       ? { cas: SAVED_DOSSIER.cas, general: SAVED_DOSSIER.general, nomDossier: SAVED_DOSSIER.nomDossier,
           overrides: SAVED_DOSSIER.overrides, vts: SAVED_DOSSIER.vts,
           chargesEdited: SAVED_DOSSIER.chargesEdited || {}, prop: SAVED_DOSSIER.prop || null,
+          facture: SAVED_DOSSIER.facture || null,
+          factures: SAVED_DOSSIER.factures || [], factureActiveId: SAVED_DOSSIER.factureActiveId || '',
           chargesAuto: SAVED_DOSSIER.chargesAuto || {}, chargesAutoBak: SAVED_DOSSIER.chargesAutoBak || {},
           prixDossier: SAVED_DOSSIER.prixDossier || {},
           histId: SAVED_DOSSIER.histId || null }
@@ -945,6 +1000,14 @@ function saveLS(){
           overrides: state.overrides,
           // Proposition de travaux (étape 7) : propriété DU DOSSIER, comme chargesEdited.
           prop: state.prop,
+          // Journal de facturation : facture(s), acompte(s), avoir(s). On persiste la
+          // LISTE et l'id actif — pas state.facture, qui n'est qu'une référence vers
+          // un élément de cette liste (le sérialiser en double créerait deux objets
+          // distincts au rechargement : les saisies partiraient dans l'un, l'affichage
+          // lirait l'autre). `facture` reste écrit pour les versions antérieures.
+          factures: state.factures || [],
+          factureActiveId: state.factureActiveId || '',
+          facture: null,
           // Lien vers l'entrée d'historique de ce dossier : sans lui, « Reprendre » après
           // un rechargement recréerait une entrée au lieu de mettre à jour l'existante.
           histId: CURRENT_HIST_ID,
@@ -994,7 +1057,8 @@ function loadLS(){
     if((Array.isArray(d.vts) && d.vts.length) || d.nomDossier){
       SAVED_DOSSIER = { cas:d.cas||1, nomDossier:d.nomDossier||'', vts:d.vts||[],
                         overrides:d.overrides||{global:{},vt:{}}, general:d.general||{pollueur:''},
-                        chargesEdited:d.chargesEdited||{}, prop:d.prop||null, histId:d.histId||null,
+                        chargesEdited:d.chargesEdited||{}, prop:d.prop||null, facture:d.facture||null,
+                        factures:d.factures||[], factureActiveId:d.factureActiveId||'', histId:d.histId||null,
                         chargesAuto:d.chargesAuto||{}, chargesAutoBak:d.chargesAutoBak||{},
                         prixDossier:d.prixDossier||{} };
     }
@@ -1023,6 +1087,7 @@ function showView(id){
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
   if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); }
   if(id==='step7') renderStep7();
+  if(id==='step8') renderStep8();
   if(id==='history') renderHistory();
   applyBackground(id);
   window.scrollTo(0,0);
@@ -2312,7 +2377,13 @@ function runGoldenTests(){
     for(const sc of GOLDEN_SCENARIOS){
       state.cas = sc.cas; state.vts = sc.vts; state.general = {pollueur:''};
       state.overrides = sc.overrides ? JSON.parse(JSON.stringify(sc.overrides)) : {global:{},vt:{}};
-      state.settings = Object.assign({}, snap.settings, {auditVT:450, vtIte:70, regiePct:12, seuilGo:1000});
+      // margeMode DOIT être forcé sur 'montant' : en mode pourcentage,
+      // seuilMargePour() ignore seuilGo et calcule le seuil depuis la marge
+      // cible DE L'UTILISATEUR. Les scénarios, calibrés sur un seuil en euros,
+      // échouaient alors selon le réglage courant — un autotest doit être
+      // déterministe, indépendant des Paramètres.
+      state.settings = Object.assign({}, snap.settings,
+        {auditVT:450, vtIte:70, regiePct:12, seuilGo:1000, margeMode:'montant'});
       state.valoTable = null; state.chargesTable = GOLDEN_CHARGES;
       const g = calcGlobal();
       const diffs = [];
@@ -3837,7 +3908,13 @@ function buildDossierSnapshot(){
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
     // photos:null — jamais dans le snapshot Supabase (cf. extractVtPhotos)
     vts: state.vts.map(v=>Object.assign({}, v, { text:'', hints:null, extracting:false, photos:null, photosLoading:false })),
-    prop: state.prop ? JSON.parse(JSON.stringify(state.prop)) : null,   // proposition de travaux (étape 7), archivée avec son dossier
+    prop: state.prop ? JSON.parse(JSON.stringify(state.prop)) : null,
+    // Journal de facturation archivé avec son dossier. On archive la LISTE :
+    // `facture` seule perdrait les acomptes et l'avoir. Champ laissé à null pour
+    // que les versions antérieures ne ressuscitent pas un document orphelin.
+    factures: JSON.parse(JSON.stringify(state.factures || [])),
+    factureActiveId: state.factureActiveId || '',
+    facture: null,
     resume: { couts:round2(tot.coutRevient), venteHT:round2(tot.venteTravaux), marge:round2(tot.marge),
               margeBrute:round2(tot.margeBrute), prime:round2(tot.prime), reste:round2(tot.reste),
               go:tot.go, nbVt:state.vts.length }
@@ -4036,7 +4113,13 @@ function renderHistBody(){
       <td style="white-space:nowrap">${dt.toLocaleDateString('fr-FR')} ${dt.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</td>
       <td><strong style="color:var(--primary)">${esc(h.nom||'(sans nom)')}</strong>${
         r.typeDoc === 'Proposition de travaux'
-          ? ` <span class="badge" style="background:#f3e3ec;color:var(--ot-magenta)" title="Devis généré à l'étape 7${r.numeroDevis?' — '+esc(r.numeroDevis):''}">📄 Proposition${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>` : ''
+          ? ` <span class="badge" style="background:#f3e3ec;color:var(--ot-magenta)" title="Devis généré à l'étape 5${r.numeroDevis?' — '+esc(r.numeroDevis):''}">📄 Proposition${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
+        : r.typeDoc === 'Acompte'
+          ? ` <span class="badge" style="background:#eaf1fb;color:var(--ot-bleu)" title="Facture d'acompte générée à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">💶 Acompte${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
+        : r.typeDoc === 'Avoir'
+          ? ` <span class="badge" style="background:#fbeaea;color:#c0392b" title="Avoir généré à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">↩️ Avoir${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
+        : r.typeDoc === 'Facture'
+          ? ` <span class="badge" style="background:#e6f2e8;color:var(--green-tx)" title="Facture générée à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">🧾 Facture${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>` : ''
       }</td>
       <td class="num">${eur(r.couts)}</td><td class="num">${eur(r.marge)}</td><td class="num">${eur(r.prime)}</td>
       <td>${r.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>
@@ -4099,6 +4182,11 @@ async function openArchived(id){
   state.prixDossier = snap.prixDossier || {};
   state.elementsTable = snap.elementsTable || state.elementsTable;
   state.prop = snap.prop || null;      // sa proposition de travaux, ré-éditable
+  // Journal de facturation. snap.facture est l'ancien format (un document unique) :
+  // il est repris tel quel, factureEnsure() le migrera dans le journal.
+  state.factures = snap.factures || [];
+  state.factureActiveId = snap.factureActiveId || '';
+  state.facture = (!state.factures.length && snap.facture) ? snap.facture : null;
   state.vts = snap.vts || [];
   Object.assign(state.settings, snap.settings || {});
   document.body.classList.remove('frozen');
@@ -4586,6 +4674,16 @@ $('#saveParams').addEventListener('click', ()=>{
   saveLS();
   $('#saveParams').textContent='✅ Enregistré'; setTimeout(()=>$('#saveParams').textContent='💾 Enregistrer',1500);
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6983,6 +7081,1447 @@ async function propDownload(){
     setTimeout(()=>{ if(btn){ btn.disabled=false; btn.textContent='⬇️ Télécharger'; } }, 1800);
   }
 }
+
+/* ---------- pdf_facture.js ---------- */
+/* ==========================================================================
+   Générateur PDF — Facture OT Énergie
+   --------------------------------------------------------------------------
+   Fichier destiné à être collé À LA SUITE de pdf_proposition.js dans le même
+   <script> d'un monofichier HTML. Vanilla JS pur : pas d'import/export ES
+   module. Réutilise sans les redéfinir les helpers déjà déclarés par le
+   générateur du devis (couleurs, eur(), centerText(), ensureSpace(),
+   drawLogo(), drawFooter(), safeText(), sanitizeStringFields(), MARGIN,
+   CONTENT_TOP, CONTENT_BOTTOM_LIMIT, AUTOTABLE_BOTTOM_MARGIN, _resolveJsPDF).
+   Toutes les fonctions propres à ce fichier sont préfixées `fac` pour éviter
+   toute collision une fois les deux fichiers assemblés.
+
+   Contrat : voir CONTRAT_FACTURE.md. buildFacturePdf(model) ne lit QUE les
+   clés listées en section 3 du contrat (liste blanche stricte). Aucun calcul
+   métier : les totaux arrivent déjà calculés. La seule arithmétique faite ici
+   est purement d'affichage (solde = net à payer - acompte déjà versé), pour
+   la ligne « Solde à payer » explicitement demandée par le contrat.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Sanitisation défensive — même logique que sanitizeModel() du devis, mais
+   sur la forme du modèle facture (clés différentes). Ne réutilise QUE
+   safeText()/sanitizeStringFields(), déjà déclarés par pdf_proposition.js.
+   -------------------------------------------------------------------------- */
+function facSanitizeModel(model) {
+  const m = model || {};
+  const f = m.facture || {};
+  const r = m.reglement || {};
+  const men = m.mentions || {};
+  return {
+    logoDataUrl: m.logoDataUrl, // data URI — jamais passée dans safeText
+    emetteur: sanitizeStringFields(m.emetteur),
+    chantier: sanitizeStringFields(m.chantier),
+    destinataire: sanitizeStringFields(m.destinataire),
+    typeDoc: safeText(m.typeDoc) || 'facture',
+    titreDoc: safeText(m.titreDoc) || 'FACTURE',
+    facture: {
+      numero: safeText(f.numero),
+      dateEmission: safeText(f.dateEmission),
+      dateEcheance: safeText(f.dateEcheance),
+      delaiJours: f.delaiJours,
+      refProposition: safeText(f.refProposition),
+      refProjet: safeText(f.refProjet),
+      avoirSurNumero: safeText(f.avoirSurNumero),
+      avoirSurDate: safeText(f.avoirSurDate),
+    },
+    sections: (m.sections || []).map((s) => ({
+      titre: safeText(s.titre),
+      sousTitre: safeText(s.sousTitre),
+      notes: safeText(s.notes),
+      sousTotalHT: s.sousTotalHT,
+      lignes: (s.lignes || []).map((l) => ({
+        designation: safeText(l.designation),
+        unite: safeText(l.unite),
+        qte: l.qte,
+        puHT: l.puHT,
+        totalHT: l.totalHT,
+      })),
+    })),
+    totaux: m.totaux || {},
+    reglement: {
+      mode: safeText(r.mode),
+      banque: safeText(r.banque),
+      iban: safeText(r.iban),
+      bic: safeText(r.bic),
+      acomptePct: r.acomptePct,
+      acompteMontant: r.acompteMontant,
+      acomptes: (r.acomptes || []).map((a) => ({
+        numero: safeText(a.numero),
+        date: safeText(a.date),
+        montant: a.montant,
+      })),
+    },
+    mentions: {
+      typeTexte: safeText(men.typeTexte),
+      penalitesTexte: safeText(men.penalitesTexte),
+      indemniteTexte: safeText(men.indemniteTexte),
+      escompteTexte: safeText(men.escompteTexte),
+      tvaTexte: safeText(men.tvaTexte),
+      cgvTexte: safeText(men.cgvTexte),
+    },
+  };
+}
+
+/* --------------------------------------------------------------------------
+   1. Bandeau d'en-tête — logo + "FACTURE N° : ..." + date/échéance + filet
+   -------------------------------------------------------------------------- */
+function facDrawHeader(doc, model) {
+  const W = doc.internal.pageSize.getWidth();
+  const f = model.facture || {};
+
+  drawLogo(doc, model, MARGIN, 10, 40);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  setText(doc, COLOR_BLUE);
+  const estAvoir = model.typeDoc === 'avoir';
+  const title = (model.titreDoc || 'FACTURE') + ' N° : ' + (f.numero || '');
+  const tw = doc.getTextWidth(title);
+  doc.text(title, W - MARGIN - tw, 20);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  const dateLine = 'Date : ' + (f.dateEmission || '');
+  const dw = doc.getTextWidth(dateLine);
+  doc.text(dateLine, W - MARGIN - dw, 27);
+  // Un avoir n'appelle aucun règlement : afficher une échéance y serait faux.
+  // On lui substitue la référence de la facture annulée.
+  const ligne2 = estAvoir
+    ? (f.avoirSurNumero ? 'Annule la facture ' + f.avoirSurNumero + (f.avoirSurDate ? ' du ' + f.avoirSurDate : '') : '')
+    : 'Échéance : ' + (f.dateEcheance || '');
+  if (ligne2) {
+    const ew = doc.getTextWidth(ligne2);
+    doc.text(ligne2, W - MARGIN - ew, 33);
+  }
+
+  setDraw(doc, COLOR_BLUE);
+  doc.setLineWidth(0.8);
+  doc.line(MARGIN, 37, W - MARGIN, 37);
+
+  return CONTENT_TOP;
+}
+
+/* --------------------------------------------------------------------------
+   En-tête de continuation (pages 2+) — dessiné en passe finale, dans la
+   zone haute laissée libre par CONTENT_TOP sur les pages ajoutées en cours
+   de rendu (autoTable respecte margin.top = CONTENT_TOP).
+   -------------------------------------------------------------------------- */
+function facDrawContinuationHeader(doc, model) {
+  const W = doc.internal.pageSize.getWidth();
+  const f = model.facture || {};
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(doc, COLOR_GRAY_LIGHT_TEXT);
+  const libelle = model.typeDoc === 'avoir' ? 'Avoir n° '
+                : model.typeDoc === 'acompte' ? 'Facture d\'acompte n° ' : 'Facture n° ';
+  doc.text(libelle + (f.numero || '') + ' (suite)', MARGIN, 16);
+
+  drawLogo(doc, model, W - MARGIN - 22, 7, 22);
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  doc.line(MARGIN, 24, W - MARGIN, 24);
+}
+
+/* --------------------------------------------------------------------------
+   2. Émetteur (gauche, texte libre) / Destinataire (droite, encadré)
+   -------------------------------------------------------------------------- */
+function facDrawParties(doc, model, y) {
+  const colW = 82;
+  const leftX = MARGIN;
+  const rightX = MARGIN + colW + 10;
+
+  const e = model.emetteur || {};
+  let ly = y + 5;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text('ÉMETTEUR', leftX, ly);
+  ly += 6;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  setText(doc, COLOR_GRAY_TEXT);
+  doc.text(e.raisonSociale || '', leftX, ly);
+  ly += 5.2;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  [
+    e.capital,
+    e.siret,
+    e.tva,
+    e.adresse1,
+    e.adresse2,
+    e.tel,
+    e.email,
+    e.site,
+  ].filter(Boolean).forEach((t) => { doc.text(t, leftX, ly); ly += 4.4; });
+
+  const d = model.destinataire || {};
+  const nomComplet = [d.prenom, d.nom].filter(Boolean).join(' ');
+  const destTitle = d.personneMorale || nomComplet;
+
+  const corps = [];
+  const forme = String(d.typeProprietaire || '').trim();
+  if (forme && destTitle && !new RegExp('(^|\\s)' + forme.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(destTitle)) {
+    corps.push(forme);
+  }
+  if (d.personneMorale && nomComplet) corps.push("A l'attention de " + nomComplet);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.splitTextToSize(d.adresseFacturation || '', colW - 12).filter(Boolean).forEach((l) => corps.push(l));
+  if (d.tel) corps.push('Tél : ' + d.tel);
+  if (d.email) corps.push(d.email);
+
+  const boxH = Math.max(26, 13 + (destTitle ? 5 : 0) + corps.length * 4.4 + 6);
+  const ry = y;
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  setFill(doc, COLOR_WHITE);
+  doc.roundedRect(rightX, ry, colW, boxH, 1.5, 1.5, 'S');
+
+  let dy = ry + 7;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text('DESTINATAIRE', rightX + 6, dy);
+  dy += 6;
+
+  if (destTitle) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    setText(doc, COLOR_GRAY_TEXT);
+    doc.text(destTitle, rightX + 6, dy);
+    dy += 5;
+  }
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(doc, COLOR_GRAY_TEXT);
+  corps.forEach((l) => { doc.text(l, rightX + 6, dy); dy += 4.4; });
+
+  return Math.max(ly, ry + boxH) + 8;
+}
+
+/* --------------------------------------------------------------------------
+   3. Référence — ligne discrète, chaque référence omise si vide
+   -------------------------------------------------------------------------- */
+function facDrawReference(doc, model, y) {
+  const f = model.facture || {};
+  const parts = [];
+  if (f.refProjet) parts.push('Réf. projet : ' + f.refProjet);
+  if (f.refProposition) parts.push('Réf. devis : ' + f.refProposition);
+  if (!parts.length) return y;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  setText(doc, COLOR_GRAY_LIGHT_TEXT);
+  doc.text(parts.join('    ·    '), MARGIN, y);
+  return y + 7;
+}
+
+/* --------------------------------------------------------------------------
+   4. Tableau des prestations, groupé par section avec sous-total
+   -------------------------------------------------------------------------- */
+function facDrawSections(doc, model, y) {
+  const W = doc.internal.pageSize.getWidth();
+  const width = W - 2 * MARGIN;
+  const sections = model.sections || [];
+
+  sections.forEach((s) => {
+    let headingH = 0;
+    if (s.titre) headingH += 6;
+    if (s.sousTitre) headingH += 5.5;
+    let noteLines = [];
+    if (s.notes) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      noteLines = doc.splitTextToSize('Remarque : ' + s.notes, width);
+      headingH += noteLines.length * 3.8;
+    }
+    if (headingH) headingH += 2;
+
+    if (headingH) y = ensureSpace(doc, y, headingH + 16);
+
+    if (s.titre) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(11);
+      setText(doc, COLOR_BLUE);
+      doc.text(s.titre, MARGIN, y);
+      y += 6;
+    }
+    if (s.sousTitre) {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      setText(doc, COLOR_MAGENTA);
+      doc.text(s.sousTitre, MARGIN, y);
+      y += 5.5;
+    }
+    if (noteLines.length) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(8);
+      setText(doc, COLOR_GRAY_LIGHT_TEXT);
+      noteLines.forEach((l) => { doc.text(l, MARGIN, y); y += 3.8; });
+    }
+    if (headingH) y += 2;
+
+    const lignes = s.lignes || [];
+    const body = lignes.map((l) => [
+      l.designation || '',
+      l.unite || '',
+      formatQte(l.qte),
+      eur(l.puHT),
+      eur(l.totalHT),
+    ]);
+
+    doc.autoTable({
+      rowPageBreak: 'avoid',
+      startY: y,
+      margin: { left: MARGIN, right: MARGIN, top: CONTENT_TOP, bottom: AUTOTABLE_BOTTOM_MARGIN },
+      head: [['Désignation', 'Unité', 'Qté', 'PU H.T.', 'Total H.T.']],
+      body,
+      theme: 'plain',
+      styles: {
+        font: 'helvetica', fontSize: 8.6, textColor: hexToRgb(COLOR_GRAY_TEXT),
+        lineWidth: 0.1, lineColor: hexToRgb(COLOR_GRAY_LINE),
+        cellPadding: { top: 2.4, bottom: 2.4, left: 3, right: 3 }, valign: 'middle',
+      },
+      headStyles: { fillColor: hexToRgb(COLOR_BLUE), textColor: 255, fontStyle: 'bold', fontSize: 8.6 },
+      alternateRowStyles: { fillColor: hexToRgb(COLOR_ALT_ROW) },
+      columnStyles: {
+        0: { cellWidth: 78 },
+        1: { cellWidth: 16, halign: 'center' },
+        2: { cellWidth: 22, halign: 'right' },
+        3: { cellWidth: 26, halign: 'right' },
+        4: { cellWidth: 32, halign: 'right' },
+      },
+    });
+
+    y = doc.lastAutoTable.finalY;
+    y = ensureSpace(doc, y, 11);
+    setFill(doc, COLOR_SUBTOTAL_BG);
+    doc.rect(MARGIN, y, width, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.8);
+    setText(doc, COLOR_BLUE);
+    doc.text('Sous-total H.T.', MARGIN + width - 58, y + 5.4);
+    const sv = eur(s.sousTotalHT);
+    const svw = doc.getTextWidth(sv);
+    doc.text(sv, MARGIN + width - 4 - svw, y + 5.4);
+    y += 8 + 8;
+  });
+
+  return y;
+}
+
+/* --------------------------------------------------------------------------
+   5. Bloc totaux — ordre EXACT imposé par le contrat. La ligne Prime CEE
+   est OMISE (pas affichée à "-0,00 €") quand primeCee vaut 0.
+   -------------------------------------------------------------------------- */
+function facDrawTotalsBlock(doc, totaux, y, typeDoc) {
+  const t = totaux || {};
+  const W = doc.internal.pageSize.getWidth();
+  const boxW = 90;
+  const boxX = W - MARGIN - boxW;
+  const rowH = 7.2;
+  const hasPrime = Math.abs(Number(t.primeCee) || 0) > 0.004;
+
+  const rows = [
+    ['Total HT :', eur(t.baseHT)],
+    ['TVA :', eur(t.baseTVA)],
+    ['Total TTC :', eur(t.baseTTC)],
+  ];
+  if (hasPrime) rows.push(['Prime CEE :', eurNegatif(t.primeCee)]);
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.3);
+  setFill(doc, COLOR_WHITE);
+  doc.roundedRect(boxX, y, boxW, rowH * rows.length + 6, 1.2, 1.2, 'S');
+
+  let ry = y + 6.2;
+  rows.forEach((row, i) => {
+    const isPrime = hasPrime && i === rows.length - 1;
+    doc.setFont('helvetica', isPrime ? 'bold' : 'normal');
+    doc.setFontSize(9.5);
+    setText(doc, isPrime ? COLOR_RED : COLOR_GRAY_TEXT);
+    doc.text(row[0], boxX + 6, ry);
+    const vw = doc.getTextWidth(row[1]);
+    doc.text(row[1], boxX + boxW - 6 - vw, ry);
+    if (i < rows.length - 1) {
+      setDraw(doc, COLOR_GRAY_LINE);
+      doc.setLineWidth(0.15);
+      doc.line(boxX + 6, ry + 2.4, boxX + boxW - 6, ry + 2.4);
+    }
+    ry += rowH;
+  });
+
+  const netY = y + rowH * rows.length + 6 + 5;
+  const netH = 19;
+  setFill(doc, COLOR_MAGENTA);
+  doc.roundedRect(boxX, netY, boxW, netH, 1.5, 1.5, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(255, 255, 255);
+  // Un avoir ne se « paie » pas : le libellé doit dire ce que le document fait.
+  doc.text(typeDoc === 'avoir' ? 'MONTANT DE L\'AVOIR :' : 'NET À PAYER :', boxX + 6, netY + 7.8);
+
+  doc.setFontSize(15.5);
+  const val = eur(t.netAPayer);
+  const vw2 = doc.getTextWidth(val);
+  doc.text(val, boxX + boxW - 6 - vw2, netY + 15.2);
+
+  return netY + netH;
+}
+
+/* --------------------------------------------------------------------------
+   6. Règlement — mode/banque/IBAN/BIC (lignes vides omises), + acompte/solde
+   si un acompte a déjà été versé. Le calcul de solde (net à payer - acompte)
+   est purement un affichage dérivé du net déjà calculé en amont, pas un
+   calcul métier.
+   -------------------------------------------------------------------------- */
+function facDrawReglement(doc, model, y) {
+  const r = model.reglement || {};
+  const estAvoir = model.typeDoc === 'avoir';
+  let ly = y + 6;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text(estAvoir ? 'REMBOURSEMENT' : 'RÈGLEMENT', MARGIN, ly);
+  ly += 6;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  setText(doc, COLOR_GRAY_TEXT);
+  const lines = [];
+  if (r.mode) lines.push('Mode : ' + r.mode);
+  if (r.banque) lines.push('Banque : ' + r.banque);
+  if (r.iban) lines.push('IBAN : ' + r.iban);
+  if (r.bic) lines.push('BIC : ' + r.bic);
+  lines.forEach((l) => { doc.text(l, MARGIN, ly); ly += 4.6; });
+
+  // Acomptes rapprochés — détaillés un par un (numéro + date), car le client
+  // doit pouvoir rapprocher chaque ligne d'une facture qu'il a déjà reçue.
+  // Le solde est un affichage dérivé du net calculé en amont, pas un calcul
+  // métier : le net n'a JAMAIS l'acompte déjà déduit.
+  const detail = (r.acomptes || []).filter((a) => Math.abs(Number(a.montant) || 0) > 0.004);
+  const acompte = detail.length
+    ? detail.reduce((s, a) => s + (Number(a.montant) || 0), 0)
+    : (Number(r.acompteMontant) || 0);
+
+  if (Math.abs(acompte) > 0.004) {
+    const net = Number((model.totaux || {}).netAPayer) || 0;
+    const solde = net - acompte;
+    ly += 1.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    setText(doc, COLOR_GRAY_TEXT);
+    if (detail.length) {
+      doc.text('Acomptes déjà facturés :', MARGIN, ly);
+      ly += 4.6;
+      doc.setFontSize(8.5);
+      detail.forEach((a) => {
+        const ref = [a.numero, a.date ? 'du ' + a.date : ''].filter(Boolean).join(' ');
+        doc.text('– ' + (ref || 'acompte') + ' : ' + eur(a.montant), MARGIN + 3, ly);
+        ly += 4.2;
+      });
+      doc.setFontSize(9);
+    } else {
+      doc.text('Acompte déjà versé : ' + eur(acompte), MARGIN, ly);
+      ly += 4.6;
+    }
+    ly += 1;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Solde à payer : ' + eur(solde), MARGIN, ly);
+    ly += 4.6;
+  }
+
+  return ly;
+}
+
+/* --------------------------------------------------------------------------
+   7. Mentions légales — bloc réservé en un seul morceau (jamais tronqué ni
+   rejeté seul hors page) via ensureSpace() avant de dessiner quoi que ce
+   soit.
+   -------------------------------------------------------------------------- */
+function facDrawMentions(doc, model, y) {
+  const W = doc.internal.pageSize.getWidth();
+  const width = W - 2 * MARGIN;
+  const f = model.facture || {};
+  const men = model.mentions || {};
+
+  const estAvoir = model.typeDoc === 'avoir';
+  const rawLines = [];
+  // Nature du document en premier : c'est ce qui conditionne la lecture de
+  // tout ce qui suit (un avoir n'a ni délai de paiement ni pénalités).
+  if (men.typeTexte) rawLines.push(men.typeTexte);
+  if (!estAvoir && f.delaiJours !== undefined && f.delaiJours !== null && f.delaiJours !== '') {
+    rawLines.push('Délai de paiement : ' + f.delaiJours + ' jours.');
+  }
+  if (!estAvoir && men.penalitesTexte) rawLines.push(men.penalitesTexte);
+  if (!estAvoir && men.indemniteTexte) rawLines.push(men.indemniteTexte);
+  if (!estAvoir && men.escompteTexte) rawLines.push(men.escompteTexte);
+  if (men.tvaTexte) rawLines.push(men.tvaTexte);
+  if (men.cgvTexte) rawLines.push(men.cgvTexte);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.3);
+  const wrapped = [];
+  rawLines.forEach((line) => {
+    doc.splitTextToSize(line, width).forEach((l) => wrapped.push(l));
+  });
+  if (!wrapped.length) return y;
+
+  const lineH = 3.4;
+  const titreH = 6.5;
+  // +titreH : sans cela, le bloc pourrait tenir de justesse APRÈS ensureSpace
+  // puis déborder une fois le titre ajouté.
+  const needed = wrapped.length * lineH + 6 + titreH;
+  y = ensureSpace(doc, y, needed);
+
+  setDraw(doc, COLOR_GRAY_LINE);
+  doc.setLineWidth(0.2);
+  doc.line(MARGIN, y, W - MARGIN, y);
+  y += 4;
+
+  // Intitulé : quand le volume du chantier rejette ce bloc sur une page à lui,
+  // une page nue portant six lignes en 7 pt se lit comme un accident
+  // d'impression. Le titre lui donne un statut.
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  setText(doc, COLOR_BLUE);
+  doc.text('MENTIONS LÉGALES', MARGIN, y);
+  y += titreH;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.3);
+  setText(doc, COLOR_GRAY_LIGHT_TEXT);
+  wrapped.forEach((l) => { doc.text(l, MARGIN, y); y += lineH; });
+
+  return y;
+}
+
+/* --------------------------------------------------------------------------
+   8. Pied de page légal + numérotation — sur TOUTES les pages (pas de page
+   de garde à exclure ici, contrairement au devis).
+   -------------------------------------------------------------------------- */
+function facApplyFooters(doc, model) {
+  const totalPages = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    if (p > 1) facDrawContinuationHeader(doc, model);
+    drawFooter(doc, model, p, totalPages);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Orchestrateur
+   -------------------------------------------------------------------------- */
+function buildFacturePdf(model) {
+  const JsPDFCtor = _resolveJsPDF();
+  const doc = new JsPDFCtor({ unit: 'mm', format: 'a4', compress: true });
+  model = facSanitizeModel(model);
+
+  let y = facDrawHeader(doc, model);
+  y = facDrawParties(doc, model, y);
+  y = facDrawReference(doc, model, y);
+  y = facDrawSections(doc, model, y);
+
+  y = ensureSpace(doc, y, 55);
+  const totalsBottom = facDrawTotalsBlock(doc, model.totaux, y, model.typeDoc);
+  const reglBottom = facDrawReglement(doc, model, y);
+  y = Math.max(totalsBottom, reglBottom) + 8;
+
+  facDrawMentions(doc, model, y);
+
+  facApplyFooters(doc, model);
+
+  return doc;
+}
+
+/* ---------- step8_facture.js ---------- */
+/* ============================================================================
+   ÉTAPE 6 — FACTURATION
+   Un dossier ne produit pas UN document mais une SUITE de documents :
+   une facture d'acompte, puis la facture de solde qui la rapproche, et
+   éventuellement un avoir qui extourne l'ensemble. Ils vivent donc dans un
+   journal (state.factures) et non dans un champ unique.
+
+   Trois invariants, les mêmes que la proposition :
+   1. Aucun recalcul métier : on part des lignes telles quelles.
+   2. Le destinataire est le BAILLEUR, jamais l'occupant.
+   3. Ce qui part dans le PDF passe par une LISTE BLANCHE explicite.
+   Deux s'ajoutent, propres à la facturation :
+   4. Les mentions légales obligatoires (délai, pénalités, indemnité de
+      recouvrement) sont TOUJOURS présentes — ce n'est pas une option.
+   5. Un document émis ne se modifie jamais rétroactivement : on l'extourne
+      par un avoir. C'est pour cela que l'avoir est un document à part entière
+      et non un signe moins posé sur la facture d'origine.
+   ============================================================================ */
+
+const FACTURE_INDEMNITE_RECOUVREMENT = 40;   // € — art. L441-10 du Code de commerce
+
+const FACTURE_TYPES = {
+  facture: { code:'FAC', label:'Facture',  titre:'FACTURE',              icone:'🧾' },
+  acompte: { code:'ACO', label:'Acompte',  titre:'FACTURE D\'ACOMPTE',   icone:'💶' },
+  avoir:   { code:'AV',  label:'Avoir',    titre:'AVOIR',                icone:'↩️' },
+};
+function factureTypeOf(doc){ return FACTURE_TYPES[(doc && doc.type) || 'facture'] || FACTURE_TYPES.facture; }
+
+/* Disponibilité : sans proposition chiffrée, il n'y a rien à facturer. */
+function factureGate(){
+  if(!state.prop || !(state.prop.sections||[]).length)
+    return 'Établis d\'abord la proposition de travaux (étape 5) : la facturation en reprend les lignes.';
+  if(propTotaux().baseHT <= 0)
+    return 'La proposition ne comporte aucun montant. Complète-la avant de facturer.';
+  return null;
+}
+
+/* ── Journal des documents ────────────────────────────────────────────────
+   state.facture reste le document AFFICHÉ. C'est le même objet que celui
+   présent dans state.factures — pas une copie — pour que tout le code
+   d'édition existant continue d'écrire au bon endroit. */
+function factureDocs(){ if(!Array.isArray(state.factures)) state.factures = []; return state.factures; }
+
+function factureNumero(type){
+  const t = FACTURE_TYPES[type] || FACTURE_TYPES.facture;
+  const an = new Date().getFullYear();
+  const prefixe = t.code + '-' + an + '-';
+  let max = 0;
+  const compter = v => {
+    const m = String(v||'').match(new RegExp('^' + t.code + '-' + an + '-(\\d+)$'));
+    if(m) max = Math.max(max, parseInt(m[1], 10));
+  };
+  factureDocs().forEach(d => compter(d.numero));
+  // L'historique porte les documents des dossiers précédents : la numérotation
+  // doit rester continue d'un dossier à l'autre, c'est une exigence légale.
+  try{ (HistoryStore._lsAll()||[]).forEach(h => h && h.resume && compter(h.resume.numeroDevis)); }catch(_){}
+  return prefixe + String(max + 1).padStart(3,'0');
+}
+
+function factureNouvelId(){ return 'doc' + Date.now() + Math.floor(Math.random()*1000); }
+
+/* Squelette commun. Les champs d'identité viennent de la proposition : c'est
+   le même client, le même chantier, quel que soit le type de document. */
+function factureBase(type){
+  const p = state.prop || {}, s = state.settings;
+  const today = new Date();
+  const delai = num(s.otDelaiPaiement) || 30;
+  const ech = new Date(today.getTime()); ech.setDate(ech.getDate() + delai);
+  return {
+    id: factureNouvelId(),
+    type: type || 'facture',
+    numero: factureNumero(type),
+    dateEmission: today.toISOString().slice(0,10),
+    dateEcheance: ech.toISOString().slice(0,10),
+    delaiJours: delai,
+    echeanceManuelle: false,
+    refProposition: p.devis ? (p.devis.numero||'') : '',
+    refProjet: (p.devis && p.devis.refProjet) || state.nomDossier || '',
+    chantier: JSON.parse(JSON.stringify(p.chantier || {adresse:'',cp:'',ville:''})),
+    bailleur: JSON.parse(JSON.stringify(p.bailleur || {})),
+    tvaPct: num(p.tvaPct) || PROP_TVA_DEFAUT,
+    deduirePrime: false,
+    primeCee: 0,
+    acomptes: [],        // acomptes rapprochés — voir factureAcomptesDeduits()
+    avoirSur: null,      // { docId, numero, dateEmission } pour un avoir
+    reglement: { mode:'Virement bancaire' },
+    sections: [],
+    notes: '',
+  };
+}
+
+/* Facture de solde : copie profonde de la proposition. On DUPLIQUE les lignes
+   plutôt que de les référencer — modifier la facture ne doit jamais altérer le
+   devis déjà envoyé au client. */
+function factureCreate(){
+  const t = propTotaux();
+  const d = factureBase('facture');
+  // Prime CEE : déduite par défaut, car c'est ce que le client attend. Décochable
+  // si la prime est versée directement au client par le pollueur.
+  d.deduirePrime = true;
+  d.primeCee = round2(t.primeCee);
+  d.sections = JSON.parse(JSON.stringify((state.prop||{}).sections || []));
+  return d;
+}
+
+/* Acompte. Deux origines possibles, c'est le point du besoin :
+   - 'libre'  : une ligne vierge, l'utilisateur décide service / quantité / P.U.
+   - un docId : on repart des lignes d'un document déjà établi, puis on ajuste.
+   Dans les deux cas tout reste éditable : un acompte n'est pas une règle de
+   trois sur le devis, c'est un montant négocié. */
+function factureCreateAcompte(origine){
+  const d = factureBase('acompte');
+  if(origine === 'libre' || !origine){
+    d.sections = [{
+      id:'fs'+Date.now(), kind:'libre', vtKey:'', refLot:'', occupant:'',
+      titreLibre:'Acompte', tvaPct:null, notes:'',
+      lignes:[{ id:'fl'+Date.now(), cat:'', designation:'Acompte sur travaux',
+                unite:'forfait', qte:1, puHT:0, disabled:false, manuelle:true }],
+      collapsed:false
+    }];
+  }else{
+    const src = origine === 'prop' ? { sections:(state.prop||{}).sections||[] }
+                                   : factureDocs().find(x=>x.id===origine);
+    d.sections = JSON.parse(JSON.stringify((src && src.sections) || []));
+  }
+  // Un acompte n'emporte pas la prime CEE : elle se déduit sur la facture
+  // définitive, sinon elle serait comptée deux fois.
+  d.deduirePrime = false; d.primeCee = 0;
+  return d;
+}
+
+/* Avoir — extourne un document existant. Les quantités sont inversées plutôt
+   que les prix unitaires : le P.U. reste lisible sur le document, et le total
+   ressort négatif. La prime s'inverse aussi, sans quoi le net à payer serait
+   faux (net = TTC − prime : avec un TTC négatif et une prime positive, on
+   aggraverait l'avoir du montant de la prime au lieu de l'annuler). */
+function factureCreateAvoir(srcId){
+  const src = factureDocs().find(x=>x.id===srcId);
+  const d = factureBase('avoir');
+  if(src){
+    d.sections = JSON.parse(JSON.stringify(src.sections||[]));
+    d.sections.forEach(sec => (sec.lignes||[]).forEach(l => { l.qte = -num(l.qte); }));
+    d.deduirePrime = !!src.deduirePrime;
+    d.primeCee = -round2(num(src.primeCee));
+    d.tvaPct = src.tvaPct;
+    d.refProposition = src.refProposition;
+    d.avoirSur = { docId: src.id, numero: src.numero, dateEmission: src.dateEmission };
+    d.notes = 'Avoir annulant la facture n° ' + (src.numero||'') + '.';
+  }
+  return d;
+}
+
+/* Migration + garantie d'un document actif. L'ancien format (un seul
+   state.facture, un champ acompteMontant scalaire) est converti ici. */
+function factureEnsure(){
+  const docs = factureDocs();
+  if(state.facture && !state.facture.id && !docs.length){
+    const vieux = state.facture;
+    vieux.id = factureNouvelId();
+    vieux.type = vieux.type || 'facture';
+    docs.push(vieux);
+    state.factureActiveId = vieux.id;
+  }
+  if(!docs.length){ const d = factureCreate(); docs.push(d); state.factureActiveId = d.id; }
+  let actif = docs.find(d=>d.id === state.factureActiveId);
+  if(!actif){ actif = docs[0]; state.factureActiveId = actif.id; }
+  state.facture = actif;
+
+  docs.forEach(f=>{
+    f.sections = f.sections || [];
+    f.reglement = f.reglement || { mode:'Virement bancaire' };
+    if(f.deduirePrime === undefined) f.deduirePrime = true;
+    if(!Array.isArray(f.acomptes)){
+      // Ancien champ scalaire : on le convertit en acompte « externe » pour ne
+      // pas perdre le montant déjà saisi.
+      const m = round2(num(f.acompteMontant));
+      f.acomptes = m > 0 ? [{ id:'ac'+Date.now(), docId:null, numero:'', date:'', montant:m }] : [];
+      delete f.acompteMontant;
+    }
+  });
+  return actif;
+}
+
+function factureSetActive(id){
+  const d = factureDocs().find(x=>x.id===id); if(!d) return;
+  state.factureActiveId = id; state.facture = d;
+}
+
+/* ── Calculs ──────────────────────────────────────────────────────────────
+   Tous paramétrés par le document : le rapprochement d'acomptes doit pouvoir
+   chiffrer un AUTRE document que celui affiché. */
+function factureTvaOf(sec, doc){
+  const f = doc || state.facture;
+  return (sec && sec.tvaPct !== null && sec.tvaPct !== undefined && sec.tvaPct !== '')
+    ? num(sec.tvaPct) : num(f.tvaPct);
+}
+function factureLignesActives(sec){ return (sec.lignes||[]).filter(l=>!l.disabled); }
+function factureSectionLignes(sec){
+  return factureLignesActives(sec).map(l=>Object.assign({}, l, { totalHT: round2(num(l.qte)*num(l.puHT)) }));
+}
+function factureSousTotal(sec){
+  return round2(factureSectionLignes(sec).reduce((s,l)=>s+num(l.totalHT), 0));
+}
+
+/* Somme des acomptes rapprochés. Un acompte rattaché à un document du dossier
+   (docId) est valorisé sur CE document, pas sur le montant recopié : si
+   l'acompte est corrigé, le rapprochement suit sans ressaisie. */
+function factureAcomptesDeduits(doc){
+  const f = doc || state.facture;
+  return (f.acomptes||[]).map(a=>{
+    const src = a.docId ? factureDocs().find(x=>x.id===a.docId) : null;
+    const montant = src ? factureTotaux(src, new Set([f.id])).netAPayer : round2(num(a.montant));
+    return { id:a.id, docId:a.docId||null, numero: src ? src.numero : (a.numero||''),
+             date: src ? src.dateEmission : (a.date||''), montant: round2(montant), lie: !!src };
+  });
+}
+
+/* _vus : garde anti-boucle. Rien n'interdit à un utilisateur de rapprocher A sur
+   B puis B sur A ; sans cette garde le calcul récursif ne terminerait pas. Un
+   document déjà traversé compte pour zéro plutôt que de faire tomber l'appli. */
+function factureTotaux(doc, _vus){
+  const f = doc || state.facture;
+  const vus = _vus || new Set();
+  if(f.id){ if(vus.has(f.id)) return { baseHT:0, baseTVA:0, baseTTC:0, primeCee:0, acompte:0, netAPayer:0, solde:0 }; vus.add(f.id); }
+  let baseHT = 0, baseTVA = 0;
+  (f.sections||[]).forEach(sec=>{
+    const st = factureSousTotal(sec);
+    baseHT += st;
+    baseTVA += st * factureTvaOf(sec, f)/100;
+  });
+  baseHT = round2(baseHT); baseTVA = round2(baseTVA);
+  const baseTTC = round2(baseHT + baseTVA);
+  const prime = f.deduirePrime ? round2(num(f.primeCee)) : 0;
+  /* netAPayer = le MONTANT DU DOCUMENT (TTC moins prime), acomptes NON déduits.
+     Les acomptes se retranchent plus bas, dans le bloc règlement, pour donner
+     le solde — présentation habituelle d'une facture avec acompte, et ce que le
+     générateur PDF attend. Les déduire ici les retirerait deux fois. */
+  const net = round2(baseTTC - prime);
+  const lignesAc = (f.acomptes||[]).map(a=>{
+    const src = a.docId ? factureDocs().find(x=>x.id===a.docId) : null;
+    return src ? factureTotaux(src, vus).netAPayer : round2(num(a.montant));
+  });
+  const acompte = round2(lignesAc.reduce((s,v)=>s+num(v), 0));
+  return { baseHT, baseTVA, baseTTC, primeCee: prime, acompte,
+           netAPayer: net, solde: round2(net - acompte) };
+}
+
+/* ── Rendu ───────────────────────────────────────────────────────────────── */
+function renderStep8(){
+  const box = $('#step8Body'); if(!box) return;
+  const blocked = factureGate();
+  if(blocked){
+    box.innerHTML = '<div class="alert warn">🔒 <strong>Étape indisponible.</strong> '+esc(blocked)+'</div>'
+      + '<div class="actions"><button class="btn ghost" data-goto="step7">← Aller à la proposition</button></div>';
+    return;
+  }
+  const f = factureEnsure();
+  if(!FROZEN) saveLS();
+  const t = factureTotaux(f);
+  const ro = FROZEN ? ' disabled' : '';
+
+  box.innerHTML =
+    factureBarreDocsHtml(f, ro) +
+    factureInfosHtml(f, ro) +
+    (f.sections||[]).map(sec=>factureSectionHtml(sec, ro, f)).join('') +
+    factureAddSectionHtml(ro) +
+    factureTotauxHtml(t, f, ro) +
+    (f.type === 'avoir' ? '' : factureAcomptesHtml(f, ro)) +
+    factureReglementHtml(f, ro) +
+    factureActionsHtml(ro, f);
+  factureBind(box);
+}
+
+/* Barre de documents : le dossier peut en porter plusieurs, il faut voir
+   lesquels existent et basculer de l'un à l'autre sans quitter l'étape. */
+function factureBarreDocsHtml(actif, ro){
+  const docs = factureDocs();
+  const onglets = docs.map(d=>{
+    const ty = factureTypeOf(d);
+    const t = factureTotaux(d);
+    const on = d.id === actif.id;
+    return '<button class="btn small'+(on?' blue':' ghost')+' allow-frozen" data-fdoc="'+esc(d.id)+'" '
+      + 'title="'+esc(ty.label+' '+(d.numero||'')+' — net '+eur(t.netAPayer))+'">'
+      + ty.icone + ' ' + esc(d.numero || ty.label)
+      + ' <span style="opacity:.75">'+eur(t.netAPayer)+'</span></button>';
+  }).join(' ');
+
+  const optsSrc = [{v:'libre', l:'saisie libre (je décide tout)'}, {v:'prop', l:'reprendre la proposition'}]
+    .concat(docs.filter(d=>d.type!=='avoir').map(d=>({v:d.id, l:'reprendre '+(d.numero||factureTypeOf(d).label)})));
+  const optsAvoir = docs.filter(d=>d.type!=='avoir')
+    .map(d=>'<option value="'+esc(d.id)+'">'+esc(d.numero||factureTypeOf(d).label)+'</option>').join('');
+
+  return '<div class="prop-sec" style="margin-bottom:14px"><div class="body" style="display:block;padding-top:12px">'
+    + '<label class="fld" style="margin-bottom:6px;display:block">Documents de ce dossier</label>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">' + onglets + '</div>'
+    + '<hr style="margin:12px 0"/>'
+    + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">'
+    + '<div><label class="fld">Nouvel acompte — origine</label>'
+    + '<div style="display:flex;gap:6px"><select id="facAcoSrc" style="min-width:230px"'+ro+'>'
+    + optsSrc.map(o=>'<option value="'+esc(o.v)+'">'+esc(o.l)+'</option>').join('')
+    + '</select><button class="btn small blue allow-frozen" id="facNewAco"'+ro+'>💶 Créer l\'acompte</button></div></div>'
+    + '<div><label class="fld">Extourner un document</label>'
+    + '<div style="display:flex;gap:6px"><select id="facAvoirSrc" style="min-width:180px"'+ro+(optsAvoir?'':' disabled')+'>'
+    + (optsAvoir || '<option>aucun document</option>') + '</select>'
+    + '<button class="btn small danger allow-frozen" id="facNewAvoir"'+(optsAvoir?ro:' disabled')+'>↩️ Créer l\'avoir</button></div></div>'
+    + '<span style="flex:1"></span>'
+    + '<button class="btn small ghost allow-frozen" id="facNewFac"'+ro+' title="Nouvelle facture reprenant la proposition">🧾 Nouvelle facture</button>'
+    + (docs.length > 1 ? '<button class="btn small ghost allow-frozen" id="facDelDoc"'+ro+' style="color:#c0392b" title="Supprimer le document affiché">🗑 Supprimer</button>' : '')
+    + '</div></div></div>';
+}
+
+function factureInfosHtml(f, ro){
+  const ty = factureTypeOf(f);
+  const fld = (id, label, val, ph, type) =>
+    '<div class="col"><label class="fld">'+esc(label)+'</label>'
+    + '<input type="'+(type||'text')+'" data-fac="'+id+'" value="'+esc(val==null?'':val)+'" placeholder="'+esc(ph||'')+'"'+ro+' /></div>';
+  const bandeau = f.type === 'avoir'
+    ? '<div class="alert warn" style="margin:0 0 10px">↩️ <strong>Avoir</strong>'
+      + (f.avoirSur ? ' annulant la facture <strong>'+esc(f.avoirSur.numero||'')+'</strong>' : '')
+      + '. Les montants sont négatifs : ce document rembourse ou annule, il n\'appelle pas de paiement.</div>'
+    : f.type === 'acompte'
+      ? '<div class="alert info" style="margin:0 0 10px">💶 <strong>Facture d\'acompte.</strong> Désignation, quantité et prix unitaire sont libres. '
+        + 'Elle sera déductible de la facture définitive via le bloc « Acomptes déjà facturés ».</div>'
+      : '';
+  return '<div class="prop-sec"><div class="head" data-toggle="facinfos"><span class="caret">▾</span>'
+    + '<span class="ttl">'+ty.icone+' Informations — '+esc(ty.label)+'</span>'
+    + '<span class="sub">numéro, dates, destinataire</span></div><div class="body">'
+    + bandeau
+    + '<div class="row">'
+    + fld('numero','Numéro', f.numero, ty.code+'-2026-001')
+    + fld('dateEmission','Date d\'émission', f.dateEmission, '', 'date')
+    + fld('dateEcheance','Échéance', f.dateEcheance, '', 'date')
+    + fld('refProposition','Réf. devis', f.refProposition, 'OTE-2026-001')
+    + '</div>'
+    + '<div class="row">'
+    + fld('refProjet','Réf. projet', f.refProjet, 'Nom du dossier')
+    + fld('chantier.adresse','Adresse du chantier', f.chantier.adresse, '')
+    + fld('chantier.cp','Code postal', f.chantier.cp, '')
+    + fld('chantier.ville','Ville', f.chantier.ville, '')
+    + '</div>'
+    + '<hr/><h3 style="font-size:13px;color:var(--text-muted);margin:0 0 4px">Destinataire — le bailleur</h3>'
+    + '<p class="hint" style="margin:0 0 8px">Repris de la proposition. C\'est la personne qui <strong>paie</strong> — jamais l\'occupant du logement.</p>'
+    + '<div class="row">'
+    + '<div class="col"><label class="fld">Type de propriétaire</label><select data-fac="bailleur.typeProprietaire"'+ro+'>'
+    + ['','SCI','Particulier','Autre'].map(v=>'<option value="'+esc(v)+'"'+(f.bailleur.typeProprietaire===v?' selected':'')+'>'+(v||'— à préciser —')+'</option>').join('')
+    + '</select></div>'
+    + fld('bailleur.personneMorale','Personne morale', f.bailleur.personneMorale, 'SCI, société de gestion…')
+    + fld('bailleur.nom','Nom', f.bailleur.nom, '')
+    + fld('bailleur.prenom','Prénom', f.bailleur.prenom, '')
+    + '</div><div class="row">'
+    + fld('bailleur.adresseFacturation','Adresse de facturation', f.bailleur.adresseFacturation, '')
+    + fld('bailleur.tel','Téléphone', f.bailleur.tel, '')
+    + fld('bailleur.email','E-mail', f.bailleur.email, '')
+    + '</div></div></div>';
+}
+
+function factureSectionHtml(sec, ro, doc){
+  const f = doc || state.facture;
+  const lignes = factureSectionLignes(sec);
+  const st = factureSousTotal(sec);
+  const sousTitre = propSectionSousTitre(sec);
+  const negatif = f.type === 'avoir';
+  const rows = (sec.lignes||[]).map(l=>{
+    const off = !!l.disabled;
+    const lock = (off || ro) ? ' disabled' : '';
+    const shown = lignes.find(x=>x.id===l.id);
+    const tot = shown ? shown.totalHT : 0;
+    // Sur un avoir, une ligne négative est normale : ce qui est vide, c'est zéro.
+    const vide = !off && (negatif ? round2(tot) === 0 : (num(l.qte) <= 0 || round2(tot) <= 0));
+    const titre = off ? ' title="Ligne exclue — absente des totaux et du document. ↺ pour la rétablir."'
+                : vide ? ' title="Montant à zéro : cette ligne n\'apparaîtra pas sur le document."' : '';
+    return '<tr'+(off?' class="row-off"':'')+titre+(vide?' style="background:#fffbf0"':'')+'>'
+      + '<td><textarea rows="2" data-fl="'+sec.id+'|'+l.id+'|designation"'+lock+'>'+esc(l.designation)+'</textarea></td>'
+      + '<td style="width:88px"><select data-fl="'+sec.id+'|'+l.id+'|unite"'+lock+'>'
+        + PROP_UNITES.map(u=>'<option'+(l.unite===u?' selected':'')+'>'+u+'</option>').join('')+'</select></td>'
+      + '<td class="num" style="width:104px"><input type="number" step="0.01" data-fl="'+sec.id+'|'+l.id+'|qte" value="'+esc(l.qte)+'"'+lock+' /></td>'
+      + '<td class="num" style="width:118px"><input type="number" step="0.01" data-fl="'+sec.id+'|'+l.id+'|puHT" value="'+esc(round2(num(l.puHT)))+'"'+lock+' /></td>'
+      + '<td class="num" style="width:120px;white-space:nowrap'+(tot<0?';color:#c0392b':'')+'">'+(off?'—':eur(tot))
+        + (vide?'<br><small style="color:#c47f17;font-weight:600">non facturée</small>':'')+'</td>'
+      + '<td style="white-space:nowrap;width:92px">'
+        + '<button class="btn danger small allow-frozen" data-foff="'+sec.id+'|'+l.id+'"'+(off||ro?' disabled':'')+' title="Exclure cette ligne">✕</button> '
+        + '<button class="btn small ghost allow-frozen" data-fon="'+sec.id+'|'+l.id+'"'+(!off||ro?' disabled':'')+' title="Rétablir la ligne">↺</button>'
+      + '</td></tr>';
+  }).join('');
+
+  return '<div class="prop-sec'+(sec.collapsed?' closed':'')+'" data-fsec="'+sec.id+'">'
+    + '<div class="head" data-fsec-toggle="'+sec.id+'"><span class="caret">'+(sec.collapsed?'▸':'▾')+'</span>'
+    + '<span class="ttl">'+esc(propSectionTitre(sec))+'</span>'
+    + (sousTitre?'<span class="sub">'+esc(sousTitre)+'</span>':'')
+    + '<span class="st">'+eur(st)+'</span></div>'
+    + '<div class="body">'
+    + '<div class="row" style="margin-bottom:10px">'
+    + '<div class="col" style="max-width:170px"><label class="fld">Référence du lot</label><input type="text" data-fs="'+sec.id+'|refLot" value="'+esc(sec.refLot||'')+'"'+ro+' /></div>'
+    + '<div class="col"><label class="fld">Occupant du lot</label><input type="text" data-fs="'+sec.id+'|occupant" value="'+esc(sec.occupant||'')+'"'+ro+' /></div>'
+    + '<div class="col" style="max-width:150px"><label class="fld">TVA section (%)</label><input type="number" step="0.1" data-fs="'+sec.id+'|tvaPct" value="'+esc(sec.tvaPct==null?'':sec.tvaPct)+'" placeholder="'+esc(f.tvaPct)+'"'+ro+' /></div>'
+    + '</div>'
+    + '<table><thead><tr><th>Désignation</th><th style="width:88px">Unité</th><th class="num" style="width:104px">Quantité</th><th class="num" style="width:118px">P.U. HT</th><th class="num" style="width:120px">Total HT</th><th style="width:92px"></th></tr></thead>'
+    + '<tbody>'+(rows||'<tr><td colspan="6" style="color:var(--text-muted)">Aucune ligne.</td></tr>')+'</tbody></table>'
+    + '<div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">'
+    + '<button class="btn small ghost allow-frozen" data-fadd="'+sec.id+'"'+ro+'>＋ Ajouter une ligne</button>'
+    + '<button class="btn small danger allow-frozen" data-fdelsec="'+sec.id+'"'+ro+'>🗑 Supprimer la section</button>'
+    + '<span style="flex:1"></span><strong style="color:var(--ot-bleu)">Sous-total HT : '+eur(st)+'</strong></div>'
+    + '</div></div>';
+}
+
+function factureAddSectionHtml(ro){
+  return '<div style="margin:6px 0 16px"><button class="btn small ghost allow-frozen" id="facAddSec"'+ro+'>＋ Ajouter une section</button>'
+    + ' <small style="color:var(--text-muted)">pour une prestation non prévue au devis</small></div>';
+}
+
+function factureTotauxHtml(t, f, ro){
+  const libelleNet = f.type === 'avoir' ? 'Montant de l\'avoir' : 'Net à payer';
+  return '<div class="prop-tot">'
+    + '<div class="l"><span>Total HT</span><span>'+eur(t.baseHT)+'</span></div>'
+    + '<div class="l"><span>TVA</span><span>'+eur(t.baseTVA)+'</span></div>'
+    + '<div class="l"><span>Total TTC</span><span>'+eur(t.baseTTC)+'</span></div>'
+    + (Math.abs(t.primeCee) > 0 ? '<div class="l prime"><span>Prime CEE déduite</span><span>'+(t.primeCee>0?'-':'+')+eur(Math.abs(t.primeCee))+'</span></div>' : '')
+    + '<div class="l rac"><span>'+libelleNet+'</span><span>'+eur(t.netAPayer)+'</span></div>'
+    + (t.acompte !== 0
+        ? '<div class="l" style="margin-top:6px"><span>Acomptes déjà facturés</span><span style="color:#c0392b">-'+eur(t.acompte)+'</span></div>'
+          + '<div class="l" style="border-top:1px solid var(--ot-filet);padding-top:6px"><span><strong>Solde à payer</strong></span><span><strong>'+eur(t.solde)+'</strong></span></div>'
+        : '')
+    + '</div>'
+    + '<div style="display:flex;gap:18px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px">'
+    + '<label style="display:flex;align-items:center;gap:7px;font-size:13px">'
+    + '<input type="checkbox" data-fac="deduirePrime"'+(f.deduirePrime?' checked':'')+ro+' /> Déduire la prime CEE ('+eur(f.primeCee)+')</label>'
+    + '<div style="max-width:180px"><label class="fld">Prime CEE (€)</label>'
+    + '<input type="number" step="0.01" data-fac="primeCee" value="'+esc(round2(num(f.primeCee)))+'"'+ro+' /></div>'
+    + '<div style="max-width:150px"><label class="fld">TVA globale (%)</label>'
+    + '<input type="number" step="0.1" data-fac="tvaPct" value="'+esc(f.tvaPct)+'"'+ro+' /></div>'
+    + '</div>';
+}
+
+/* Rapprochement. Un acompte du dossier est coché : il est alors valorisé sur le
+   document lui-même (et suit ses corrections). Un acompte émis hors de l'appli
+   se saisit à la main — numéro, date, montant. */
+function factureAcomptesHtml(f, ro){
+  const dispo = factureDocs().filter(d=>d.type==='acompte' && d.id!==f.id);
+  const liees = new Set((f.acomptes||[]).map(a=>a.docId).filter(Boolean));
+  const lignes = factureAcomptesDeduits(f);
+  const total = round2(lignes.reduce((s,a)=>s+a.montant,0));
+
+  const cases = dispo.length
+    ? dispo.map(d=>{
+        const t = factureTotaux(d);
+        return '<label style="display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px">'
+          + '<input type="checkbox" data-facolier="'+esc(d.id)+'"'+(liees.has(d.id)?' checked':'')+ro+' /> '
+          + '<strong>'+esc(d.numero||'Acompte')+'</strong> <span style="color:var(--text-muted)">du '+esc(dateFr(d.dateEmission))+'</span>'
+          + '<span style="flex:1"></span><strong>'+eur(t.netAPayer)+'</strong></label>';
+      }).join('')
+    : '<p class="hint" style="margin:4px 0">Aucune facture d\'acompte dans ce dossier. Crée-la depuis la barre du haut, ou saisis ci-dessous un acompte émis en dehors de l\'application.</p>';
+
+  const manuels = (f.acomptes||[]).filter(a=>!a.docId).map(a=>
+    '<div class="row" style="align-items:flex-end;margin-bottom:6px">'
+    + '<div class="col" style="max-width:170px"><label class="fld">N° de facture</label>'
+    + '<input type="text" data-faco="'+esc(a.id)+'|numero" value="'+esc(a.numero||'')+'" placeholder="ACO-2026-001"'+ro+' /></div>'
+    + '<div class="col" style="max-width:160px"><label class="fld">Date</label>'
+    + '<input type="date" data-faco="'+esc(a.id)+'|date" value="'+esc(a.date||'')+'"'+ro+' /></div>'
+    + '<div class="col" style="max-width:160px"><label class="fld">Montant TTC (€)</label>'
+    + '<input type="number" step="0.01" data-faco="'+esc(a.id)+'|montant" value="'+esc(round2(num(a.montant)))+'"'+ro+' /></div>'
+    + '<div class="col" style="max-width:60px"><button class="btn small danger allow-frozen" data-facodel="'+esc(a.id)+'"'+ro+' title="Retirer cet acompte">✕</button></div>'
+    + '</div>').join('');
+
+  return '<div class="prop-sec'+(lignes.length?'':' closed')+'" style="margin-top:14px">'
+    + '<div class="head" data-toggle="facaco"><span class="caret">'+(lignes.length?'▾':'▸')+'</span>'
+    + '<span class="ttl">Acomptes déjà facturés</span>'
+    + '<span class="sub">'+(lignes.length ? lignes.length+' rapproché'+(lignes.length>1?'s':'') : 'aucun rapprochement')+'</span>'
+    + '<span class="st">'+eur(total)+'</span></div><div class="body">'
+    + cases
+    + '<hr style="margin:10px 0"/>'
+    + '<label class="fld" style="display:block;margin-bottom:6px">Acompte émis hors application</label>'
+    + manuels
+    + '<button class="btn small ghost allow-frozen" id="facAcoAdd"'+ro+'>＋ Ajouter un acompte externe</button>'
+    + '</div></div>';
+}
+
+function factureReglementHtml(f, ro){
+  const s = state.settings;
+  const manque = !s.otIban;
+  return '<div class="prop-sec closed" style="margin-top:16px"><div class="head" data-toggle="facregl"><span class="caret">▸</span>'
+    + '<span class="ttl">Règlement et mentions légales</span>'
+    + '<span class="sub">'+(manque ? '⚠️ coordonnées bancaires non renseignées' : 'virement · '+esc(s.otIban))+'</span></div><div class="body">'
+    + '<div class="row"><div class="col"><label class="fld">Mode de règlement</label>'
+    + '<input type="text" data-fac="reglement.mode" value="'+esc(f.reglement.mode||'')+'"'+ro+' /></div>'
+    + '<div class="col" style="align-self:center"><small>Banque, IBAN, BIC et conditions de paiement se règlent une fois pour toutes dans <strong>⚙️ Paramètres</strong>.</small></div></div>'
+    + (manque ? '<div class="alert warn">⚠️ Aucun <strong>IBAN</strong> renseigné : le document partira sans coordonnées bancaires. Renseigne-les dans les Paramètres.</div>' : '')
+    + '<div class="alert info" style="margin-top:8px">Mentions <strong>obligatoires</strong> ajoutées automatiquement : délai de paiement de '
+    + (num(s.otDelaiPaiement)||30) + ' jours · pénalités de retard de ' + (num(s.otPenalitesPct)||13.15).toLocaleString('fr-FR')
+    + ' % par an · indemnité forfaitaire de recouvrement de ' + eur(FACTURE_INDEMNITE_RECOUVREMENT) + ' (art. L441-10 du Code de commerce).</div>'
+    + '<label class="fld" style="margin-top:10px;display:block">Note libre (imprimée sous les totaux)</label>'
+    + '<textarea class="prop-notes" data-fac="notes"'+ro+'>'+esc(f.notes||'')+'</textarea>'
+    + '</div></div>';
+}
+
+function factureActionsHtml(ro, f){
+  const ty = factureTypeOf(f);
+  return '<div class="actions" style="margin-top:18px">'
+    + '<button class="btn ghost" data-goto="step7">← Proposition</button>'
+    + (f.type === 'facture'
+        ? '<button class="btn small ghost allow-frozen" id="facReset"'+ro+' title="Reprend les lignes de la proposition. Les modifications faites ici seront perdues.">↺ Reprendre depuis la proposition</button>'
+        : '')
+    + '<span style="flex:1"></span>'
+    + '<button class="btn blue allow-frozen" id="facSim">👁️ Simulation — '+esc(ty.label.toLowerCase())+'</button>'
+    + '</div><div id="facMsg" style="margin-top:12px"></div>';
+}
+
+/* Date ISO → JJ/MM/AAAA. Utilisée à l'écran ; le PDF a sa propre conversion
+   dans la liste blanche pour ne dépendre d'aucune fonction d'affichage. */
+function dateFr(iso){
+  const d = new Date(iso); if(isNaN(d)) return '';
+  return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+}
+
+/* ---------- step8_facture_glue.js ---------- */
+/* ── Liaison des événements de la facturation ─────────────────────────────
+   Même convention que la proposition : clé composite dans un data-attribut,
+   split('|'), puis re-render. Toutes les écritures visent state.facture, qui
+   est le document AFFICHÉ du journal state.factures. */
+function factureFind(secId, ligneId){
+  const sec = (state.facture.sections||[]).find(s=>s.id===secId);
+  if(!sec) return {};
+  return { sec, ligne: ligneId ? (sec.lignes||[]).find(l=>l.id===ligneId) : null };
+}
+function factureSetPath(path, value){
+  const parts = path.split('.');
+  let o = state.facture;
+  for(let i=0;i<parts.length-1;i++){ if(!o[parts[i]]) o[parts[i]] = {}; o = o[parts[i]]; }
+  o[parts[parts.length-1]] = value;
+}
+
+/* Échéance = émission + délai des paramètres, TANT QUE l'utilisateur n'y a pas
+   touché. Dès qu'il la saisit lui-même, elle est figée : une date négociée avec
+   le client ne doit pas sauter parce qu'on corrige la date d'émission. */
+function factureMajEcheance(){
+  const f = state.facture;
+  if(f.echeanceManuelle) return;
+  const d = new Date(f.dateEmission);
+  if(isNaN(d)) return;
+  const delai = num(f.delaiJours) || num(state.settings.otDelaiPaiement) || 30;
+  d.setDate(d.getDate() + delai);
+  f.dateEcheance = d.toISOString().slice(0,10);
+}
+
+function factureBind(box){
+  const rerender = ()=>{ saveLS(); renderStep8(); };
+  const NUM = ['tvaPct','primeCee'];
+
+  box.querySelectorAll('[data-fac]').forEach(inp=>{
+    const path = inp.dataset.fac;
+    const ev = (inp.type==='checkbox' || inp.tagName==='SELECT' || inp.type==='date') ? 'change' : 'input';
+    inp.addEventListener(ev, e=>{
+      const el = e.currentTarget;
+      let v = el.type==='checkbox' ? el.checked : el.value;
+      if(NUM.includes(path)) v = num(v);
+      factureSetPath(path, v);
+      if(path === 'dateEcheance') state.facture.echeanceManuelle = true;
+      if(path === 'dateEmission') factureMajEcheance();
+      if(el.type==='checkbox' || el.type==='date' || NUM.includes(path)) rerender(); else saveLS();
+    });
+    if(ev==='input') inp.addEventListener('blur', ()=>renderStep8());
+  });
+
+  box.querySelectorAll('[data-fs]').forEach(inp=>{
+    const [secId, field] = inp.dataset.fs.split('|');
+    inp.addEventListener('input', e=>{
+      const { sec } = factureFind(secId); if(!sec) return;
+      const v = e.currentTarget.value;
+      sec[field] = (field==='tvaPct') ? (v===''?null:num(v)) : v;
+      saveLS();
+      if(field==='tvaPct') renderStep8();
+    });
+    inp.addEventListener('blur', ()=>renderStep8());
+  });
+
+  box.querySelectorAll('[data-fl]').forEach(inp=>{
+    const [secId, ligneId, field] = inp.dataset.fl.split('|');
+    const ev = inp.tagName==='SELECT' ? 'change' : 'input';
+    inp.addEventListener(ev, e=>{
+      const { ligne } = factureFind(secId, ligneId); if(!ligne) return;
+      const v = e.currentTarget.value;
+      ligne[field] = ['qte','puHT'].includes(field) ? num(v) : v;
+      saveLS();
+      if(ev==='change') renderStep8();
+    });
+    if(ev==='input') inp.addEventListener('blur', ()=>renderStep8());
+  });
+
+  box.querySelectorAll('[data-foff]').forEach(b=> b.addEventListener('click', e=>{
+    const [s,l] = e.currentTarget.dataset.foff.split('|');
+    const { ligne } = factureFind(s,l); if(ligne) ligne.disabled = true; rerender();
+  }));
+  box.querySelectorAll('[data-fon]').forEach(b=> b.addEventListener('click', e=>{
+    const [s,l] = e.currentTarget.dataset.fon.split('|');
+    const { ligne } = factureFind(s,l); if(ligne) ligne.disabled = false; rerender();
+  }));
+  box.querySelectorAll('[data-fadd]').forEach(b=> b.addEventListener('click', e=>{
+    const { sec } = factureFind(e.currentTarget.dataset.fadd); if(!sec) return;
+    sec.lignes.push({ id:'fl'+Date.now()+Math.floor(Math.random()*1000), cat:'', designation:'',
+                      unite:'forfait', qte:1, puHT:0, disabled:false, manuelle:true });
+    rerender();
+  }));
+  const addSec = box.querySelector('#facAddSec');
+  if(addSec) addSec.addEventListener('click', ()=>{
+    state.facture.sections.push({ id:'fs'+Date.now(), kind:'libre', vtKey:'', refLot:'', occupant:'',
+      titreLibre:'Prestations complémentaires', tvaPct:null, notes:'',
+      lignes:[{ id:'fl'+Date.now(), cat:'', designation:'', unite:'forfait', qte:1, puHT:0, disabled:false, manuelle:true }],
+      collapsed:false });
+    rerender();
+  });
+  box.querySelectorAll('[data-fdelsec]').forEach(b=> b.addEventListener('click', e=>{
+    const id = e.currentTarget.dataset.fdelsec;
+    if(!confirm('Supprimer cette section et toutes ses lignes du document ?')) return;
+    state.facture.sections = state.facture.sections.filter(s=>s.id!==id); rerender();
+  }));
+  box.querySelectorAll('[data-fsec-toggle]').forEach(h=> h.addEventListener('click', e=>{
+    if(e.target.closest('input,select,textarea,button')) return;
+    const { sec } = factureFind(e.currentTarget.dataset.fsecToggle); if(!sec) return;
+    sec.collapsed = !sec.collapsed; rerender();
+  }));
+  box.querySelectorAll('[data-toggle]').forEach(head=> head.addEventListener('click', e=>{
+    if(e.target.closest('input,select,textarea,button')) return;
+    const sec = head.parentElement;
+    sec.classList.toggle('closed');
+    head.querySelector('.caret').textContent = sec.classList.contains('closed') ? '▸' : '▾';
+  }));
+
+  /* ── Journal de documents ── */
+  box.querySelectorAll('[data-fdoc]').forEach(b=> b.addEventListener('click', e=>{
+    factureSetActive(e.currentTarget.dataset.fdoc); rerender();
+  }));
+  const newAco = box.querySelector('#facNewAco');
+  if(newAco) newAco.addEventListener('click', ()=>{
+    const sel = box.querySelector('#facAcoSrc');
+    const d = factureCreateAcompte(sel ? sel.value : 'libre');
+    factureDocs().push(d); factureSetActive(d.id); rerender();
+  });
+  const newAvoir = box.querySelector('#facNewAvoir');
+  if(newAvoir) newAvoir.addEventListener('click', ()=>{
+    const sel = box.querySelector('#facAvoirSrc'); if(!sel || !sel.value) return;
+    const src = factureDocs().find(x=>x.id===sel.value);
+    if(!confirm('Créer un avoir extournant '+((src&&src.numero)||'ce document')+' ?\n\n'
+      + 'Le document d\'origine reste inchangé : c\'est l\'avoir qui porte les montants négatifs.')) return;
+    const d = factureCreateAvoir(sel.value);
+    factureDocs().push(d); factureSetActive(d.id); rerender();
+  });
+  const newFac = box.querySelector('#facNewFac');
+  if(newFac) newFac.addEventListener('click', ()=>{
+    const d = factureCreate(); factureDocs().push(d); factureSetActive(d.id); rerender();
+  });
+  const delDoc = box.querySelector('#facDelDoc');
+  if(delDoc) delDoc.addEventListener('click', ()=>{
+    const docs = factureDocs();
+    if(docs.length <= 1) return;
+    const f = state.facture;
+    if(!confirm('Supprimer '+(f.numero||'ce document')+' ?\n\nCette suppression est définitive.')) return;
+    // Un document supprimé ne doit laisser aucun rapprochement fantôme derrière lui.
+    docs.forEach(d=>{ d.acomptes = (d.acomptes||[]).filter(a=>a.docId !== f.id); });
+    state.factures = docs.filter(d=>d.id !== f.id);
+    factureSetActive(state.factures[0].id); rerender();
+  });
+
+  /* ── Rapprochement d'acomptes ── */
+  box.querySelectorAll('[data-facolier]').forEach(cb=> cb.addEventListener('change', e=>{
+    const id = e.currentTarget.dataset.facolier;
+    const f = state.facture;
+    f.acomptes = f.acomptes || [];
+    if(e.currentTarget.checked){
+      if(!f.acomptes.some(a=>a.docId===id))
+        f.acomptes.push({ id:'ac'+Date.now()+Math.floor(Math.random()*1000), docId:id, numero:'', date:'', montant:0 });
+    }else{
+      f.acomptes = f.acomptes.filter(a=>a.docId!==id);
+    }
+    rerender();
+  }));
+  box.querySelectorAll('[data-faco]').forEach(inp=>{
+    const [acId, field] = inp.dataset.faco.split('|');
+    const ev = inp.type==='date' ? 'change' : 'input';
+    inp.addEventListener(ev, e=>{
+      const a = (state.facture.acomptes||[]).find(x=>x.id===acId); if(!a) return;
+      a[field] = field==='montant' ? num(e.currentTarget.value) : e.currentTarget.value;
+      saveLS();
+      if(field==='montant' || ev==='change') renderStep8();
+    });
+    if(ev==='input') inp.addEventListener('blur', ()=>renderStep8());
+  });
+  box.querySelectorAll('[data-facodel]').forEach(b=> b.addEventListener('click', e=>{
+    const id = e.currentTarget.dataset.facodel;
+    state.facture.acomptes = (state.facture.acomptes||[]).filter(a=>a.id!==id); rerender();
+  }));
+  const acoAdd = box.querySelector('#facAcoAdd');
+  if(acoAdd) acoAdd.addEventListener('click', ()=>{
+    state.facture.acomptes = state.facture.acomptes || [];
+    state.facture.acomptes.push({ id:'ac'+Date.now()+Math.floor(Math.random()*1000),
+                                  docId:null, numero:'', date:'', montant:0 });
+    rerender();
+  });
+
+  const rst = box.querySelector('#facReset');
+  if(rst) rst.addEventListener('click', ()=>{
+    if(!confirm('Reprendre les lignes depuis la proposition ?\n\nToutes les modifications faites sur cette facture seront perdues.')) return;
+    const f = state.facture;
+    const neuf = factureCreate();
+    // On garde l'identité du document (id, numéro, dates) : c'est son CONTENU
+    // qu'on réinitialise, pas son existence. Renuméroter casserait la
+    // continuité des numéros de facture.
+    neuf.id = f.id; neuf.numero = f.numero; neuf.dateEmission = f.dateEmission;
+    neuf.dateEcheance = f.dateEcheance; neuf.echeanceManuelle = f.echeanceManuelle;
+    neuf.acomptes = f.acomptes || [];
+    const i = factureDocs().findIndex(d=>d.id===f.id);
+    factureDocs()[i] = neuf; factureSetActive(neuf.id);
+    rerender();
+  });
+  const sim = box.querySelector('#facSim');
+  if(sim) sim.addEventListener('click', factureSimulate);
+}
+
+/* ── LISTE BLANCHE — ce qui entre dans le document ────────────────────────
+   Projection explicite champ par champ, comme pour le devis. Une colonne
+   ajoutée au master ne peut pas atterrir sur un document client. */
+function factureBuildPdfModel(){
+  const f = state.facture, s = state.settings, t = factureTotaux(f);
+  const ty = factureTypeOf(f);
+  const fdate = iso => { const d = new Date(iso); return isNaN(d) ? '' :
+    String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear(); };
+  // Sur un avoir les montants sont négatifs : le filtre « > 0 » écarterait
+  // toutes les lignes et produirait un document vide.
+  const garde = f.type === 'avoir' ? (l => round2(num(l.totalHT)) !== 0)
+                                   : (l => num(l.qte) > 0 && round2(num(l.totalHT)) > 0);
+
+  const sections = (f.sections||[])
+    .map(sec=>{
+      const lignes = factureSectionLignes(sec)
+        .filter(garde)
+        .map(l=>({ designation: String(l.designation||'').trim() || 'Prestation',
+                   unite: String(l.unite||''), qte: round2(num(l.qte)),
+                   puHT: round2(num(l.puHT)), totalHT: round2(num(l.totalHT)) }));
+      return { titre: propSectionTitre(sec), sousTitre: propSectionSousTitre(sec),
+               notes: '', lignes, sousTotalHT: round2(lignes.reduce((a,l)=>a+l.totalHT,0)) };
+    })
+    .filter(sec=>sec.lignes.length);
+
+  const delai = num(s.otDelaiPaiement) || 30;
+  const pen = num(s.otPenalitesPct) || 13.15;
+  const acomptes = factureAcomptesDeduits(f)
+    .filter(a=>round2(a.montant) !== 0)
+    .map(a=>({ numero: String(a.numero||''), date: fdate(a.date), montant: round2(a.montant) }));
+
+  // Mention propre au type de document. Un acompte doit annoncer qu'il sera
+  // régularisé, un avoir doit désigner la facture qu'il annule : dans les deux
+  // cas c'est une exigence de lisibilité comptable, pas un ornement.
+  const mentionType =
+      f.type === 'acompte' ? 'Facture d\'acompte : son montant sera déduit de la facture définitive des travaux.'
+    : f.type === 'avoir'   ? ('Avoir annulant la facture n° ' + ((f.avoirSur&&f.avoirSur.numero)||'—')
+                              + (f.avoirSur&&f.avoirSur.dateEmission ? ' du ' + fdate(f.avoirSur.dateEmission) : '')
+                              + '. Aucun règlement n\'est appelé par le présent document.')
+    : '';
+
+  return {
+    logoDataUrl: PROP_LOGO_OT,
+    typeDoc: f.type || 'facture',
+    titreDoc: ty.titre,
+    emetteur: {
+      raisonSociale:'OTenergie', capital: s.otLegal||'', siret:'SIRET 89060530600020', tva:'TVA FR12890605306',
+      adresse1: s.otAdr1||'', adresse2: s.otAdr2||'', tel: s.otTel||'', email: s.otEmail||'', site: s.otSite||'',
+    },
+    facture: {
+      numero: String(f.numero||''), dateEmission: fdate(f.dateEmission), dateEcheance: fdate(f.dateEcheance),
+      delaiJours: delai, refProposition: String(f.refProposition||''), refProjet: String(f.refProjet||''),
+      avoirSurNumero: f.avoirSur ? String(f.avoirSur.numero||'') : '',
+      avoirSurDate: f.avoirSur ? fdate(f.avoirSur.dateEmission) : '',
+    },
+    chantier: { adresse:String(f.chantier.adresse||''), cp:String(f.chantier.cp||''), ville:String(f.chantier.ville||'') },
+    destinataire: {
+      typeProprietaire: String(f.bailleur.typeProprietaire||''),
+      personneMorale: String(f.bailleur.personneMorale||''),
+      nom: String(f.bailleur.nom||''), prenom: String(f.bailleur.prenom||''),
+      tel: String(f.bailleur.tel||''), email: String(f.bailleur.email||''),
+      adresseFacturation: String(f.bailleur.adresseFacturation||''),
+    },
+    sections,
+    totaux: { baseHT:t.baseHT, baseTVA:t.baseTVA, baseTTC:t.baseTTC,
+              primeCee:t.primeCee, netAPayer:t.netAPayer },
+    reglement: { mode: String(f.reglement.mode||''), banque: String(s.otBanque||''),
+                 iban: String(s.otIban||''), bic: String(s.otBic||''),
+                 acomptePct: 0, acompteMontant: t.acompte, acomptes: acomptes },
+    mentions: {
+      typeTexte: mentionType,
+      penalitesTexte: 'Pénalités de retard : ' + pen.toLocaleString('fr-FR') + ' % par an, applicables dès le lendemain de la date d\'échéance.',
+      indemniteTexte: 'Indemnité forfaitaire de recouvrement : ' + FACTURE_INDEMNITE_RECOUVREMENT + ' € (art. L441-10 du Code de commerce).',
+      escompteTexte: 'Aucun escompte pour paiement anticipé.',
+      tvaTexte: '',
+      cgvTexte: 'Conditions générales de vente consultables sur ' + (s.otSite || 'www.otenergie.fr') + '.',
+      note: String(f.notes||'').trim(),
+    },
+  };
+}
+
+function factureFileName(){
+  const clean = s => String(s||'').replace(/[^\w\- ]+/g,'').replace(/\s+/g,'_').slice(0,40);
+  const ty = factureTypeOf(state.facture);
+  return ty.label + '_' + (clean(state.nomDossier)||'dossier') + '_' + (clean(state.facture.numero)||'document') + '.pdf';
+}
+
+/* Simulation : le vrai PDF, dans l'overlay déjà utilisé par la proposition. */
+async function factureSimulate(){
+  const btn = document.getElementById('facSim');
+  const msg = document.getElementById('facMsg');
+  const libelle = btn ? btn.textContent : '👁️ Simulation';
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ Génération…'; }
+  try{
+    await ensurePdfLibs();
+    const doc = buildFacturePdf(factureBuildPdfModel());
+    const blob = doc.output('blob');
+    if(_simUrl) URL.revokeObjectURL(_simUrl);
+    _simUrl = URL.createObjectURL(blob);
+    const o = propSimOverlay();
+    const t = factureTotaux(state.facture);
+    const ty = factureTypeOf(state.facture);
+    o.querySelector('.t').textContent = '👁️ Simulation — ' + ty.label.toLowerCase();
+    o.querySelector('#simSub').textContent = state.facture.numero + ' · '
+      + (state.facture.type === 'avoir' ? 'montant ' : 'net à payer ') + eur(t.netAPayer)
+      + (t.acompte !== 0 ? ' · solde ' + eur(t.solde) : '');
+    // Le bouton de téléchargement de l'overlay est partagé avec la proposition :
+    // on le remplace pour être certain qu'il pointe sur le bon document.
+    const dl = o.querySelector('#simDl');
+    const neuf = dl.cloneNode(true);
+    dl.parentNode.replaceChild(neuf, dl);
+    neuf.addEventListener('click', factureDownload);
+    o.querySelector('#simFrame').src = _simUrl;
+    o.classList.add('on');
+    if(msg) msg.innerHTML = '';
+  }catch(e){
+    if(msg) msg.innerHTML = '<div class="alert err">❌ Génération impossible : '+esc(e.message)+'</div>';
+    else alert('Génération impossible : '+e.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = libelle; }
+  }
+}
+
+async function factureDownload(){
+  const btn = document.getElementById('simDl');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳…'; }
+  try{
+    await ensurePdfLibs();
+    const doc = buildFacturePdf(factureBuildPdfModel());
+    doc.save(factureFileName());
+    if(!FROZEN){
+      const t = factureTotaux(state.facture);
+      const ty = factureTypeOf(state.facture);
+      const snap = buildDossierSnapshot();
+      snap.resume = Object.assign({}, snap.resume, {
+        typeDoc: ty.label, numeroDevis: state.facture.numero,
+        propHT: t.baseHT, propTVA: t.baseTVA, propTTC: t.baseTTC,
+        propPrime: t.primeCee, propReste: t.netAPayer,
+      });
+      try{
+        const row = CURRENT_HIST_ID ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
+                                    : await HistoryStore.save(snap);
+        if(row && row.id) CURRENT_HIST_ID = row.id;
+        _lastSavedFingerprint = dossierFingerprint(snap);
+        if(btn) btn.textContent = '✅ Téléchargé';
+        const msg = document.getElementById('facMsg');
+        if(msg) msg.innerHTML = '<div class="alert ok">'+ty.icone+' <strong>'+esc(factureFileName())+'</strong> téléchargé. '
+          + 'Le dossier est à jour dans l\'historique. <button class="btn small" data-goto="history">Voir l\'historique →</button></div>';
+      }catch(e){
+        if(btn) btn.textContent = '⚠️ PDF ok, historique KO';
+        const msg = document.getElementById('facMsg');
+        if(msg) msg.innerHTML = '<div class="alert warn">'+ty.icone+' PDF téléchargé, mais l\'enregistrement dans l\'historique a échoué : '+esc(e.message)+'</div>';
+      }
+    } else if(btn) btn.textContent = '✅ Téléchargé';
+  }catch(e){
+    alert('Téléchargement impossible : '+e.message);
+  }finally{
+    setTimeout(()=>{ if(btn){ btn.disabled=false; btn.textContent='⬇️ Télécharger'; } }, 1800);
+  }
+}
 /* ===== FIN BLOC ETAPE 7 ===== */
 
 /* ============================================================================
@@ -7043,6 +8582,9 @@ function renderResumeBanner(){
     state.chargesAutoBak = d.chargesAutoBak || {};
     state.prixDossier = d.prixDossier || {};
     state.prop = d.prop || null;                   // la proposition de travaux revient avec SON dossier
+    state.factures = d.factures || [];              // idem pour tout le journal de facturation
+    state.factureActiveId = d.factureActiveId || '';
+    state.facture = (!state.factures.length && d.facture) ? d.facture : null;   // ancien format : migré par factureEnsure
     CURRENT_HIST_ID = d.histId || null;            // on reprend le lien vers SON entrée d'historique
     _lastSavedFingerprint = null;
     Object.assign(state.general, d.general||{});
@@ -7062,6 +8604,7 @@ if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENT
 // étape supprimée (les images des ex-étapes 5 et 6 restent dans BG_IMAGES).
 // (sans cette ligne, applyBackground retomberait sur le fond de l'étape 1).
 if(window.BG_IMAGES && !window.BG_IMAGES.step7) window.BG_IMAGES.step7 = window.BG_IMAGES.step6 || window.BG_IMAGES.step5;
+if(window.BG_IMAGES && !window.BG_IMAGES.step8) window.BG_IMAGES.step8 = window.BG_IMAGES.step7;
 hydrateParamsUI();
 renderVtList();
 renderResumeBanner();
