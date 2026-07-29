@@ -175,6 +175,12 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .go-fix .ecart{font-family:'Montserrat';font-weight:700;color:#9c0006}
 .go-fix .ecart.faible{color:#9c5700}
 .go-fix small{color:var(--text-muted)}
+/* Objectif de marge : le champ non retenu reste lisible et saisissable, simplement
+   estompé — on doit pouvoir préparer les deux valeurs et basculer d'un clic. */
+.marge-opt{transition:opacity .15s}
+.marge-opt.off{opacity:.45}
+.marge-opt.on input[type=number]{border-color:var(--primary);box-shadow:0 0 0 2px rgba(27,63,139,.10)}
+.marge-tick{width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex:0 0 16px}
 .price-cell input{width:92px;text-align:right;font-family:inherit;font-size:13px;padding:2px 5px;border:1.5px solid var(--primary);border-radius:5px;box-sizing:border-box}
 .kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
@@ -584,27 +590,37 @@ main{position:relative;z-index:1}
           <label class="fld">Régie commerciale (% des charges)</label>
           <input type="number" id="regiePct" value="12" step="0.5" />
         </div>
-        <div class="col">
-          <label class="fld">Seuil GO / NO-GO (marge mini €)</label>
-          <input type="number" id="seuilGo" value="0" step="100" />
-          <!-- TODO: valeur métier à définir avec OT Énergie. -->
-          <small>⚠️ Valeur métier à confirmer avec OT Énergie.</small>
-        </div>
       </div>
 
-      <!-- Marge commerciale cible : on saisit un taux, on clique, les prix de vente
-           du dossier se recalculent pour l'atteindre. Le bouton n'apparaît qu'une fois
-           qu'un dossier est calculé — sans chiffres, il n'y aurait rien à ajuster. -->
-      <div class="row" style="margin-top:4px">
-        <div class="col" style="max-width:260px">
-          <label class="fld">Marge commerciale cible (%)</label>
+      <!-- OBJECTIF DE MARGE COMMERCIALE — un seul objectif, exprimé au choix en
+           montant ou en pourcentage. C'est lui qui décide du GO/NO-GO, et c'est lui
+           que vise le bouton de recalcul. Avant, deux champs séparés portaient deux
+           notions qui se chevauchaient et pouvaient se contredire. -->
+      <hr/>
+      <h3 style="font-size:13.5px;color:var(--txt-dim)">Objectif de marge commerciale</h3>
+      <p class="hint" style="margin-top:-4px">Détermine la décision <strong>GO / NO-GO</strong>. Le bouton de recalcul ajuste les prix de vente du dossier pour l'atteindre.</p>
+      <!-- Les deux champs restent visibles et saisissables. Le petit tick désigne
+           celui qui sert réellement au calcul ; l'autre est grisé, sans être effacé,
+           pour qu'on puisse préparer les deux et basculer d'un clic. -->
+      <div class="row">
+        <div class="col marge-opt" id="colSeuilGo" style="max-width:300px">
+          <label class="fld" style="display:flex;align-items:center;gap:7px">
+            <input type="checkbox" id="tickMontant" class="marge-tick" />
+            <span>Marge minimum — montant (€)</span>
+          </label>
+          <input type="number" id="seuilGo" value="0" step="100" />
+          <small>⚠️ Valeur métier à confirmer avec OT Énergie.</small>
+        </div>
+        <div class="col marge-opt" id="colMargePct" style="max-width:300px">
+          <label class="fld" style="display:flex;align-items:center;gap:7px">
+            <input type="checkbox" id="tickPct" class="marge-tick" />
+            <span>Marge minimum — pourcentage (%)</span>
+          </label>
           <input type="number" id="margeCiblePct" value="25" step="1" min="0" max="95" />
           <small>En % du <strong>prix de vente HT</strong> (taux de marque).</small>
         </div>
-        <div class="col" style="align-self:flex-start;padding-top:18px">
-          <div id="margeCibleZone"></div>
-        </div>
       </div>
+      <div class="row"><div class="col"><div id="margeCibleZone"></div></div></div>
 
       <hr/>
       <h3 style="font-size:13.5px;color:var(--txt-dim)">Proposition de travaux (étape 7)</h3>
@@ -721,9 +737,9 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
-const PROP_SETTING_KEYS = ['margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
+const PROP_SETTING_KEYS = ['margeMode','margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
 const PROP_SETTING_NUM  = ['margeCiblePct','tvaDefaut','validiteMois','acomptePct'];
 let SAVED_DOSSIER = null;          // dernier dossier sauvegardé, proposé via le bandeau « Reprendre » (jamais restauré d'office)
@@ -752,7 +768,8 @@ const state = {
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
     // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
     // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
-    margeCiblePct: 25,   // marge commerciale visée, en % du PRIX DE VENTE HT (taux de marque)
+    margeMode: 'montant',   // 'montant' (€) | 'pct' (% du prix de vente). Défaut = comportement historique.
+    margeCiblePct: 25,      // marge commerciale visée, en % du PRIX DE VENTE HT (taux de marque)
     caNom:'', caTel:'', caMobile:'', tvaDefaut:5.5, validiteMois:2, acomptePct:30,
     otEmail:'contact@otenenergie.fr',   // ⚠️ double « en » : coquille des documents OT, conservée telle quelle
     otSite:'www.otenergie.fr', otTel:'Tél. : 01.85.90.60.67',
@@ -1698,7 +1715,40 @@ function calcAjustementVersMarge(margeCible, opts){
   };
 }
 
-function calcAjustementGo(){ return calcAjustementVersMarge(num(state.settings.seuilGo)); }
+/* ── OBJECTIF DE MARGE : montant OU pourcentage ───────────────────────────────
+   Un seul objectif, exprimé au choix. C'est LUI qui décide du GO/NO-GO.
+
+   En mode « montant », le seuil est un forfait identique partout — comportement
+   historique, conservé par défaut.
+   En mode « pourcentage », le seuil se calcule sur le coût de revient de ce qu'on
+   évalue : une habitation modeste et une habitation lourde n'ont alors plus le
+   même seuil en euros, ce qui est plus juste qu'un forfait unique appliqué aux
+   deux. C'est un vrai changement de comportement, d'où le défaut sur « montant ».
+
+   Cette fonction est le SEUL endroit où le seuil est décidé. Les trois anciens
+   points de lecture (calcul habitation, calcul global, contrôle d'intégrité)
+   passent tous par ici : la décision affichée et le contrôle de cohérence ne
+   peuvent plus diverger. */
+function seuilMargePour(coutRevient){
+  if(state.settings.margeMode === 'pct'){
+    const m = num(state.settings.margeCiblePct) / 100;
+    if(m >= 1 || m < 0) return Infinity;      // 100 % de marge = prix infini
+    return round2(num(coutRevient) * m / (1 - m));
+  }
+  return num(state.settings.seuilGo);
+}
+// Libellé du seuil pour l'affichage et les exports.
+function seuilMargeLabel(coutRevient){
+  return state.settings.margeMode === 'pct'
+    ? num(state.settings.margeCiblePct).toLocaleString('fr-FR') + ' % → ' + eur(seuilMargePour(coutRevient))
+    : eur(seuilMargePour(coutRevient));
+}
+function calcAjustementGo(){
+  const { tot } = calcGlobal();
+  // Le GO est un seuil MINIMUM : on ne descend jamais les prix pour l'atteindre,
+  // même en mode pourcentage. Viser exactement un taux, c'est le bouton des Paramètres.
+  return calcAjustementVersMarge(seuilMargePour(tot.coutRevient));
+}
 
 /* Marge commerciale cible exprimée en % du PRIX DE VENTE HT (taux de marque) :
    marge = m × vente  et  vente = coût + marge  =>  marge = coût × m / (1 − m).
@@ -2077,7 +2127,9 @@ function calcVT(vt){
   // Marge Brute = Prime CEE − (charges d'achat travaux + Audit VT + frais VT ITE + régie commerciale).
   // TOUTES les charges se déduisent de la prime, régie commerciale incluse (oubli corrigé 2026-07-24).
   let margeBrute = (ov.margeBrute !== undefined && ov.margeBrute !== null) ? num(ov.margeBrute) : prime - chargesTravaux - audit - vtIte - regie;
-  let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= num(state.settings.seuilGo));
+  // Seuil via seuilMargePour() : en mode pourcentage il est proportionnel au coût
+  // de revient de CETTE habitation, pas au forfait global.
+  let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= seuilMargePour(coutRevient));
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge, margeBrute,
            go, ov, distributed:false, iteShare:share };
@@ -2099,7 +2151,7 @@ function calcGlobal(){
   tot.reste      = has('reste')      ? num(gov.reste)      : (has('venteTravaux')                 ? tot.venteTravaux - tot.prime        : tot.reste);
   tot.marge      = has('marge')      ? num(gov.marge)      : ((has('venteTravaux')||has('coutRevient')) ? tot.venteTravaux - tot.coutRevient : tot.marge);
   tot.margeBrute = has('margeBrute') ? num(gov.margeBrute) : tot.margeBrute;   // prime & charges non éditables -> pas de déclencheur
-  tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= num(state.settings.seuilGo));
+  tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= seuilMargePour(tot.coutRevient));
   tot.ov = gov;
   return { blocks, tot };
 }
@@ -2126,7 +2178,9 @@ function verifyIntegrity(){
   const add = (id,label,status,detail)=> checks.push({id,label,status,detail:detail||''});
   const g = calcGlobal();
   const gov = (state.overrides && state.overrides.global) || {};
-  const pct = num(state.settings.regiePct), seuil = num(state.settings.seuilGo);
+  const pct = num(state.settings.regiePct);
+  // NB : le seuil de decision n'est plus une constante — il passe par seuilMargePour(),
+  // car en mode pourcentage il depend du cout de revient evalue.
 
   // C1 — Totaux = somme exacte des blocs (champ par champ, hors valeurs forcées)
   let c1fail = [];
@@ -2154,7 +2208,9 @@ function verifyIntegrity(){
     if(ov.marge==null && !near(res.marge, res.venteTravaux-res.coutRevient)) c7.push(vt.label);
     if(ov.margeBrute==null && ov.prime==null && !near(res.margeBrute, res.prime-res.chargesTravaux-res.audit-res.vtIte-res.regie)) c7.push(vt.label+' (brute)');
     if(ov.reste==null && ov.prime==null && !near(res.reste, res.venteTravaux-res.prime)) c8.push(vt.label);
-    if(!ov.decision && res.go !== (res.marge >= seuil)) c9.push(vt.label);
+    // Le contrôle recalcule le seuil par le MÊME chemin que la décision : sinon un
+    // objectif exprimé en pourcentage ferait crier le bouclier sur une fausse erreur.
+    if(!ov.decision && res.go !== (res.marge >= seuilMargePour(res.coutRevient))) c9.push(vt.label);
     ['chargesTravaux','venteTravaux','audit','vtIte','regie','coutRevient','prime','reste','marge','margeBrute'].forEach(f=>{
       if(!isFinite(num(res[f]))) c2.push(vt.label+' · '+f+' non numérique');
     });
@@ -3325,7 +3381,7 @@ function renderStep4(){
   }
 
   const {blocks, tot} = calcGlobal();
-  const seuil = num(state.settings.seuilGo);
+  const seuil = seuilMargePour(calcGlobal().tot.coutRevient);
 
   // ── Bouclier de vérification (couche 1+2) : recalcul indépendant, visible pour l'utilisateur ──
   const integ = verifyIntegrity();
@@ -3514,7 +3570,7 @@ function buildReportWorkbook(){
     ['Revue Projet OT — Rapport de pré-chiffrage'],
     ['Dossier', state.nomDossier||'', 'Édité le', new Date().toLocaleString('fr-FR')],
     ['Cas', state.cas, 'Pollueur', state.general.pollueur||''],
-    ['Seuil GO/NO-GO (€)', num(state.settings.seuilGo), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', totalAudits(), 'VT ITE (€/VT)', num(state.settings.vtIte)]
+    ['Objectif de marge', (state.settings.margeMode==='pct' ? num(state.settings.margeCiblePct)+' % du prix de vente' : eur(num(state.settings.seuilGo))), 'Régie %', pct, 'Audit VT (€)', num(state.settings.auditVT), 'Nb Audits VT', totalAudits(), 'VT ITE (€/VT)', num(state.settings.vtIte)]
   ];
   // Résumé du 1er onglet : warning fenêtre unitaire < 750 € (achat ou vente).
   const winWarns = windowPriceWarnings();
@@ -3699,7 +3755,7 @@ function buildReportWorkbook(){
   det.push(['Marge Brute totale', round2(tot.margeBrute)]);
   det.push(['Reste à charge total', round2(tot.reste)]);
   det.push(['MARGE COMMERCIALE GLOBALE', round2(tot.marge)]);
-  det.push(['Décision globale (seuil '+round2(num(state.settings.seuilGo))+' €)', tot.go?'GO':'NO-GO']);
+  det.push(['Décision globale (objectif '+seuilMargeLabel(tot.coutRevient)+')', tot.go?'GO':'NO-GO']);
   const TIPS_DET = [
     ['Coût de revient', 'Surface × Px achat'],
     ['Vente HT', 'Surface × Px vente'],
@@ -4219,35 +4275,66 @@ let ALIGN_VENTE_BAK = null;   // { 'ITI': 210, ... } — null = aucun alignement
    prix de vente, il n'y a rien à ajuster et un bouton mort induirait en erreur.
    On affiche aussi ce que la cible représente concrètement — le prix de vente à
    atteindre et l'écart — pour que la décision se prenne avant le clic. */
+/* Les deux ticks se comportent comme des boutons radio : cocher l'un décoche
+   l'autre. On garde des cases à cocher plutôt que des radios pour le repère
+   visuel demandé (une coche, pas une pastille), l'exclusivité étant gérée ici.
+   Décocher les deux est impossible : il faut toujours un objectif actif. */
+function majMargeMode(){
+  const mode = state.settings.margeMode === 'pct' ? 'pct' : 'montant';
+  const tM = $('#tickMontant'), tP = $('#tickPct');
+  const cM = $('#colSeuilGo'), cP = $('#colMargePct');
+  if(tM) tM.checked = mode === 'montant';
+  if(tP) tP.checked = mode === 'pct';
+  if(cM){ cM.classList.toggle('on', mode==='montant'); cM.classList.toggle('off', mode!=='montant'); }
+  if(cP){ cP.classList.toggle('on', mode==='pct'); cP.classList.toggle('off', mode!=='pct'); }
+}
+function choisirMargeMode(mode){
+  state.settings.margeMode = (mode === 'pct') ? 'pct' : 'montant';
+  saveLS();
+  majMargeMode();
+  renderMargeCible();
+}
+
 function renderMargeCible(){
+  majMargeMode();
   const zone = $('#margeCibleZone'); if(!zone) return;
-  const inp = $('#margeCiblePct');
-  const pct = inp ? num(inp.value) : num(state.settings.margeCiblePct);
-  const pretA = propGate ? true : true;
+  const modePct = state.settings.margeMode === 'pct';
+  const pct = num(($('#margeCiblePct')||{}).value !== undefined ? $('#margeCiblePct').value : state.settings.margeCiblePct);
   const dossierCalcule = state.vts.length > 0 && state.chargesTable
                          && num(calcGlobal().tot.venteTravaux) > 0;
   if(!dossierCalcule){
     zone.innerHTML = '<small style="color:var(--text-muted)">Le bouton de recalcul apparaîtra dès qu\'un dossier aura été calculé à l\'étape 4.</small>';
     return;
   }
-  if(pct >= 100 || pct < 0){
-    zone.innerHTML = '<div class="alert err" style="margin:0">Marge cible impossible : elle doit rester sous 100 % du prix de vente.</div>';
+  if(modePct && (pct >= 100 || pct < 0)){
+    zone.innerHTML = '<div class="alert err" style="margin:0">Marge impossible : elle doit rester sous 100 % du prix de vente.</div>';
     return;
   }
-  const a = calcAjustementVersMarge(margeCibleEuros(pct), { bidirectionnel:true });
+  // La cible suit le tick : montant saisi, ou taux converti en euros.
+  const { tot } = calcGlobal();
+  const cible = seuilMargePour(tot.coutRevient);
+  if(!isFinite(cible)){
+    zone.innerHTML = '<div class="alert err" style="margin:0">Objectif de marge invalide.</div>';
+    return;
+  }
+  const a = calcAjustementVersMarge(cible, { bidirectionnel:true });
   const venteCible = round2(a.coutRevient + a.seuil);
   const sens = a.deficit > 0 ? 'hausse' : 'baisse';
   const nbsp = String.fromCharCode(160);
   const pctTxt = v => (Math.abs(v)*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1})+nbsp+'%';
+  const objectif = modePct
+    ? pct.toLocaleString('fr-FR') + nbsp + '% du prix de vente (' + eur(cible) + ')'
+    : eur(cible);
   zone.innerHTML =
     '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
     + '<button class="btn success small" id="margeRecalc">⟳ Recalculer l\'étape 4</button>'
+    + '<small style="color:var(--text-muted)">Objectif retenu : <strong>' + objectif + '</strong></small>'
     + (a.atteint
-        ? '<small style="color:var(--green-tx)">✅ Marge déjà à ' + pctTxt(pct/100) + '.</small>'
-        : '<small style="color:var(--text-muted)">Prix de vente visé <strong>' + eur(venteCible) + '</strong>'
+        ? '<small style="color:var(--green-tx)">✅ Déjà atteint.</small>'
+        : '<small style="color:var(--text-muted)">· prix de vente visé <strong>' + eur(venteCible) + '</strong>'
           + ' — ' + sens + ' de <strong>' + pctTxt(a.pctHausse) + '</strong> sur les prix'
           + (a.faisable ? '' : ' <span style="color:#9c0006">(plafonnée à ' + (GO_FIX_HAUSSE_MAX*100) + '%)</span>')
-          + '.</small>')
+          + '</small>')
     + '</div>';
   const b = $('#margeRecalc');
   if(b) b.addEventListener('click', recalculerAvecMargeCible);
@@ -4256,11 +4343,16 @@ function renderMargeCible(){
 /* Applique la marge cible puis emmène l'utilisateur voir le résultat. Recalculer
    sans montrer le résultat obligerait à naviguer soi-même pour savoir ce qui a changé. */
 function recalculerAvecMargeCible(){
-  const inp = $('#margeCiblePct');
-  const pct = inp ? num(inp.value) : num(state.settings.margeCiblePct);
-  if(pct >= 100 || pct < 0){ alert('La marge cible doit rester entre 0 et 100 % du prix de vente.'); return; }
+  const modePct = state.settings.margeMode === 'pct';
+  const pct = num(($('#margeCiblePct')||{}).value);
+  const montant = num(($('#seuilGo')||{}).value);
+  if(modePct && (pct >= 100 || pct < 0)){ alert('La marge doit rester entre 0 et 100 % du prix de vente.'); return; }
   state.settings.margeCiblePct = pct;
-  const avant = calcAjustementVersMarge(margeCibleEuros(pct), { bidirectionnel:true });
+  state.settings.seuilGo = montant;
+  // La cible suit le tick actif — c'est le même seuil que celui du GO/NO-GO.
+  const cible = seuilMargePour(calcGlobal().tot.coutRevient);
+  if(!isFinite(cible)){ alert('Objectif de marge invalide.'); return; }
+  const avant = calcAjustementVersMarge(cible, { bidirectionnel:true });
   const apres = appliquerAjustementGo(avant);
   saveLS();
   showView('step4');
@@ -4379,6 +4471,11 @@ if(btnAlign) btnAlign.addEventListener('click', basculerAlignVenteAchat);
 // sans rien appliquer : rien ne bouge tant qu'on n'a pas cliqué sur Recalculer.
 const inpMarge = $('#margeCiblePct');
 if(inpMarge) inpMarge.addEventListener('input', ()=>{ state.settings.margeCiblePct = num(inpMarge.value); renderMargeCible(); });
+// Ticks exclusifs. Re-cliquer sur celui déjà actif ne le décoche pas : un objectif
+// doit toujours être défini, sinon le GO/NO-GO n'aurait plus de référence.
+const tickM = $('#tickMontant'), tickP = $('#tickPct');
+if(tickM) tickM.addEventListener('change', ()=> choisirMargeMode('montant'));
+if(tickP) tickP.addEventListener('change', ()=> choisirMargeMode('pct'));
 $('#auditVT').addEventListener('input', e=>{ state.settings.auditVT = num(e.target.value); saveLS(); });
 $('#vtIte').addEventListener('input', e=>{ state.settings.vtIte = num(e.target.value); saveLS(); });
 $('#regiePct').addEventListener('input', e=>{ state.settings.regiePct = num(e.target.value); saveLS(); });
@@ -6884,6 +6981,7 @@ function hydrateParamsUI(){
   $('#regiePct').value = state.settings.regiePct;
   $('#seuilGo').value = state.settings.seuilGo;
   PROP_SETTING_KEYS.forEach(k=>{ const inp = $('#'+k); if(inp) inp.value = state.settings[k]; });
+  majMargeMode();   // positionne les ticks montant / pourcentage
   refreshCas();
   $('#nomDossier').value = state.nomDossier || '';
   renderValoInfo();
