@@ -68,6 +68,21 @@
   .ico{ display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;
     background:var(--green-bg);border:1px solid #cfe2d6;font-size:12px;flex:0 0 22px }
   code{ background:#f2f5fb; border:1px solid var(--line); border-radius:4px; padding:1px 5px; font-size:11.5px; font-family:ui-monospace,Consolas,monospace; color:var(--primary-dark) }
+
+  /* ---------- WIDGETS ---------- */
+  .wg{ border:1px solid var(--line); border-radius:10px; margin-bottom:9px; overflow:hidden; background:#fff }
+  .wg > .t{ background:#eef2fb; padding:7px 13px; font-family:'Montserrat'; font-weight:700; font-size:12.5px;
+    color:var(--primary); display:flex; align-items:center; justify-content:space-between; gap:10px }
+  .wg > .t .tag{ font-size:10px; font-weight:700; background:#fff; border:1px solid var(--line);
+    border-radius:999px; padding:1px 8px; color:var(--muted) }
+  .wg > .b{ padding:9px 13px }
+  .fx{ font-family:ui-monospace,Consolas,monospace; font-size:11.5px; color:var(--primary-dark);
+    background:#f7f9fd; border-left:3px solid var(--primary-light); border-radius:0 5px 5px 0;
+    padding:6px 10px; margin-bottom:5px; line-height:1.5 }
+  .wg .note{ font-size:11.8px; color:var(--muted) }
+  .glo{ display:grid; grid-template-columns:auto 1fr; gap:5px 12px; font-size:12px; align-items:baseline }
+  .glo dt{ font-weight:700; color:var(--primary); white-space:nowrap; font-family:'Montserrat'; font-size:11.8px }
+  .glo dd{ color:#2b3448 }
 </style>
 </head>
 <body>
@@ -139,6 +154,99 @@
     <h3>Proposition de travaux</h3>
     <p>Construit le <b>devis PDF</b> envoyable au client à partir des prix de l'étape 4. Sections pré-remplies (ITE puis un bloc par logement), désignations commerciales, destinataire, conditions. <b>👁️ Simulation</b> affiche le vrai PDF ; <b>⬇️ Télécharger</b> l'enregistre et met à jour l'historique.</p>
   </div></div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+<!-- ============ WIDGETS — HABITATION ============ -->
+<section class="page">
+  <div class="ph"><div class="n">📊</div><h2>Les widgets — niveau habitation</h2></div>
+  <p class="lead">Étape 4, un bloc par VT. Chaque widget est <b>cliquable pour être corrigé</b> ; <b>↺</b> revient au calcul. Survolez-en un dans l'application pour voir sa formule avec les valeurs du dossier.</p>
+
+  <div class="wg"><div class="t"><span>Prime CEE</span><span class="tag">non éditable</span></div><div class="b">
+    <div class="fx">Prime CEE = lecture du barème de valorisation<br>(pollueur · revenus ménages · Coup de Pouce · sauts de classe · tranche Shab)</div>
+    <p class="note">Seule valeur non modifiable : elle vient du template officiel du pollueur. Si elle est à 0, c'est que la combinaison n'existe pas dans le barème — le message d'erreur le dit.</p>
+  </div></div>
+
+  <div class="wg"><div class="t"><span>Marge Brute</span><span class="tag">rentabilité du dossier CEE</span></div><div class="b">
+    <div class="fx">Marge Brute = Prime CEE − (Charges travaux + Audit VT + frais VT ITE + Régie)</div>
+    <p class="note">Ce que la prime CEE laisse une fois <b>tous les coûts</b> payés. Elle répond à : « l'opération tient-elle sur la seule prime, sans rien demander au client ? » Si elle est négative, le reste à charge devient indispensable.</p>
+  </div></div>
+
+  <div class="wg"><div class="t"><span>Reste à charge</span><span class="tag">ce que paie le client</span></div><div class="b">
+    <div class="fx">Reste à charge = Prix de vente HT − Prime CEE</div>
+    <p class="note">Le montant qui reste à la charge du client une fois la prime déduite. C'est le chiffre qu'il regarde en premier.</p>
+  </div></div>
+
+  <div class="wg"><div class="t"><span>Marge Commerciale</span><span class="tag">décide du GO / NO-GO</span></div><div class="b">
+    <div class="fx">Marge Commerciale = Prix de vente HT − Coût de revient</div>
+    <p class="note">Ce que l'opération rapporte réellement. <b>À ne pas confondre avec la Marge Brute</b> : celle-ci part du <b>prix de vente</b>, la brute part de la <b>prime</b>. Les deux peuvent diverger fortement.</p>
+  </div></div>
+
+  <div class="wg"><div class="t"><span>Décision</span><span class="tag">forçable</span></div><div class="b">
+    <div class="fx">GO si Marge Commerciale ≥ objectif de marge</div>
+    <p class="note">L'objectif vient des Paramètres, en euros ou en pourcentage (voir Astuces). Vous pouvez <b>forcer</b> GO ou NO-GO : d'autres critères qu'un chiffre peuvent motiver la décision.</p>
+  </div></div>
+
+  <div class="card"><h3>Les quatre composants du coût de revient</h3>
+    <div class="fx" style="margin-bottom:9px">Coût de revient = Charges travaux + Audit VT + frais VT ITE + Régie commerciale</div>
+    <ul class="clean">
+      <li><b>Charges travaux</b> = Σ (surface cochée × <b>prix d'achat</b> du barème) + éléments à la pièce.</li>
+      <li><b>Audit VT</b> = nombre d'audits de l'habitation × montant paramétré. Une VT ITE ne porte pas d'audit.</li>
+      <li><b>Frais VT ITE</b> = forfait de la VT ITE (70 € par défaut), <b>réparti</b> sur les habitations participantes.</li>
+      <li><b>Régie commerciale</b> = Charges travaux × % paramétré. <b>Calculée sur les achats, pas sur la vente</b> — augmenter un prix de vente ne l'augmente donc pas.</li>
+    </ul>
+  </div>
+
+  <div class="tip">💡 <b>Prix de vente HT</b> = Σ (surface cochée × <b>prix de vente</b> du barème). Seules les lignes <b>cochées</b> entrent dans le calcul.</div>
+
+  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
+</section>
+
+<!-- ============ WIDGETS — PROJET + GLOSSAIRE ============ -->
+<section class="page">
+  <div class="ph"><div class="n">📊</div><h2>Les widgets — Total projet &amp; vocabulaire</h2></div>
+  <p class="lead">Le bloc <b>Total projet / immeuble</b> agrège tous les blocs. Chaque widget y est également corrigeable.</p>
+
+  <div class="wg"><div class="t"><span>Coût de revient total</span></div><div class="b">
+    <div class="fx">Σ des VT (Charges travaux + Audit VT + frais VT ITE + Régie)</div></div></div>
+
+  <div class="wg"><div class="t"><span>Prix de vente HT</span></div><div class="b">
+    <div class="fx">Σ (surfaces cochées × prix de vente du barème)</div></div></div>
+
+  <div class="wg"><div class="t"><span>Prime CEE totale</span></div><div class="b">
+    <div class="fx">Σ des primes CEE des habitations</div>
+    <p class="note">Une VT ITE ne porte pas de prime : elle est portée par les logements.</p></div></div>
+
+  <div class="wg"><div class="t"><span>Marge Brute totale</span></div><div class="b">
+    <div class="fx">Prime CEE totale − (Charges travaux + Audit VT + frais VT ITE + Régie)</div></div></div>
+
+  <div class="wg"><div class="t"><span>Reste à charge total</span></div><div class="b">
+    <div class="fx">Prix de vente HT − Prime CEE totale</div></div></div>
+
+  <div class="wg"><div class="t"><span>Marge Commerciale globale</span><span class="tag">décide du GO / NO-GO</span></div><div class="b">
+    <div class="fx">Prix de vente HT − Coût de revient total</div></div></div>
+
+  <div class="warn">⚠️ Corriger un widget d'<b>entrée</b> (Prix de vente, Coût de revient) <b>recalcule</b> ceux qui en dépendent. Un widget déjà corrigé garde sa valeur forcée. Les valeurs modifiées apparaissent sur <b>fond rosé</b> avec un ✎.</div>
+
+  <div class="card"><h3>Vocabulaire — les termes qui prêtent à confusion</h3>
+    <dl class="glo">
+      <dt>Marge Brute</dt><dd>Part sur la <b>prime CEE</b>, tous coûts déduits. Répond à « l'opération tient-elle sur la seule prime ? »</dd>
+      <dt>Marge Commerciale</dt><dd>Part sur le <b>prix de vente</b>, coût de revient déduit. C'est elle qui décide du GO / NO-GO.</dd>
+      <dt>Coût de revient</dt><dd>Tout ce que l'opération coûte : achats + audit + frais VT ITE + régie.</dd>
+      <dt>Charges travaux</dt><dd>Uniquement les <b>achats</b> (surface × prix d'achat), hors audit, régie et frais.</dd>
+      <dt>Régie commerciale</dt><dd>Pourcentage <b>des charges d'achat</b>, jamais du prix de vente.</dd>
+      <dt>Reste à charge</dt><dd>Ce que le <b>client</b> paie après déduction de la prime. Ce n'est pas une marge.</dd>
+      <dt>Prix de vente HT</dt><dd>Ce qu'on facture, hors taxes. La TVA n'intervient qu'à l'étape 5.</dd>
+      <dt>Surface nette</dt><dd>Surface réellement retenue pour le calcul (les surfaces brutes ne sont pas utilisées).</dd>
+      <dt>Part ITE</dt><dd>Quote-part des coûts de la VT ITE affectée à une habitation, <b>au prorata de sa Shab</b>.</dd>
+      <dt>Objectif de marge</dt><dd>Le seuil du GO / NO-GO. En euros, ou en % du prix de vente (voir Astuces).</dd>
+      <dt>Shab</dt><dd>Surface habitable du logement. Sert à la tranche de prime CEE et à la répartition ITE.</dd>
+      <dt>Sauts de classe</dt><dd>Nombre de classes énergétiques gagnées. Entre dans le calcul de la prime.</dd>
+    </dl>
+  </div>
+
+  <div class="tip">🛡️ Le <b>bouclier</b> en haut de l'étape 4 recalcule tous ces widgets par un chemin indépendant à chaque affichage et signale la moindre divergence. Les formules ci-dessus sont donc vérifiées en continu, pas seulement documentées.</div>
 
   <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
 </section>

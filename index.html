@@ -233,6 +233,16 @@ body.locked #loginGate{display:flex}
 /* Le lien Guide pousse le bloc de droite : c'est lui qui porte le margin-left:auto. */
 #guideBtn{margin-left:auto;margin-right:8px;background:rgba(255,255,255,.16);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:7px 12px;font-family:'Montserrat',sans-serif;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 #guideBtn:hover{background:rgba(255,255,255,.28)}
+/* Bloc guide des Paramètres : fond teinté et liseré, sinon il se noie parmi les champs. */
+.guide-box{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:4px 0 6px;padding:16px 20px;
+  border-radius:var(--radius);background:linear-gradient(135deg,#eaf2ff 0%,#f3f8ff 60%,#eefaf2 100%);
+  border:2px solid var(--primary);box-shadow:var(--shadow)}
+.guide-box .gb-ico{font-size:30px;line-height:1;flex:0 0 auto}
+.guide-box .gb-txt{flex:1 1 300px;min-width:260px}
+.guide-box .gb-txt h3{margin:0 0 3px;font-family:'Montserrat',sans-serif;font-size:15px;color:var(--primary);font-weight:800}
+.guide-box .gb-txt p{margin:0;font-size:12.5px;color:var(--text-dark);line-height:1.45}
+.guide-box .gb-act{display:flex;gap:9px;flex-wrap:wrap;flex:0 0 auto}
+.guide-box .gb-act .btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
 .kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
 .kpi .ov-reset:hover{color:var(--primary)}
 .kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
@@ -693,14 +703,17 @@ main{position:relative;z-index:1}
       </div>
 
       <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Guide utilisateur</h3>
-      <p class="hint" style="margin-top:-4px">Parcours complet, section <strong>Astuces</strong> (le tick de marge, le GO/NO-GO, l'ajustement des prix, masquer une ligne…). Également accessible par le bouton <strong>📖 Guide</strong> en haut de la page.</p>
-      <div class="flex" style="gap:10px;flex-wrap:wrap">
-        <a class="btn" id="guideOpen" href="guide/guide.html" target="_blank" rel="noopener"
-           style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">📖 Ouvrir le guide</a>
-        <a class="btn success" id="guideDl" href="guide/Guide-Utilisateur-Revue-Projet-OT.pdf" download
-           style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">⬇️ Télécharger le PDF</a>
-        <span style="align-self:center"><small>Le PDF est régénéré à chaque mise à jour du guide.</small></span>
+      <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
+      <div class="guide-box">
+        <div class="gb-ico">📖</div>
+        <div class="gb-txt">
+          <h3>Guide utilisateur</h3>
+          <p>Parcours complet, <strong>formules de tous les widgets</strong> et section <strong>Astuces</strong> : le tick de marge, le GO/NO-GO, l'ajustement des prix, masquer une ligne…</p>
+        </div>
+        <div class="gb-act">
+          <a class="btn" id="guideOpen" href="guide/guide.html" target="_blank" rel="noopener">📖 Ouvrir le guide</a>
+          <a class="btn success" id="guideDl" href="guide/Guide-Utilisateur-Revue-Projet-OT.pdf" download>⬇️ Télécharger le PDF</a>
+        </div>
       </div>
 
       <div class="actions">
@@ -755,7 +768,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-29.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 const PROP_SETTING_KEYS = ['margeMode','margeCiblePct','caNom','caTel','caMobile','tvaDefaut','validiteMois','acomptePct',
                            'otEmail','otSite','otTel','otAdr1','otAdr2','otLegal'];
