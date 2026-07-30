@@ -310,6 +310,32 @@ body.locked #loginGate{display:flex}
 tr.row-off{background:#b9c0cc;filter:grayscale(1)}
 tr.row-off input{background:transparent;border-color:#8d97a6;color:#41495a}
 tr.row-off input::placeholder{color:#5d6675}
+/* ── Paramètres → 🧩 Widgets : liste, éditeur modal, palette de variables ── */
+.wc-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff}
+.wc-row.off{opacity:.55;background:#f2f4f8}
+.wc-row .wc-grip{cursor:grab;color:var(--text-muted);user-select:none}
+.wc-row.dragover{outline:2px dashed var(--primary);outline-offset:-2px}
+.wc-row .wc-name{font-weight:600;min-width:180px}
+.wc-row .wc-frm{flex:1;color:var(--text-muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wc-badge-f{background:#fff3cd;color:#8a6d00;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
+.kpi .lab .kpi-fmod{color:#8a6d00;font-weight:800;margin-left:3px;cursor:help}
+#wcModal{display:none;position:fixed;inset:0;z-index:9997;background:rgba(20,28,48,.6);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px}
+#wcModal.on{display:flex}
+#wcModal .box{background:#fff;border-radius:14px;max-width:860px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.wc-pal{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 8px}
+.wc-pal .chip{border:1px solid var(--border);border-radius:14px;padding:2px 9px;font-size:12px;background:#f6f8fd;cursor:pointer}
+.wc-pal .chip:hover{background:var(--blue-bg);border-color:var(--primary)}
+.wc-pal .chip.op{font-weight:800;background:#eef}
+.wc-fam{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:8px 0 2px}
+#wcFormule{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:14px}
+#wcSugg{position:relative}
+#wcSugg .sugg{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 6px 18px rgba(0,0,0,.15);max-height:180px;overflow:auto}
+#wcSugg .sugg div{padding:5px 10px;cursor:pointer;font-size:13px}
+#wcSugg .sugg div:hover,#wcSugg .sugg div.sel{background:var(--blue-bg)}
+.wc-err{color:var(--red-tx);font-size:13px;margin-top:4px;min-height:18px}
+.wc-ok{color:var(--green-tx)}
+.wc-prev table{border-collapse:collapse;margin-top:4px}
+.wc-prev td,.wc-prev th{border:1px solid var(--border);padding:3px 10px;font-size:13px}
 /* Habitation EXCLUE du calcul (étape Extraction) : même langage visuel que la ligne
    désactivée (row-off), appliqué au bloc entier. Les données restent dans le dossier. */
 .vt-block.vt-off{background:#e8ebf1;border-color:#8d97a6;filter:grayscale(.85);opacity:.75}
@@ -760,6 +786,16 @@ main{position:relative;z-index:1}
         </div>
       </details>
 
+      <details class="pset" id="psetWidgets">
+        <summary>🧩 Widgets (étape Charges &amp; marges)</summary>
+        <div class="pset-b">
+          <p class="hint">Pilote les indicateurs de l'étape 4 : intitulés, formules, format, visibilité, ordre.
+            Les modifications de formule sont signalées par « ƒ » sur le widget et dans le bouclier 🛡️.
+            Chaque dossier archivé emporte la configuration en vigueur au moment de l'archivage.</p>
+          <div id="widgetsCfg"></div>
+        </div>
+      </details>
+
       <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
       <div class="guide-box">
         <div class="gb-ico">📖</div>
@@ -825,7 +861,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-30.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-30.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -864,6 +900,7 @@ const state = {
   vts: [],                  // {id, fileName, role, text, hints, extraction, revenus, cdp, sauts, shab, selections, pcLines, label, extracting, error}
   general: { pollueur:'' },
   overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
+  widgetConfig: null,       // configuration des widgets de l'étape 4 (Paramètres → 🧩 Widgets) — matérialisée par wcInit(), GLOBALE (pas par dossier), versionnée
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
     // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
     // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
@@ -1070,6 +1107,7 @@ function saveLS(){
       settings: state.settings,
       chargesTable: state.chargesTable,
       elementsTable: state.elementsTable,
+      widgetConfig: state.widgetConfig,
       history: state.history
     }, dossier)));
   }catch(e){ console.warn('Persistance impossible', e.message); }
@@ -1079,6 +1117,9 @@ function loadLS(){
     const raw = localStorage.getItem(LS_KEY); if(!raw) return;
     const d = JSON.parse(raw);
     if(d.settings) Object.assign(state.settings, d.settings);
+    // Config widgets : restaurée telle quelle ; wcInit() (appelé au premier usage) comble
+    // les widgets usine absents et migre les anciennes versions. Absente = config usine.
+    if(d.widgetConfig) state.widgetConfig = d.widgetConfig;
     // Le template de valorisation vient UNIQUEMENT de son stockage dédié (loadValoTemplate).
     // On NE restaure PLUS valoTable/pollueurs depuis ce blob : les anciennes sauvegardes
     // (< 2026-07-16) le contenaient dans un format normalisé à 2 valeurs CEE (Classique /
@@ -1124,7 +1165,7 @@ function showView(id){
   // ne réécrit que si le dossier a réellement changé.
   if(id==='step4'){ renderStep4(); autoArchiveFromStep4(); }
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
-  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); }
+  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); renderWidgetsCfg(); }
   if(id==='step7') renderStep7();
   if(id==='history') renderHistory();
   applyBackground(id);
@@ -2372,6 +2413,14 @@ function verifyIntegrity(){
   add('autotests','Autotests moteur : '+GOLDEN_RESULTS.filter(r=>r.pass).length+'/'+GOLDEN_RESULTS.length+' scénarios de référence exacts',
       GOLDEN_RESULTS.length===0?'fail':(gFail.length?'fail':'pass'), gFail.map(r=>r.name+' : '+r.detail).join(' · '));
 
+  // C13 — Widgets configurables (couche 2) : chaque formule de la config doit se parser,
+  // ne citer que des identifiants en liste blanche, sans référence circulaire.
+  const wsc = wgShieldChecks();
+  add('widgets','Widgets : formules de la configuration valides (syntaxe · variables · cycles)',
+      wsc.fails.length?'fail':'pass', wsc.fails.join(' · '));
+  // Formules natives MODIFIÉES (ƒ) : signalées comme les ✎ — jamais validées en silence.
+  if(wsc.fmods.length) add('widgets-fmod', wsc.fmods.length+' formule(s) native(s) modifiée(s) — ƒ : '+wsc.fmods.join(' · '), 'manual','');
+
   // Valeurs forcées manuellement : signalées, jamais validées en silence
   const ovList = activeOverridesList();
   if(ovList.length) add('overrides', ovList.length+' valeur(s) modifiée(s) manuellement — exclue(s) des contrôles', 'manual', ovList.join(' · '));
@@ -3464,7 +3513,668 @@ $('#extractAll').addEventListener('click', async ()=>{
    RENDU — ÉTAPE 4 (charges & marges) + PC manuelles
    ============================================================================ */
 // Widget KPI éditable : clic = éditer, survol = formule (légende type Excel), ↺ = retour au calcul auto
-function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited, locked}
+/* ============================================================================
+   WIDGETS CONFIGURABLES (étape 4) — Paramètres → 🧩 Widgets
+   ----------------------------------------------------------------------------
+   Architecture (PRD-20260730-widgets-etape4) :
+   - WIDGETS_USINE : les définitions d'ORIGINE, embarquées dans le code (jamais dans un
+     fichier) — le « retour usine » marche hors ligne et est infalsifiable.
+   - state.widgetConfig : la config UTILISATEUR matérialisée (deltas compris), persistée
+     avec les Paramètres (saveLS) et EMBARQUÉE dans chaque archive (schema 3) : un dossier
+     rouvert affiche ses formules d'époque.
+   - Le moteur de calcul (calcVT/calcGlobal) reste la source des GRANDEURS DE BASE et
+     n'est jamais touché : le bouclier C1-C12 et les golden tests gardent leur référence.
+   - Un widget natif dont la formule est IDENTIQUE à l'usine affiche res[champ] DIRECTEMENT
+     (identité bit-à-bit avec l'existant : overrides ✎ et propagation intacts). Sa formule
+     n'est évaluée par le moteur d'expression QUE si elle a été modifiée — le widget porte
+     alors un badge « ƒ » et le bouclier le signale.
+   - Prime CEE (lookup barème) et Décision (comparaison Marge ≥ seuil) ne sont pas
+     exprimables en + − × ÷ : leurs formules restent verrouillées (🔒 expliqué), tout le
+     reste (libellé, format, visibilité, ordre, suppression) est éditable comme les autres.
+   - SÉCURITÉ : parseur maison (tokenizer → AST → évaluation), liste blanche d'identifiants,
+     aucune exécution dynamique de code. Division par zéro → null, affiché « — ».
+   - Le moteur n'est PAS branché sur l'étape 5 / PDF devis : aucune fuite possible.
+   ============================================================================ */
+const WIDGETS_VERSION = 1;
+// clsRule : 'go' = vert/rouge selon la décision du bloc ; 'signe' = selon le signe de la valeur.
+const WIDGETS_USINE = [
+  // ── Niveau HABITATION (un bloc par VT) — les 5 visibles actuels, dans l'ordre actuel ──
+  { id:'primeCEE',        niveau:'hab', label:'Prime CEE',        formule:'', special:'bareme', champ:'prime',      format:'eur', dec:2, ordre:10, visible:true,
+    desc:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)' },
+  { id:'margeBrute',      niveau:'hab', label:'Marge Brute',      formule:'primeCEE - (chargesTravaux + auditVT + fraisVtIte + regieCommerciale)', champ:'margeBrute', clsRule:'signe', format:'eur', dec:2, ordre:20, visible:true,
+    desc:'Prime CEE moins tous les coûts d’achat (travaux, audit, VT ITE, régie)' },
+  { id:'resteACharge',    niveau:'hab', label:'Reste à charge',   formule:'prixVenteHT - primeCEE', champ:'reste', format:'eur', dec:2, ordre:30, visible:true,
+    desc:'Ce que paie le client : prix de vente HT moins la prime CEE' },
+  { id:'margeCommerciale',niveau:'hab', label:'Marge Commerciale',formule:'prixVenteHT - coutRevient', champ:'marge', clsRule:'go', format:'eur', dec:2, ordre:40, visible:true,
+    desc:'Prix de vente HT moins le coût de revient total' },
+  { id:'decision',        niveau:'hab', label:'Décision',         formule:'', special:'decision', champ:'decision', clsRule:'go', format:'dec', dec:0, ordre:50, visible:true,
+    desc:'GO si Marge Commerciale ≥ seuil (objectif de marge des Paramètres)' },
+  // ── Composants du coût de revient : disponibles comme widgets, masqués par défaut
+  //    (ils restent affichés dans le tableau de détail, comme aujourd'hui) ──
+  { id:'chargesTravaux',  niveau:'hab', label:'Charges travaux',  formule:'chargesTravaux', champ:'chargesTravaux', format:'eur', dec:2, ordre:60, visible:false,
+    desc:'Coût d’achat des travaux (lignes cochées × prix d’achat du barème)' },
+  { id:'prixVenteHT',     niveau:'hab', label:'Prix de vente HT', formule:'prixVenteHT', champ:'venteTravaux', format:'eur', dec:2, ordre:70, visible:false,
+    desc:'Somme des lignes cochées × prix de vente du barème' },
+  { id:'auditVT',         niveau:'hab', label:'Audit VT',         formule:'auditVT', champ:'audit', format:'eur', dec:2, ordre:80, visible:false,
+    desc:'Nombre d’audits × montant Audit VT (Paramètres)' },
+  { id:'fraisVtIte',      niveau:'hab', label:'Frais VT ITE',     formule:'fraisVtIte', champ:'vtIte', format:'eur', dec:2, ordre:90, visible:false,
+    desc:'Frais de la VT ITE (fixe ou part répartie au prorata des Shab)' },
+  { id:'regieCommerciale',niveau:'hab', label:'Régie commerciale',formule:'regieCommerciale', champ:'regie', format:'eur', dec:2, ordre:100, visible:false,
+    desc:'Charges travaux × % de régie (Paramètres)' },
+  { id:'coutRevient',     niveau:'hab', label:'Coût de revient',  formule:'chargesTravaux + auditVT + fraisVtIte + regieCommerciale', champ:'coutRevient', format:'eur', dec:2, ordre:110, visible:false,
+    desc:'Somme de tous les coûts : travaux + audit + VT ITE + régie' },
+  // ── Niveau PROJET (Total projet / immeuble) — les 7 visibles actuels, dans l'ordre actuel ──
+  { id:'coutRevient',     niveau:'proj', label:'Coût de revient total', formule:'chargesTravaux + auditVT + fraisVtIte + regieCommerciale', champ:'coutRevient', format:'eur', dec:2, ordre:10, visible:true,
+    desc:'Somme sur toutes les VT : charges travaux + Audit VT + frais VT ITE + régie' },
+  { id:'prixVenteHT',     niveau:'proj', label:'Prix de vente HT', formule:'prixVenteHT', champ:'venteTravaux', format:'eur', dec:2, ordre:20, visible:true,
+    desc:'Σ (surfaces cochées × prix de vente du barème)' },
+  { id:'primeCEE',        niveau:'proj', label:'Prime CEE totale', formule:'', special:'bareme', champ:'prime', format:'eur', dec:2, ordre:30, visible:true,
+    desc:'Somme des primes CEE des habitations' },
+  { id:'margeBrute',      niveau:'proj', label:'Marge Brute totale', formule:'primeCEE - (chargesTravaux + auditVT + fraisVtIte + regieCommerciale)', champ:'margeBrute', clsRule:'signe', format:'eur', dec:2, ordre:40, visible:true,
+    desc:'Prime CEE totale moins tous les coûts d’achat' },
+  { id:'resteACharge',    niveau:'proj', label:'Reste à charge total', formule:'prixVenteHT - primeCEE', champ:'reste', format:'eur', dec:2, ordre:50, visible:true,
+    desc:'Prix de vente HT moins la prime CEE totale' },
+  { id:'margeCommerciale',niveau:'proj', label:'Marge Commerciale globale', formule:'prixVenteHT - coutRevient', champ:'marge', clsRule:'go', format:'eur', dec:2, ordre:60, visible:true,
+    desc:'Prix de vente HT moins le coût de revient total' },
+  { id:'decision',        niveau:'proj', label:'Décision', formule:'', special:'decision', champ:'decision', clsRule:'go', format:'dec', dec:0, ordre:70, visible:true,
+    desc:'GO si Marge Commerciale globale ≥ seuil (objectif de marge des Paramètres)' },
+  { id:'chargesTravaux',  niveau:'proj', label:'Charges travaux',  formule:'chargesTravaux', champ:'chargesTravaux', format:'eur', dec:2, ordre:80, visible:false,
+    desc:'Coût d’achat des travaux, toutes VT' },
+  { id:'auditVT',         niveau:'proj', label:'Audit VT total',   formule:'auditVT', champ:'audit', format:'eur', dec:2, ordre:90, visible:false,
+    desc:'Total des audits : Σ nb audits × montant Audit VT' },
+  { id:'fraisVtIte',      niveau:'proj', label:'Frais VT ITE',     formule:'fraisVtIte', champ:'vtIte', format:'eur', dec:2, ordre:100, visible:false,
+    desc:'Total des frais de VT ITE' },
+  { id:'regieCommerciale',niveau:'proj', label:'Régie commerciale',formule:'regieCommerciale', champ:'regie', format:'eur', dec:2, ordre:110, visible:false,
+    desc:'Total de la régie commerciale' },
+];
+// Catalogue des VARIABLES utilisables dans une formule — les grandeurs RÉELLES du moteur.
+// fam : famille affichée dans la palette. Chaque variable : libellé métier, unité, infobulle.
+const WIDGET_VARS = [
+  { id:'chargesTravaux',   fam:'Résultats du calcul', label:'Charges travaux',   unit:'€', tip:'Coût d’achat des travaux (lignes cochées × prix d’achat)' },
+  { id:'prixVenteHT',      fam:'Résultats du calcul', label:'Prix de vente HT',  unit:'€', tip:'Σ lignes cochées × prix de vente du barème' },
+  { id:'auditVT',          fam:'Résultats du calcul', label:'Audit VT',          unit:'€', tip:'Nb audits × montant Audit VT' },
+  { id:'fraisVtIte',       fam:'Résultats du calcul', label:'Frais VT ITE',      unit:'€', tip:'Frais VT ITE (fixe ou part répartie)' },
+  { id:'regieCommerciale', fam:'Résultats du calcul', label:'Régie commerciale', unit:'€', tip:'Charges travaux × % de régie' },
+  { id:'coutRevient',      fam:'Résultats du calcul', label:'Coût de revient',   unit:'€', tip:'Charges + audit + VT ITE + régie' },
+  { id:'primeCEE',         fam:'Résultats du calcul', label:'Prime CEE',         unit:'€', tip:'Prime issue du barème de valorisation' },
+  { id:'margeBrute',       fam:'Résultats du calcul', label:'Marge Brute',       unit:'€', tip:'Prime CEE − coûts d’achat' },
+  { id:'resteACharge',     fam:'Résultats du calcul', label:'Reste à charge',    unit:'€', tip:'Prix de vente HT − Prime CEE' },
+  { id:'margeCommerciale', fam:'Résultats du calcul', label:'Marge Commerciale', unit:'€', tip:'Prix de vente HT − coût de revient' },
+  { id:'surfIte',      fam:'Surfaces cochées', label:'Surface ITE',      unit:'m²', tip:'Surface nette cochée en ITE' },
+  { id:'surfIti',      fam:'Surfaces cochées', label:'Surface ITI',      unit:'m²', tip:'Surface nette cochée en ITI' },
+  { id:'surfCombles',  fam:'Surfaces cochées', label:'Surface Combles',  unit:'m²', tip:'Surface nette cochée en Combles' },
+  { id:'surfPlancher', fam:'Surfaces cochées', label:'Surface Plancher', unit:'m²', tip:'Surface nette cochée en Plancher bas' },
+  { id:'surfFenetres', fam:'Surfaces cochées', label:'Surface Fenêtres', unit:'m²', tip:'Surface nette cochée en Menuiseries' },
+  { id:'shab',        fam:'Habitation', label:'Surface habitable (Shab)', unit:'m²', tip:'Shab de l’habitation (étape Extraction)', hab:true },
+  { id:'nbAudits',    fam:'Habitation', label:'Nombre d’audits',     unit:'',   tip:'Champ « Audit » de l’étape Extraction' },
+  { id:'sautsClasse', fam:'Habitation', label:'Sauts de classe',          unit:'',   tip:'Sauts de classe énergétique (étape Valorisation)', hab:true },
+  { id:'nbHabitations', fam:'Projet', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le calcul (les exclues ne comptent pas)', proj:true },
+  { id:'montantAuditVT', fam:'Paramètres', label:'Montant Audit VT',  unit:'€', tip:'Paramètres → montant d’un audit VT' },
+  { id:'montantVtIte',   fam:'Paramètres', label:'Montant VT ITE',    unit:'€', tip:'Paramètres → montant de la VT ITE dédiée' },
+  { id:'tauxRegie',      fam:'Paramètres', label:'% Régie',           unit:'%', tip:'Paramètres → pourcentage de régie commerciale' },
+  { id:'seuilMarge',     fam:'Paramètres', label:'Seuil de marge',    unit:'€', tip:'Objectif de marge (montant fixe, ou % du prix de vente évalué sur ce bloc)' },
+];
+function wgVarsFor(niveau){ return WIDGET_VARS.filter(v => niveau==='hab' ? !v.proj : !v.hab); }
+function wcUsine(niveau, id){ return WIDGETS_USINE.find(w => w.niveau===niveau && w.id===id) || null; }
+
+// Matérialise la config : les widgets usine absents sont ajoutés (sauf tombstone `deleted`),
+// les anciens localStorage sans config partent de l'usine. Idempotent, appelé au premier usage.
+function wcInit(){
+  if(!state.widgetConfig || !state.widgetConfig.defs) state.widgetConfig = { version: WIDGETS_VERSION, defs: {} };
+  const cfg = state.widgetConfig;
+  cfg.version = cfg.version || WIDGETS_VERSION;
+  WIDGETS_USINE.forEach(u=>{
+    const k = u.niveau + ':' + u.id;
+    if(!cfg.defs[k]) cfg.defs[k] = JSON.parse(JSON.stringify(u));
+  });
+  return cfg;
+}
+function wcKey(d){ return d.niveau + ':' + d.id; }
+function wcList(niveau, includeHidden){
+  const cfg = wcInit();
+  return Object.values(cfg.defs)
+    .filter(d => d.niveau===niveau && !d.deleted && (includeHidden || d.visible))
+    .sort((a,b)=> (a.ordre||0) - (b.ordre||0));
+}
+function wcIsFmod(d){ const u = wcUsine(d.niveau, d.id); return !!(u && !d.special && !d.custom && String(d.formule) !== String(u.formule)); }
+function wcResetOne(niveau, id){ const cfg = wcInit(); const u = wcUsine(niveau, id); if(u) cfg.defs[niveau+':'+id] = JSON.parse(JSON.stringify(u)); saveLS(); }
+function wcResetAll(){ state.widgetConfig = { version: WIDGETS_VERSION, defs: {} }; wcInit(); saveLS(); }
+
+/* ── Moteur d'expression : tokenizer → AST → évaluation. Liste blanche, aucune exécution
+   dynamique de code (ni la fonction native d'évaluation JS, ni le constructeur Function). ── */
+function wfNormalize(src){
+  return String(src||'').replace(/×/g,'*').replace(/÷/g,'/').replace(/−/g,'-').replace(/(\d),(\d)/g,'$1.$2');
+}
+function wfTokenize(src){
+  const s = wfNormalize(src), out = [];
+  let i = 0;
+  while(i < s.length){
+    const c = s[i];
+    if(/\s/.test(c)){ i++; continue; }
+    if(/[0-9.]/.test(c)){
+      let j = i; while(j < s.length && /[0-9.]/.test(s[j])) j++;
+      const txt = s.slice(i,j);
+      if((txt.match(/\./g)||[]).length > 1) throw { message:'Nombre invalide : « '+txt+' »' };
+      out.push({t:'num', v:parseFloat(txt)}); i = j; continue;
+    }
+    if(/[A-Za-z_]/.test(c)){
+      let j = i; while(j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+      out.push({t:'id', v:s.slice(i,j)}); i = j; continue;
+    }
+    if('+-*/()'.includes(c)){ out.push({t:c}); i++; continue; }
+    throw { message:'Caractère non reconnu : « '+c+' »' };
+  }
+  return out;
+}
+// Grammaire : expr := term (('+'|'-') term)* ; term := factor (('*'|'/') factor)* ;
+// factor := num | id | '(' expr ')' | '-' factor
+function wfParse(src){
+  const toks = wfTokenize(src);
+  if(!toks.length) throw { message:'Formule vide' };
+  let p = 0;
+  const peek = ()=> toks[p], eat = ()=> toks[p++];
+  function factor(){
+    const t = peek();
+    if(!t) throw { message:'Formule incomplète (opérande attendu)' };
+    if(t.t==='num'){ eat(); return {k:'n', v:t.v}; }
+    if(t.t==='id'){ eat(); return {k:'v', id:t.v}; }
+    if(t.t==='-'){ eat(); return {k:'neg', a:factor()}; }
+    if(t.t==='('){
+      eat(); const e = expr();
+      if(!peek() || peek().t !== ')') throw { message:'Parenthèse fermante « ) » manquante' };
+      eat(); return e;
+    }
+    throw { message:'Élément inattendu : « '+(t.v!==undefined?t.v:t.t)+' »' };
+  }
+  function term(){
+    let n = factor();
+    while(peek() && (peek().t==='*' || peek().t==='/')){ const op = eat().t; n = {k:op, a:n, b:factor()}; }
+    return n;
+  }
+  function expr(){
+    let n = term();
+    while(peek() && (peek().t==='+' || peek().t==='-')){ const op = eat().t; n = {k:op, a:n, b:term()}; }
+    return n;
+  }
+  const ast = expr();
+  if(p < toks.length) throw { message:'Symbole en trop après la formule : « '+(toks[p].v!==undefined?toks[p].v:toks[p].t)+' »' };
+  return ast;
+}
+function wfIdents(ast, out){
+  out = out || [];
+  if(!ast) return out;
+  if(ast.k==='v'){ if(!out.includes(ast.id)) out.push(ast.id); }
+  if(ast.a) wfIdents(ast.a, out);
+  if(ast.b) wfIdents(ast.b, out);
+  return out;
+}
+// Évaluation : lookup(id) -> number|null. Toute opérande null (division par zéro en amont,
+// référence indisponible) PROPAGE null — affiché « — », jamais NaN ni plantage.
+function wfEvalAst(ast, lookup){
+  switch(ast.k){
+    case 'n': return ast.v;
+    case 'v': return lookup(ast.id);
+    case 'neg': { const a = wfEvalAst(ast.a, lookup); return a===null ? null : -a; }
+    default: {
+      const a = wfEvalAst(ast.a, lookup), b = wfEvalAst(ast.b, lookup);
+      if(a===null || b===null) return null;
+      if(ast.k==='+') return a+b;
+      if(ast.k==='-') return a-b;
+      if(ast.k==='*') return a*b;
+      return b===0 ? null : a/b;   // division par zéro -> null (« — »)
+    }
+  }
+}
+// Validation complète d'une formule pour un widget : syntaxe + liste blanche + cycles.
+// selfId = id du widget édité (il peut citer sa propre grandeur moteur, pas se citer lui-même).
+function wfValidate(formule, niveau, selfId){
+  let ast;
+  try{ ast = wfParse(formule); }catch(e){ return { ok:false, error:e.message }; }
+  const vars = wgVarsFor(niveau).map(v=>v.id);
+  const widgets = wcList(niveau, true).map(d=>d.id);
+  const bad = wfIdents(ast).filter(id => !vars.includes(id) && !widgets.includes(id));
+  if(bad.length) return { ok:false, error:'Variable inconnue : « '+bad[0]+' » — utilise la palette ci-dessous' };
+  const cyc = wgFindCycle(niveau, selfId||'∅', formule);
+  if(cyc) return { ok:false, error:'Référence circulaire refusée : '+cyc.join(' → ') };
+  return { ok:true, ast };
+}
+// Cycle : parcours des références widget→widget du même niveau (une variable moteur du même
+// nom qu'un widget est masquée par le widget, SAUF pour le widget lui-même — cf. wgLookup).
+function wgFindCycle(niveau, startId, startFormule){
+  const defs = {}; wcList(niveau, true).forEach(d=> defs[d.id] = d);
+  const seen = [];
+  function visit(id, formule){
+    if(seen.includes(id)) return seen.slice(seen.indexOf(id)).concat(id);
+    seen.push(id);
+    let ids = [];
+    try{ ids = wfIdents(wfParse(formule)); }catch(_){ ids = []; }
+    for(const ref of ids){
+      if(ref === id) continue;                    // sa propre grandeur moteur, pas un cycle
+      const d = defs[ref];
+      if(d && !d.special){ const c = visit(ref, ref===startId ? startFormule : d.formule); if(c) return c; }
+    }
+    seen.pop();
+    return null;
+  }
+  return visit(startId, startFormule);
+}
+
+/* ── Évaluation d'un widget sur un contexte de calcul ──
+   ctx hab  : { vt, res }            (res = calcVT(vt), overrides déjà appliqués)
+   ctx proj : { blocks, tot }        (calcGlobal())
+   Un widget natif à formule d'usine lit res[champ]/tot[champ] DIRECTEMENT :
+   identité stricte avec l'existant, y compris overrides ✎ et propagation. */
+function wgBaseVars(niveau, ctx){
+  if(niveau==='hab'){
+    const { vt, res } = ctx;
+    return {
+      chargesTravaux:res.chargesTravaux, prixVenteHT:res.venteTravaux, auditVT:res.audit,
+      fraisVtIte:res.vtIte, regieCommerciale:res.regie, coutRevient:res.coutRevient,
+      primeCEE:res.prime, margeBrute:res.margeBrute, resteACharge:res.reste, margeCommerciale:res.marge,
+      surfIte:sumChecked(vt,'ITE'), surfIti:sumChecked(vt,'ITI'), surfCombles:sumChecked(vt,'Combles'),
+      surfPlancher:sumChecked(vt,'Plancher'), surfFenetres:sumChecked(vt,'Fenetres'),
+      shab:num(vt.shab), nbAudits:vtAudits(vt), sautsClasse:num(vt.sauts),
+      montantAuditVT:num(state.settings.auditVT), montantVtIte:num(state.settings.vtIte),
+      tauxRegie:num(state.settings.regiePct), seuilMarge:seuilMargePour(res.coutRevient),
+    };
+  }
+  const { blocks, tot } = ctx;
+  const sum = f => blocks.reduce((a,b)=> a + f(b), 0);
+  return {
+    chargesTravaux:tot.chargesTravaux, prixVenteHT:tot.venteTravaux, auditVT:tot.audit,
+    fraisVtIte:tot.vtIte, regieCommerciale:tot.regie, coutRevient:tot.coutRevient,
+    primeCEE:tot.prime, margeBrute:tot.margeBrute, resteACharge:tot.reste, margeCommerciale:tot.marge,
+    surfIte:sum(b=>sumChecked(b.vt,'ITE')), surfIti:sum(b=>sumChecked(b.vt,'ITI')),
+    surfCombles:sum(b=>sumChecked(b.vt,'Combles')), surfPlancher:sum(b=>sumChecked(b.vt,'Plancher')),
+    surfFenetres:sum(b=>sumChecked(b.vt,'Fenetres')),
+    nbAudits:totalAudits(), nbHabitations:habitations().length,
+    montantAuditVT:num(state.settings.auditVT), montantVtIte:num(state.settings.vtIte),
+    tauxRegie:num(state.settings.regiePct), seuilMarge:seuilMargePour(tot.coutRevient),
+  };
+}
+// Résolution d'un identifiant : widget du même niveau D'ABORD (cascade des dépendants),
+// variable moteur sinon. Le widget en cours d'évaluation se référence lui-même = sa
+// grandeur moteur (permet « chargesTravaux » dans le widget chargesTravaux sans cycle).
+function wgValue(niveau, def, ctx, cache, stack){
+  cache = cache || {}; stack = stack || [];
+  if(cache[def.id] !== undefined) return cache[def.id];
+  if(stack.includes(def.id)) return null;   // cycle à l'exécution (config importée corrompue) : « — »
+  const vars = cache.__vars || (cache.__vars = wgBaseVars(niveau, ctx));
+  let v;
+  if(def.special === 'bareme'){ v = vars.primeCEE; }
+  else if(def.special === 'decision'){ v = null; }   // géré par wgDecision
+  else if(!def.custom && !wcIsFmod(def) && def.champ !== undefined){
+    v = vars[{chargesTravaux:'chargesTravaux', venteTravaux:'prixVenteHT', audit:'auditVT', vtIte:'fraisVtIte',
+              regie:'regieCommerciale', coutRevient:'coutRevient', prime:'primeCEE', margeBrute:'margeBrute',
+              reste:'resteACharge', marge:'margeCommerciale'}[def.champ]];   // identité stricte : valeur moteur
+  } else {
+    let ast = null;
+    try{ ast = wfParse(def.formule); }catch(_){ v = null; }
+    if(ast){
+      const defs = {}; wcList(niveau, true).forEach(d=> defs[d.id] = d);
+      const lookup = id=>{
+        if(id !== def.id && defs[id] && !defs[id].special)
+          return wgValue(niveau, defs[id], ctx, cache, stack.concat(def.id));
+        return (vars[id] !== undefined) ? vars[id] : null;
+      };
+      v = wfEvalAst(ast, lookup);
+    }
+  }
+  // Override ✎ de l'utilisateur : il gagne toujours (mêmes clés qu'avant pour les natifs
+  // -> archives compatibles ; « w_<id> » pour les widgets personnalisés).
+  const ov = niveau==='hab' ? (ctx.res.ov || {}) : (ctx.tot.ov || {});
+  const field = wgOvField(def);
+  if(field !== 'decision' && ov[field] != null) v = num(ov[field]);
+  cache[def.id] = v;
+  return v;
+}
+function wgOvField(def){ return def.custom ? ('w_'+def.id) : def.champ; }
+// Décision : suit la valeur CONFIGURÉE de la Marge Commerciale (si sa formule a été
+// modifiée, la décision suit — choix assumé, signalé par le bouclier). Override decision gagne.
+function wgDecision(niveau, ctx, cache){
+  const ov = niveau==='hab' ? (ctx.res.ov || {}) : (ctx.tot.ov || {});
+  if(ov.decision === 'go') return true;
+  if(ov.decision === 'nogo') return false;
+  const marge = wcInit().defs[niveau+':margeCommerciale'];
+  if(!marge || marge.deleted || !wcIsFmod(marge))
+    return niveau==='hab' ? ctx.res.go : ctx.tot.go;      // config d'usine : décision moteur, inchangée
+  const v = wgValue(niveau, marge, ctx, cache);
+  const vars = cache.__vars || wgBaseVars(niveau, ctx);
+  return v !== null && v >= vars.seuilMarge;
+}
+function wgFmt(def, v){
+  if(v === null || v === undefined || !isFinite(v)) return '—';
+  const dec = (def.dec === undefined || def.dec === null) ? 2 : Math.max(0, Math.min(6, Math.round(num(def.dec))));
+  if(def.format === 'eur') return eur(round2(v));
+  if(def.format === 'pct') return v.toFixed(dec).replace('.', ',') + ' %';
+  return v.toFixed(dec).replace('.', ',');
+}
+// La grille de widgets d'un bloc (habitation ou total projet), depuis la CONFIG :
+// ordre, visibilité, libellés, formats — et badge « ƒ » sur toute formule modifiée.
+function wgKpiGridHtml(niveau, ctx){
+  const cache = {};
+  const scope = niveau==='hab' ? 'v' : 'g';
+  const key = niveau==='hab' ? ovKey(ctx.vt) : '';
+  const ov = niveau==='hab' ? (ctx.res.ov || {}) : (ctx.tot.ov || {});
+  const cells = wcList(niveau, false).map(def=>{
+    const fmod = wcIsFmod(def);
+    if(def.special === 'decision'){
+      const go = wgDecision(niveau, ctx, cache);
+      const vars = cache.__vars || (cache.__vars = wgBaseVars(niveau, ctx));
+      const lbl = niveau==='proj' ? def.label+' (seuil '+eur(vars.seuilMarge)+')' : def.label;
+      return kpiCell({scope, key, field:'decision', type:'dec', label:lbl, display:go?'✅ GO':'⛔ NO-GO',
+        rawVal:ov.decision||'auto', cls:go?'go':'nogo', edited:!!ov.decision,
+        formula:'Décision = GO si Marge Commerciale ≥ Seuil ('+eur(vars.seuilMarge)+')'+(def.desc?' — '+def.desc:'')});
+    }
+    const v = wgValue(niveau, def, ctx, cache);
+    const goHere = def.special!=='bareme' && def.clsRule ? (def.clsRule==='signe' ? (v!==null && v>=0) : wgDecision(niveau, ctx, cache)) : null;
+    return kpiCell({scope, key, field:wgOvField(def), type:'num', label:def.label,
+      display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
+      edited:ov[wgOvField(def)] != null, locked:def.special==='bareme', fmod,
+      formula:(def.special==='bareme' ? def.desc : (def.label+' = '+def.formule+(fmod?' — ƒ formule modifiée (usine : '+(wcUsine(def.niveau,def.id)||{}).formule+')':'')+(def.desc?' — '+def.desc:'')))});
+  });
+  return '<div class="kpi-grid">' + cells.join('') + '</div>';
+}
+// Contrôles du bouclier — couche 2 (widgets) : chaque formule configurée doit se parser,
+// ne citer que des identifiants connus, sans cycle ; les ƒ modifiées sont LISTÉES.
+function wgShieldChecks(){
+  wcInit();
+  const fails = [], fmods = [];
+  ['hab','proj'].forEach(niveau=>{
+    wcList(niveau, true).forEach(def=>{
+      if(def.special) return;
+      const r = wfValidate(def.formule, niveau, def.id);
+      if(!r.ok) fails.push((niveau==='hab'?'Habitations':'Projet')+' · '+def.label+' : '+r.error);
+      if(wcIsFmod(def)) fmods.push((niveau==='hab'?'Habitations':'Projet')+' · '+def.label);
+    });
+  });
+  return { fails, fmods };
+}
+
+/* ── UI Paramètres → 🧩 Widgets : liste + éditeur modal ──
+   L'aperçu live évalue la formule sur le dossier CHARGÉ (une ligne par habitation incluse) ;
+   sans dossier, sur un jeu d'exemple embarqué. Palette et champ texte écrivent la même
+   formule ; l'autocomplétion propose les variables du catalogue et les widgets du niveau. */
+let _wcTab = 'hab';
+const WC_EXEMPLE_HAB = [
+  { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, surfIte:85, surfIti:40, surfCombles:30, surfPlancher:20, surfFenetres:8, shab:95, nbAudits:1, sautsClasse:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
+  { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, surfIte:60, surfIti:25, surfCombles:22, surfPlancher:15, surfFenetres:5, shab:68, nbAudits:1, sautsClasse:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
+];
+const WC_EXEMPLE_PROJ = [
+  { label:'Total projet (exemple)', vars:{ chargesTravaux:23500, prixVenteHT:43800, auditVT:1600, fraisVtIte:70, regieCommerciale:2820, coutRevient:27990, primeCEE:35200, margeBrute:7210, resteACharge:8600, margeCommerciale:15810, surfIte:145, surfIti:65, surfCombles:52, surfPlancher:35, surfFenetres:13, nbAudits:2, nbHabitations:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
+];
+// Évalue une formule candidate sur un jeu de variables (cascade sur les widgets du niveau).
+function wcPreviewEval(formule, niveau, vars, selfId){
+  const defs = {}; wcList(niveau, true).forEach(d=> defs[d.id] = d);
+  function evalF(f, id, stack){
+    let ast; try{ ast = wfParse(f); }catch(_){ return null; }
+    return wfEvalAst(ast, ref=>{
+      if(ref !== id && defs[ref] && !defs[ref].special && !stack.includes(ref))
+        return evalF(ref===selfId ? formule : defs[ref].formule, ref, stack.concat(id));
+      return (vars[ref] !== undefined) ? vars[ref] : null;
+    });
+  }
+  return evalF(formule, selfId || '∅', []);
+}
+// Lignes de l'aperçu : dossier réel si un calcul est possible, jeu d'exemple sinon.
+function wcPreviewRows(niveau){
+  if(state.chargesTable && state.vts.length){
+    try{
+      const g = calcGlobal();
+      if(niveau==='proj') return [{ label:'Total '+(state.cas===3?'immeuble':'projet'), vars:wgBaseVars('proj', g) }];
+      return g.blocks.filter(b=>!b.res.distributed).map(b=>({ label:b.vt.label, vars:wgBaseVars('hab', b) }));
+    }catch(_){ /* dossier incomplet : retombe sur l'exemple */ }
+  }
+  return niveau==='proj' ? WC_EXEMPLE_PROJ : WC_EXEMPLE_HAB;
+}
+function wcSlugify(label){
+  let base = 'w_' + String(label||'widget').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,30);
+  if(!/^[a-z_]/.test(base)) base = 'w_' + base;
+  const cfg = wcInit();
+  let id = base, n = 2;
+  while(cfg.defs[_wcTab+':'+id] || WIDGET_VARS.some(v=>v.id===id)) id = base + '_' + (n++);
+  return id;
+}
+function renderWidgetsCfg(){
+  const wrap = $('#widgetsCfg'); if(!wrap) return;
+  wcInit();
+  const list = wcList(_wcTab, true);
+  const cfg = state.widgetConfig;
+  const usineDeleted = WIDGETS_USINE.filter(u=>u.niveau===_wcTab && (cfg.defs[wcKey(u)]||{}).deleted);
+  wrap.innerHTML = `
+    <div class="flex" style="gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn small ${_wcTab==='hab'?'blue':'ghost'}" data-wctab="hab">🏠 Habitations</button>
+      <button class="btn small ${_wcTab==='proj'?'blue':'ghost'}" data-wctab="proj">📊 Projet</button>
+      <span style="flex:1"></span>
+      <button class="btn small ghost" id="wcResetAll" title="Retour usine de TOUTE la configuration (Habitations + Projet)">⟳ Tout réinitialiser</button>
+      <button class="btn small" id="wcExport" title="Télécharger la configuration complète — sauvegarde et partage entre postes">⬇ Exporter (JSON)</button>
+      <button class="btn small" id="wcImport" title="Charger une configuration exportée">⬆ Importer (JSON)</button>
+      <input type="file" id="wcImportFile" accept=".json,application/json" style="display:none">
+    </div>
+    ${list.map((d,i)=>`
+      <div class="wc-row ${d.visible?'':'off'}" draggable="true" data-wcrow="${d.id}">
+        <span class="wc-grip" title="Glisser-déposer pour réordonner (ou ↑↓)">⠿</span>
+        <button class="btn small ghost" data-wcup="${d.id}" title="Monter" ${i===0?'disabled':''}>↑</button>
+        <button class="btn small ghost" data-wcdown="${d.id}" title="Descendre" ${i===list.length-1?'disabled':''}>↓</button>
+        <button class="btn small ghost" data-wceye="${d.id}" title="${d.visible?'Masquer à l\'étape 4 (sans rien perdre)':'Afficher à l\'étape 4'}">${d.visible?'👁':'🚫'}</button>
+        <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}${d.special==='bareme'?' 🔒':''}</span>
+        ${wcIsFmod(d)?'<span class="wc-badge-f" title="Formule différente de l\'usine">ƒ modifiée</span>':''}
+        <span class="wc-frm">${esc(d.special==='bareme'?'lookup barème (non exprimable en formule)':(d.special==='decision'?'Marge Commerciale ≥ seuil (objectif de marge des Paramètres)':d.formule))}</span>
+        <button class="btn small" data-wcedit="${d.id}">✎ Éditer</button>
+        ${(!d.custom && !d.special && wcIsFmod(d))?`<button class="btn small ghost" data-wcresetone="${d.id}" title="Revenir à la définition d'usine de ce widget">⟳ usine</button>`:''}
+        <button class="btn danger small" data-wcdel="${d.id}" title="Supprimer (restaurable : usine via « Restaurer », perso définitivement)">🗑</button>
+      </div>`).join('')}
+    <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn success small" id="wcCreate">＋ Créer un widget</button>
+      ${usineDeleted.length?`<select id="wcRestoreSel" style="width:auto"><option value="">＋ Restaurer un widget usine supprimé…</option>${usineDeleted.map(u=>`<option value="${u.id}">${esc(u.label)}</option>`).join('')}</select>`:''}
+    </div>`;
+
+  const commit = ()=>{ saveLS(); renderWidgetsCfg(); };
+  wrap.querySelectorAll('[data-wctab]').forEach(b=> b.addEventListener('click', ()=>{ _wcTab = b.dataset.wctab; renderWidgetsCfg(); }));
+  const reorder = (ids)=>{ ids.forEach((id,i)=>{ const d = cfg.defs[_wcTab+':'+id]; if(d) d.ordre = (i+1)*10; }); commit(); };
+  const idsNow = ()=> wcList(_wcTab, true).map(d=>d.id);
+  wrap.querySelectorAll('[data-wcup]').forEach(b=> b.addEventListener('click', ()=>{
+    const ids = idsNow(), i = ids.indexOf(b.dataset.wcup);
+    if(i>0){ [ids[i-1],ids[i]]=[ids[i],ids[i-1]]; reorder(ids); }
+  }));
+  wrap.querySelectorAll('[data-wcdown]').forEach(b=> b.addEventListener('click', ()=>{
+    const ids = idsNow(), i = ids.indexOf(b.dataset.wcdown);
+    if(i>=0 && i<ids.length-1){ [ids[i+1],ids[i]]=[ids[i],ids[i+1]]; reorder(ids); }
+  }));
+  let dragId = null;
+  wrap.querySelectorAll('[data-wcrow]').forEach(row=>{
+    row.addEventListener('dragstart', ()=>{ dragId = row.dataset.wcrow; });
+    row.addEventListener('dragover', e=>{ e.preventDefault(); row.classList.add('dragover'); });
+    row.addEventListener('dragleave', ()=> row.classList.remove('dragover'));
+    row.addEventListener('drop', e=>{
+      e.preventDefault(); row.classList.remove('dragover');
+      const ids = idsNow().filter(x=>x!==dragId);
+      const at = ids.indexOf(row.dataset.wcrow);
+      if(dragId && at>=0){ ids.splice(at, 0, dragId); reorder(ids); }
+    });
+  });
+  wrap.querySelectorAll('[data-wceye]').forEach(b=> b.addEventListener('click', ()=>{
+    const d = cfg.defs[_wcTab+':'+b.dataset.wceye]; if(d){ d.visible = !d.visible; commit(); }
+  }));
+  wrap.querySelectorAll('[data-wcresetone]').forEach(b=> b.addEventListener('click', ()=>{ wcResetOne(_wcTab, b.dataset.wcresetone); renderWidgetsCfg(); }));
+  wrap.querySelectorAll('[data-wcdel]').forEach(b=> b.addEventListener('click', ()=>{
+    const id = b.dataset.wcdel, d = cfg.defs[_wcTab+':'+id]; if(!d) return;
+    const q = d.special==='decision'
+      ? '⚠️ Supprimer le widget « '+d.label+' » ?\n\nLa décision GO/NO-GO, son bandeau d\'écart et « ⚖️ Ajuster les prix » disparaîtront de l\'étape 4 (niveau '+(_wcTab==='hab'?'habitation':'projet')+').\nRestaurable via « Restaurer un widget usine supprimé ».'
+      : 'Supprimer le widget « '+d.label+' » ?'+(d.custom?'\n\n(Widget personnalisé : suppression définitive — pense à exporter le JSON avant si besoin.)':'\n\nRestaurable via « Restaurer un widget usine supprimé ».');
+    if(!confirm(q)) return;
+    if(d.custom) delete cfg.defs[_wcTab+':'+id];
+    else cfg.defs[_wcTab+':'+id] = { id, niveau:_wcTab, deleted:true };
+    commit();
+  }));
+  const restoreSel = wrap.querySelector('#wcRestoreSel');
+  if(restoreSel) restoreSel.addEventListener('change', ()=>{ if(restoreSel.value){ wcResetOne(_wcTab, restoreSel.value); renderWidgetsCfg(); } });
+  wrap.querySelector('#wcResetAll').addEventListener('click', ()=>{
+    if(confirm('Réinitialiser TOUTE la configuration des widgets (Habitations + Projet) à l\'usine ?\nLes widgets personnalisés seront supprimés — exporte le JSON avant si tu veux les garder.')){ wcResetAll(); renderWidgetsCfg(); }
+  });
+  wrap.querySelector('#wcExport').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify({ app:'revue-projet-ot', type:'widgetConfig', version:WIDGETS_VERSION, config:wcInit() }, null, 2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'widgets-revue-projet-ot.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  });
+  wrap.querySelector('#wcImport').addEventListener('click', ()=> wrap.querySelector('#wcImportFile').click());
+  wrap.querySelector('#wcImportFile').addEventListener('change', e=>{
+    const f = e.target.files[0]; if(!f) return;
+    const rd = new FileReader();
+    rd.onload = ()=>{
+      try{
+        const j = JSON.parse(rd.result);
+        if(!j || j.type!=='widgetConfig' || !j.config || !j.config.defs) throw { message:'Ce fichier n\'est pas une configuration de widgets exportée par l\'application.' };
+        for(const k in j.config.defs){
+          const d = j.config.defs[k];
+          if(d.deleted || d.special) continue;
+          const r = wfValidate(String(d.formule||''), d.niveau, d.id);
+          if(!r.ok) throw { message:'Formule invalide dans le fichier — « '+(d.label||d.id)+' » : '+r.error };
+        }
+        state.widgetConfig = j.config; wcInit(); commit();
+        alert('Configuration importée ✔');
+      }catch(err){ alert('Import impossible : ' + (err.message||err)); }
+      e.target.value = '';
+    };
+    rd.readAsText(f);
+  });
+  wrap.querySelector('#wcCreate').addEventListener('click', ()=> openWcEditor(_wcTab, null));
+  wrap.querySelectorAll('[data-wcedit]').forEach(b=> b.addEventListener('click', ()=> openWcEditor(_wcTab, b.dataset.wcedit)));
+}
+
+// Éditeur modal : palette + champ texte synchronisés, autocomplétion, validation en direct, aperçu live.
+function openWcEditor(niveau, id){
+  wcInit();
+  const cfg = state.widgetConfig;
+  const existing = id ? cfg.defs[niveau+':'+id] : null;
+  const isNew = !existing;
+  const d = existing ? JSON.parse(JSON.stringify(existing)) : { id:'', niveau, label:'', formule:'', format:'eur', dec:2, desc:'', visible:true, ordre:(Math.max(0,...wcList(niveau,true).map(x=>x.ordre||0))+10), custom:true };
+  const frmLocked = !!d.special;
+  let box = document.getElementById('wcModal');
+  if(!box){ box = document.createElement('div'); box.id = 'wcModal'; document.body.appendChild(box); }
+  const vars = wgVarsFor(niveau);
+  const fams = [...new Set(vars.map(v=>v.fam))];
+  const widgetRefs = wcList(niveau, true).filter(w=>!w.special && w.id!==d.id);
+  box.innerHTML = `<div class="box">
+    <h3 style="margin-top:0">${isNew?'＋ Créer un widget':'✎ Éditer « '+esc(d.label)+' »'} <small>(${niveau==='hab'?'Habitations':'Projet'})</small></h3>
+    <div class="row"><div class="col">
+      <label class="fld">Intitulé</label>
+      <input type="text" id="wcLabel" value="${esc(d.label)}" placeholder="ex. Prime au m² Shab">
+    </div><div class="col" style="max-width:200px">
+      <label class="fld">Format</label>
+      <select id="wcFormat"${d.special==='decision'?' disabled':''}>
+        <option value="eur" ${d.format==='eur'?'selected':''}>€ (euros)</option>
+        <option value="num" ${d.format==='num'?'selected':''}>Nombre</option>
+        <option value="pct" ${d.format==='pct'?'selected':''}>%</option>
+      </select>
+    </div><div class="col" style="max-width:130px">
+      <label class="fld">Décimales</label>
+      <input type="number" id="wcDec" value="${d.dec!==undefined?d.dec:2}" min="0" max="6" step="1"${d.special==='decision'?' disabled':''}>
+    </div></div>
+    <label class="fld">Formule</label>
+    ${frmLocked
+      ? `<div class="alert info">🔒 ${d.special==='bareme'
+           ? 'La Prime CEE vient d\'un <strong>lookup dans le barème</strong> (pollueur · revenus · CDP · sauts · tranche Shab) — elle n\'est pas exprimable en + − × ÷. Les autres champs restent éditables, et toute formule personnalisée peut UTILISER la variable <code>primeCEE</code>.'
+           : 'La Décision compare la <strong>Marge Commerciale au seuil</strong> (objectif de marge des Paramètres). Si la formule de la Marge Commerciale est modifiée, la décision la suit automatiquement.'}</div>`
+      : `<div id="wcSugg">
+           <input type="text" id="wcFormule" value="${esc(d.formule)}" placeholder="ex. primeCEE / shab" autocomplete="off" spellcheck="false">
+         </div>
+         <div class="wc-err" id="wcErr"></div>
+         ${fams.map(f=>`<div class="wc-fam">${esc(f)}</div><div class="wc-pal">${vars.filter(v=>v.fam===f).map(v=>`<span class="chip" data-ins="${v.id}" title="${esc(v.tip)}${v.unit?' ('+v.unit+')':''}">${esc(v.label)}</span>`).join('')}</div>`).join('')}
+         ${widgetRefs.length?`<div class="wc-fam">Widgets (${niveau==='hab'?'Habitations':'Projet'})</div><div class="wc-pal">${widgetRefs.map(w=>`<span class="chip" data-ins="${w.id}" title="Valeur du widget « ${esc(w.label)} »">🧩 ${esc(w.label)}</span>`).join('')}</div>`:''}
+         <div class="wc-fam">Opérateurs</div>
+         <div class="wc-pal">${['+','−','×','÷','(',')'].map(op=>`<span class="chip op" data-ins=" ${op} ">${op}</span>`).join('')}</div>`}
+    <label class="fld">Description (infobulle au survol du widget)</label>
+    <input type="text" id="wcDesc" value="${esc(d.desc||'')}" placeholder="Explication métier affichée au survol">
+    <div class="wc-prev" id="wcPrev" style="margin-top:8px"></div>
+    <div class="actions" style="margin-top:12px">
+      <button class="btn ghost" id="wcCancel">Annuler</button>
+      <button class="btn success" id="wcSave">✔ Valider</button>
+    </div>
+  </div>`;
+  box.classList.add('on');
+  const $m = s => box.querySelector(s);
+  const frm = $m('#wcFormule');
+  const close = ()=>{ box.classList.remove('on'); box.innerHTML=''; };
+  $m('#wcCancel').addEventListener('click', close);
+  box.addEventListener('click', e=>{ if(e.target===box) close(); });
+
+  const refresh = ()=>{
+    const prev = $m('#wcPrev'), err = $m('#wcErr');
+    if(frmLocked){ prev.innerHTML=''; return; }
+    const f = frm.value;
+    const r = wfValidate(f, niveau, d.id || '∅');
+    if(!r.ok){ err.textContent = '✘ ' + r.error; err.classList.remove('wc-ok'); prev.innerHTML=''; return; }
+    err.textContent = '✔ Formule valide'; err.classList.add('wc-ok');
+    const fmtD = { format:$m('#wcFormat').value, dec:num($m('#wcDec').value) };
+    const rows = wcPreviewRows(niveau);
+    prev.innerHTML = '<div class="wc-fam">Aperçu live'+(state.chargesTable && state.vts.length?' (dossier chargé, habitations incluses)':' (jeu d\'exemple — aucun dossier chargé)')+'</div>'
+      + '<table><thead><tr><th></th><th>Résultat</th></tr></thead><tbody>'
+      + rows.map(rw=>{
+          const v = wcPreviewEval(f, niveau, rw.vars, d.id || '∅');
+          return '<tr><td>'+esc(rw.label)+'</td><td class="num">'+wgFmt(fmtD, v)+(v===null?' <small>(division par zéro ou valeur indisponible)</small>':'')+'</td></tr>';
+        }).join('')
+      + '</tbody></table>';
+  };
+  if(!frmLocked){
+    // Palette -> insertion au curseur, champ et palette écrivent la MÊME formule.
+    box.querySelectorAll('[data-ins]').forEach(ch=> ch.addEventListener('click', ()=>{
+      const ins = ch.dataset.ins;
+      const s = frm.selectionStart||frm.value.length, e2 = frm.selectionEnd||frm.value.length;
+      frm.value = frm.value.slice(0,s) + ins + frm.value.slice(e2);
+      frm.focus(); frm.selectionStart = frm.selectionEnd = s + ins.length;
+      refresh();
+    }));
+    // Autocomplétion : fragment d'identifiant sous le curseur -> suggestions cliquables.
+    const suggWrap = $m('#wcSugg');
+    const closeSugg = ()=>{ const el = suggWrap.querySelector('.sugg'); if(el) el.remove(); };
+    frm.addEventListener('input', ()=>{
+      refresh(); closeSugg();
+      const upto = frm.value.slice(0, frm.selectionStart||frm.value.length);
+      const m = upto.match(/[A-Za-z_][A-Za-z0-9_]*$/);
+      if(!m) return;
+      const frag = m[0].toLowerCase();
+      const cands = [...vars.map(v=>({id:v.id, label:v.label})), ...widgetRefs.map(w=>({id:w.id, label:'🧩 '+w.label}))]
+        .filter(c=> c.id.toLowerCase().startsWith(frag) && c.id.toLowerCase() !== frag).slice(0,8);
+      if(!cands.length) return;
+      const el = document.createElement('div'); el.className = 'sugg';
+      el.innerHTML = cands.map(c=>`<div data-sg="${c.id}"><code>${esc(c.id)}</code> — ${esc(c.label)}</div>`).join('');
+      suggWrap.appendChild(el);
+      el.querySelectorAll('[data-sg]').forEach(o=> o.addEventListener('mousedown', ev=>{
+        ev.preventDefault();
+        const pos = frm.selectionStart||frm.value.length;
+        frm.value = frm.value.slice(0, pos - frag.length) + o.dataset.sg + frm.value.slice(pos);
+        closeSugg(); frm.focus();
+        frm.selectionStart = frm.selectionEnd = pos - frag.length + o.dataset.sg.length;
+        refresh();
+      }));
+    });
+    frm.addEventListener('blur', ()=> setTimeout(closeSugg, 150));
+  }
+  $m('#wcFormat').addEventListener('change', refresh);
+  $m('#wcDec').addEventListener('input', refresh);
+  refresh();
+
+  $m('#wcSave').addEventListener('click', ()=>{
+    const label = $m('#wcLabel').value.trim();
+    if(!label){ alert('Donne un intitulé au widget.'); return; }
+    if(!frmLocked){
+      const r = wfValidate(frm.value, niveau, d.id || '∅');
+      if(!r.ok){ alert('Formule invalide : ' + r.error); return; }
+      d.formule = frm.value.trim();
+    }
+    d.label = label;
+    if(d.special !== 'decision'){ d.format = $m('#wcFormat').value; d.dec = Math.max(0, Math.min(6, Math.round(num($m('#wcDec').value)))); }
+    d.desc = $m('#wcDesc').value.trim();
+    if(isNew) d.id = wcSlugify(label);
+    cfg.defs[niveau+':'+d.id] = d;
+    saveLS(); close(); renderWidgetsCfg();
+  });
+}
+
+function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited, locked, fmod}
   const id = o.scope + '|' + encodeURIComponent(o.key||'') + '|' + o.field + '|' + o.type;
   // locked = jamais éditable (ex. Prime CEE : issue du barème, aucune saisie manuelle).
   const ro = !!FROZEN || !!o.locked;
@@ -3473,7 +4183,7 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
     + (o.locked ? ' — 🔒 non éditable (calculée automatiquement depuis le barème)' : (ro ? '' : ' (cliquer pour modifier)'));
   return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
     ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
-    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}</div><div class="val">${o.display}</div>
+    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}</div><div class="val">${o.display}</div>
   </div>`;
 }
 function openKpiEditor(kpi){
@@ -3600,18 +4310,7 @@ function renderStep4(){
         ${lignesHtml}
         ${bodyRows}
       </tbody></table>
-      ${res.distributed ? '' : `<div class="kpi-grid">
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'prime', type:'num', label:'Prime CEE', display:eur(res.prime), rawVal:round2(res.prime), locked:true,
-          formula:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)'})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'margeBrute', type:'num', label:'Marge Brute', display:eur(res.margeBrute), rawVal:round2(res.margeBrute), cls:res.margeBrute>=0?'go':'nogo', edited:res.ov.margeBrute!=null,
-          formula:'Marge Brute = Prime CEE − (Charges d\'achat travaux + Audit VT + frais VT ITE + Régie commerciale) = '+eur(res.prime)+' − ('+eur(res.chargesTravaux)+' + '+eur(res.audit)+' + '+eur(res.vtIte)+' + '+eur(res.regie)+')'})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'reste', type:'num', label:'Reste à charge', display:eur(res.reste), rawVal:round2(res.reste), edited:res.ov.reste!=null,
-          formula:'Reste à charge = Prix de vente HT − Prime CEE = '+eur(res.venteTravaux)+' − '+eur(res.prime)})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'marge', type:'num', label:'Marge Commerciale', display:eur(res.marge), rawVal:round2(res.marge), cls:res.go?'go':'nogo', edited:res.ov.marge!=null,
-          formula:'Marge Commerciale = Prix de vente HT − Coût de revient = '+eur(res.venteTravaux)+' − '+eur(res.coutRevient)})}
-        ${kpiCell({scope:'v', key:ovKey(vt), field:'decision', type:'dec', label:'Décision', display:res.go?'✅ GO':'⛔ NO-GO', rawVal:res.ov.decision||'auto', cls:res.go?'go':'nogo', edited:!!res.ov.decision,
-          formula:'Décision = GO si Marge Commerciale ≥ Seuil : '+eur(res.marge)+(res.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
-      </div>`}
+      ${res.distributed ? '' : wgKpiGridHtml('hab', {vt, res})}
       ${ vt.role==='habitation' ? renderPcEditor(vt) : '' }
     </div>`;
   });
@@ -3619,23 +4318,8 @@ function renderStep4(){
   // Total immeuble (cas 3) ou récap global
   html += `<div class="card" style="background:linear-gradient(135deg,#eef4ff,#fbfdff);border:2px solid var(--primary)">
     <h3 style="color:var(--primary)">📊 Total ${state.cas===3?'immeuble':'projet'}</h3>
-    <div class="kpi-grid">
-      ${kpiCell({scope:'g', key:'', field:'coutRevient', type:'num', label:'Coût de revient total', display:eur(tot.coutRevient), rawVal:round2(tot.coutRevient), edited:tot.ov.coutRevient!=null,
-        formula:'Coût de revient total = Σ des VT (charges travaux + Audit VT + frais VT ITE + régie)'})}
-      ${kpiCell({scope:'g', key:'', field:'venteTravaux', type:'num', label:'Prix de vente HT', display:eur(tot.venteTravaux), rawVal:round2(tot.venteTravaux), edited:tot.ov.venteTravaux!=null,
-        formula:'Prix de vente HT = Σ (surfaces cochées × prix de vente du barème)'})}
-      ${kpiCell({scope:'g', key:'', field:'prime', type:'num', label:'Prime CEE totale', display:eur(tot.prime), rawVal:round2(tot.prime), locked:true,
-        formula:'Prime CEE totale = Σ des primes CEE des habitations'})}
-      ${kpiCell({scope:'g', key:'', field:'margeBrute', type:'num', label:'Marge Brute totale', display:eur(tot.margeBrute), rawVal:round2(tot.margeBrute), cls:tot.margeBrute>=0?'go':'nogo', edited:tot.ov.margeBrute!=null,
-        formula:'Marge Brute totale = Prime CEE totale − (Charges d\'achat travaux + Audit VT + frais VT ITE + Régie commerciale) = '+eur(tot.prime)+' − ('+eur(tot.chargesTravaux)+' + '+eur(tot.audit)+' + '+eur(tot.vtIte)+' + '+eur(tot.regie)+')'})}
-      ${kpiCell({scope:'g', key:'', field:'reste', type:'num', label:'Reste à charge total', display:eur(tot.reste), rawVal:round2(tot.reste), edited:tot.ov.reste!=null,
-        formula:'Reste à charge total = Prix de vente HT − Prime CEE totale = '+eur(tot.venteTravaux)+' − '+eur(tot.prime)})}
-      ${kpiCell({scope:'g', key:'', field:'marge', type:'num', label:'Marge Commerciale globale', display:eur(tot.marge), rawVal:round2(tot.marge), cls:tot.go?'go':'nogo', edited:tot.ov.marge!=null,
-        formula:'Marge Commerciale globale = Prix de vente HT − Coût de revient total = '+eur(tot.venteTravaux)+' − '+eur(tot.coutRevient)})}
-      ${kpiCell({scope:'g', key:'', field:'decision', type:'dec', label:'Décision (seuil '+eur(seuil)+')', display:tot.go?'✅ GO':'⛔ NO-GO', rawVal:tot.ov.decision||'auto', cls:tot.go?'go':'nogo', edited:!!tot.ov.decision,
-        formula:'Décision = GO si Marge Commerciale globale ≥ Seuil : '+eur(tot.marge)+(tot.marge>=seuil?' ≥ ':' < ')+eur(seuil)})}
-    </div>
-    ${goFixHtml()}
+    ${wgKpiGridHtml('proj', {blocks, tot})}
+    ${(()=>{ const dd = wcInit().defs['proj:decision']; return (dd && !dd.deleted && dd.visible) ? goFixHtml() : ''; })()}
     <table style="margin-top:8px"><tbody>
       <tr><td>Détail — Charges travaux</td><td class="num">${eur(tot.chargesTravaux)}</td></tr>
       <tr><td>Détail — Audit VT (${totalAudits()} × ${eur(num(state.settings.auditVT))})</td><td class="num">${eur(tot.audit)}</td></tr>
@@ -3737,16 +4421,35 @@ function buildReportWorkbook(){
     winWarns.forEach(w=> syn.push(['', windowWarnText(w)]));
   }
   syn.push([]);
-  syn.push(['Habitation / VT','Rôle','Charges travaux HT','Audit VT','Frais VT ITE','Régie '+pct+' %','Coût de revient total','Prix de vente HT','Prime CEE','Marge Brute','Reste à charge','Marge Commerciale','Décision']);
-  blocks.forEach(({vt,res})=> syn.push([
-    vt.label, vt.role==='ite'?(res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((vt.hasIte||'oui')==='non'?' (sans ITE)':''),
-    round2(res.chargesTravaux), round2(res.audit), round2(res.vtIte), round2(res.regie), round2(res.coutRevient),
-    round2(res.venteTravaux), round2(res.prime), round2(res.margeBrute), round2(res.reste), round2(res.marge), res.go?'GO':'NO-GO'
+  // Colonnes de la Synthèse GÉNÉRÉES depuis la config widgets (Paramètres → 🧩 Widgets) :
+  // les widgets Habitations visibles, dans l'ordre configuré — les personnalisés inclus.
+  // La ligne TOTAL évalue le widget Projet HOMONYME quand il existe (les natifs coïncident),
+  // sinon la cellule reste vide. Les composants toujours utiles au rapport (charges, audit,
+  // ITE, régie) sont ajoutés s'ils ne sont pas déjà des widgets visibles.
+  const wHab = wcList('hab', false);
+  const wProjAll = {}; wcList('proj', true).forEach(d=> wProjAll[d.id] = d);
+  const fixedIds = ['chargesTravaux','auditVT','fraisVtIte','regieCommerciale','coutRevient'];
+  const extraFixed = fixedIds.filter(id => !wHab.some(d=>d.id===id)).map(id => wcUsine('hab', id)).filter(Boolean);
+  const cols = [...extraFixed, ...wHab];
+  syn.push(['Habitation / VT','Rôle', ...cols.map(d=> d.label + (wcIsFmod(d)?' (ƒ)':'') )]);
+  blocks.forEach(b=> syn.push([
+    b.vt.label, b.vt.role==='ite'?(b.res.distributed?'VT ITE (répartie)':'VT ITE'):'Habitation'+((b.vt.hasIte||'oui')==='non'?' (sans ITE)':''),
+    ...cols.map(d=>{
+      if(d.special==='decision') return wgDecision('hab', {vt:b.vt, res:b.res}) ? 'GO' : 'NO-GO';
+      const v = wgValue('hab', d, {vt:b.vt, res:b.res});
+      return v===null ? '—' : round2(v);
+    })
   ]));
+  const ctxProj = { blocks, tot };
   syn.push([
     'TOTAL '+(state.cas===3?'immeuble':'projet'),'',
-    round2(tot.chargesTravaux), round2(tot.audit), round2(tot.vtIte), round2(tot.regie), round2(tot.coutRevient),
-    round2(tot.venteTravaux), round2(tot.prime), round2(tot.margeBrute), round2(tot.reste), round2(tot.marge), tot.go?'GO':'NO-GO'
+    ...cols.map(d=>{
+      const dp = wProjAll[d.id];
+      if(!dp || dp.deleted) return '';
+      if(dp.special==='decision') return wgDecision('proj', ctxProj) ? 'GO' : 'NO-GO';
+      const v = wgValue('proj', dp, ctxProj);
+      return v===null ? '—' : round2(v);
+    })
   ]);
 
   // ── Légendes au survol : la formule de chaque champ calculé est posée en COMMENTAIRE de cellule
@@ -3962,7 +4665,10 @@ function buildDossierSnapshot(){
   const { tot } = calcGlobal();
   const settingsPub = Object.assign({}, state.settings); delete settingsPub.apiKey;
   return {
-    schema: 2, buildId: BUILD_ID,
+    // schema 3 (2026-07-30) : la config widgets est EMBARQUÉE — un dossier archivé se
+    // rouvre avec ses formules d'époque, même si la config globale a changé depuis.
+    schema: 3, buildId: BUILD_ID,
+    widgetConfig: JSON.parse(JSON.stringify(wcInit())),
     nom: state.nomDossier.trim(),
     cas: state.cas,
     general: JSON.parse(JSON.stringify(state.general)),
@@ -4251,6 +4957,9 @@ async function openArchived(id){
   state.chargesAuto = snap.chargesAuto || {};
   state.chargesAutoBak = snap.chargesAutoBak || {};
   state.prixDossier = snap.prixDossier || {};
+  // Config widgets du dossier (schema 3). Un snapshot schema 2 n'en a pas : on GARDE la
+  // config courante (comportement d'époque = formules d'usine, wcInit comble l'absence).
+  if(snap.widgetConfig) state.widgetConfig = JSON.parse(JSON.stringify(snap.widgetConfig));
   state.elementsTable = snap.elementsTable || state.elementsTable;
   state.prop = snap.prop || null;      // sa proposition de travaux, ré-éditable
   // Journal de facturation. snap.facture est l'ancien format (un document unique) :

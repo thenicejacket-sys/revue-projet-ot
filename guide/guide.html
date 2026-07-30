@@ -497,8 +497,47 @@
     <div class="tip" style="margin-top:6px">Cette exclusion est verrouillée par une <b>liste blanche</b> : seuls les champs explicitement autorisés entrent dans le PDF.</div>
   </div>
 
+  <!-- ── 🧩 Formules des widgets : reflète la CONFIGURATION COURANTE (Paramètres → 🧩 Widgets),
+       lue dans le localStorage de l'application — pas des valeurs figées dans le guide. ── -->
+  <div class="step"><div class="badge">🧩</div><div class="body">
+    <h3>Formules des widgets — configuration actuelle</h3>
+    <p>Les widgets de l'étape 4 sont configurables (Paramètres → <b>🧩 Widgets</b>) : intitulés, formules,
+       format, visibilité, ordre. Le tableau ci-dessous montre <b>ta configuration en vigueur</b> sur ce poste
+       — une formule marquée <b>ƒ</b> a été modifiée par rapport à l'usine. Chaque dossier archivé emporte la
+       configuration au moment de l'archivage.</p>
+    <div id="wcGuideDyn"><em>Configuration usine (aucune personnalisation détectée sur ce poste).</em></div>
+  </div></div>
+
   <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
 </section>
+
+<script>
+// Formules dynamiques : lecture directe de la config widgets de l'application (même origine).
+(function(){
+  try{
+    var raw = localStorage.getItem('revueProjetOT.v1'); if(!raw) return;
+    var cfg = (JSON.parse(raw)||{}).widgetConfig; if(!cfg || !cfg.defs) return;
+    var esc = function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); };
+    var rows = Object.keys(cfg.defs).map(function(k){ return cfg.defs[k]; })
+      .filter(function(d){ return d && !d.deleted; })
+      .sort(function(a,b){ return (a.niveau===b.niveau) ? (a.ordre||0)-(b.ordre||0) : (a.niveau==='hab'?-1:1); });
+    if(!rows.length) return;
+    var html = '<table style="border-collapse:collapse;font-size:14px"><thead><tr>'
+      + '<th style="text-align:left;padding:4px 10px">Niveau</th><th style="text-align:left;padding:4px 10px">Widget</th>'
+      + '<th style="text-align:left;padding:4px 10px">Formule</th><th style="text-align:left;padding:4px 10px">Affiché</th></tr></thead><tbody>';
+    rows.forEach(function(d){
+      var frm = d.special==='bareme' ? 'lookup barème (pollueur · revenus · CDP · sauts · tranche Shab)'
+              : d.special==='decision' ? 'GO si Marge Commerciale ≥ seuil (objectif de marge)' : d.formule;
+      html += '<tr><td style="padding:3px 10px">'+(d.niveau==='hab'?'Habitations':'Projet')+'</td>'
+        + '<td style="padding:3px 10px"><b>'+esc(d.label)+'</b>'+(d.custom?' <small>(perso)</small>':'')+'</td>'
+        + '<td style="padding:3px 10px"><code>'+esc(frm)+'</code></td>'
+        + '<td style="padding:3px 10px">'+(d.visible?'👁 oui':'🚫 masqué')+'</td></tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('wcGuideDyn').innerHTML = html;
+  }catch(e){ /* guide autonome : sans config lisible, le texte usine reste affiché */ }
+})();
+</script>
 
 </body>
 </html>
