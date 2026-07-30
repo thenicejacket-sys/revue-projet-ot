@@ -252,6 +252,18 @@ body.locked #loginGate{display:flex}
 .alert.err{background:#fdecea;border-color:#f5b5b0;color:var(--red-tx)}
 .alert.info{background:#eef4ff;border-color:#c7d8f5;color:var(--primary)}
 .alert.ok{background:#eaf7ee;border-color:#b4e3c2;color:var(--green-tx)}
+/* Paramètres : sections repliables. <details> natif (aucun JS) — les champs restent
+   dans le DOM même repliés, donc getElementById / hydrateParamsUI / saveParams intacts. */
+.pset{border:1px solid var(--border);border-radius:var(--radius);margin:10px 0;background:#fff}
+.pset>summary{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;list-style:none;
+  background:#f7f9fd;border-radius:var(--radius);font-family:'Montserrat';font-weight:700;color:var(--primary);font-size:13.5px;user-select:none}
+.pset[open]>summary{border-bottom:1px solid var(--border);border-radius:var(--radius) var(--radius) 0 0}
+.pset>summary::-webkit-details-marker{display:none}
+.pset>summary::before{content:'+';display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;flex:0 0 20px;border:1.5px solid var(--primary);border-radius:6px;
+  font-weight:800;font-size:14px;line-height:1;color:var(--primary);background:#fff}
+.pset[open]>summary::before{content:'−'}
+.pset>.pset-b{padding:12px 14px}
 /* Ligne d'instance DÉSACTIVÉE (croix rouge) : grisée franchement, champs fondus dans
    le gris — la ligne doit se lire comme morte au premier coup d'œil. ↺ la réactive. */
 /* ============================ ÉTAPE 7 — Proposition de travaux ============================ */
@@ -541,12 +553,14 @@ main{position:relative;z-index:1}
     <div class="card">
       <h2>⚙️ Paramètres</h2>
 
+      <details class="pset">
+        <summary>🤖 Modèle IA (OpenRouter)</summary>
+        <div class="pset-b">
       <div class="alert warn">
         🔒 <strong>Sécurité :</strong> la clé OpenRouter est stockée <strong>en clair</strong> dans le <code>localStorage</code> de ce navigateur.
         Usage <strong>local uniquement</strong> — ne pas déployer publiquement avec une clé partagée. La clé n'est jamais journalisée.
       </div>
 
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Modèle IA (OpenRouter)</h3>
       <div class="row">
         <div class="col">
           <label class="fld">Clé API OpenRouter</label>
@@ -569,8 +583,12 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
-      <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Template de valorisation (.xlsx)</h3>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>📄 Template de valorisation (.xlsx)</summary>
+        <div class="pset-b">
       <p class="hint">Charge le fichier VALORISATION_TEMPLATE, vérifie l'aperçu, puis « Enregistrer le template » pour qu'il soit gardé en mémoire et repris à la prochaine ouverture. « Supprimer » l'efface définitivement.</p>
       <div class="row">
         <div class="col">
@@ -585,9 +603,13 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
-      <hr/>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>💶 Barème de prix (achat / vente HT, €/m²)</summary>
+        <div class="pset-b">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <h3 style="font-size:13.5px;color:var(--txt-dim);margin:0">Barème de prix (achat / vente HT, €/m²)</h3>
         <button class="btn small ghost" id="alignVenteAchat" style="padding:3px 10px">⇄ <span id="alignLabel">Vente = Achat</span></button>
         <small id="alignHint" style="color:var(--text-muted)"></small>
       </div>
@@ -595,15 +617,23 @@ main{position:relative;z-index:1}
       <table id="chargesTable"><thead><tr><th>Catégorie</th><th class="num">Px achat HT</th><th class="num">Prix vente HT</th></tr></thead>
         <tbody id="chargesBody"></tbody></table>
 
-      <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Barème des éléments (achat / vente HT, € / pièce)</h3>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>🧩 Barème des éléments (achat / vente HT, € / pièce)</summary>
+        <div class="pset-b">
       <p class="hint">Éléments additionnels ajoutés par habitation (onglet Valorisation) : radiateur, VMC, ballon, PAC… Un élément utilisé <strong>sans prix d'achat ou de vente</strong> bloque le calcul. « ＋ » ajoute une ligne personnalisée ; « Enregistrer » garde tout en mémoire.</p>
       <table id="elementsTableUI"><thead><tr><th>Élément</th><th class="num">Px achat HT</th><th class="num">Prix vente HT</th><th></th></tr></thead>
         <tbody id="elementsBody"></tbody></table>
       <button class="btn small ghost" id="elemAdd" style="margin-top:6px">＋ Ajouter un élément au barème</button>
 
-      <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Paramètres de calcul</h3>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>🧮 Paramètres de calcul</summary>
+        <div class="pset-b">
       <div class="row">
         <div class="col">
           <label class="fld">Montant fixe Audit VT</label>
@@ -623,8 +653,12 @@ main{position:relative;z-index:1}
            montant ou en pourcentage. C'est lui qui décide du GO/NO-GO, et c'est lui
            que vise le bouton de recalcul. Avant, deux champs séparés portaient deux
            notions qui se chevauchaient et pouvaient se contredire. -->
-      <hr/>
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Objectif de marge commerciale</h3>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>🎯 Objectif de marge commerciale</summary>
+        <div class="pset-b">
       <p class="hint" style="margin-top:-4px">Détermine la décision <strong>GO / NO-GO</strong>. Le bouton de recalcul ajuste les prix de vente du dossier pour l'atteindre.</p>
       <!-- Les deux champs restent visibles et saisissables. Le petit tick désigne
            celui qui sert réellement au calcul ; l'autre est grisé, sans être effacé,
@@ -649,13 +683,18 @@ main{position:relative;z-index:1}
       </div>
       <div class="row"><div class="col"><div id="margeCibleZone"></div></div></div>
 
-      <hr/>
+        </div>
+      </details>
+
+      <details class="pset">
+        <summary>🏢 Informations société (devis &amp; factures)</summary>
+        <div class="pset-b">
       <!-- Ici, UNIQUEMENT l'identité de l'émetteur : le « papier à en-tête ». Elle est
            identique sur tous les devis. Tout ce qui varie d'un dossier à l'autre
            (chargé d'affaires, TVA, validité, acompte) se saisit dans l'étape 5, sur le
            dossier concerné — le mettre ici laissait croire qu'un devis se prépare
            depuis les Paramètres. -->
-      <h3 style="font-size:13.5px;color:var(--txt-dim)">Coordonnées OT Énergie — en-tête et pied de page du devis</h3>
+      <h3 style="font-size:13px;color:var(--txt-dim);margin:0 0 6px">Coordonnées OT Énergie — en-tête et pied de page du devis</h3>
       <p class="hint" style="margin-top:-4px">Identité de l'entreprise émettrice, <strong>identique sur tous les devis</strong>. Les éléments propres à un dossier — chargé d'affaires, TVA, validité, acompte — se renseignent dans l'onglet <strong>5 · Proposition de travaux</strong>.</p>
       <div class="row">
         <div class="col">
@@ -720,7 +759,9 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
-      <hr/>
+        </div>
+      </details>
+
       <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
       <div class="guide-box">
         <div class="gb-ico">📖</div>
