@@ -310,6 +310,11 @@ body.locked #loginGate{display:flex}
 tr.row-off{background:#b9c0cc;filter:grayscale(1)}
 tr.row-off input{background:transparent;border-color:#8d97a6;color:#41495a}
 tr.row-off input::placeholder{color:#5d6675}
+/* Habitation EXCLUE du calcul (étape Extraction) : même langage visuel que la ligne
+   désactivée (row-off), appliqué au bloc entier. Les données restent dans le dossier. */
+.vt-block.vt-off{background:#e8ebf1;border-color:#8d97a6;filter:grayscale(.85);opacity:.75}
+.vt-block.vt-off .head strong{color:#41495a;text-decoration:line-through}
+.badge.off{background:#b9c0cc;color:#2c3242}
 /* Aperçu du template de valorisation : en-tête figé pendant le défilement. */
 table.valo-preview thead th{position:sticky;top:0;z-index:2;background:#eef2fb;box-shadow:inset 0 -1px 0 var(--border)}
 table.valo-preview tbody td{border-bottom:1px solid var(--border)}
@@ -820,7 +825,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-29.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-30.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -1791,9 +1796,9 @@ function calcAjustementVersMarge(margeCible, opts){
   const cible = num(margeCible);
   const deficit = round2(cible - tot.marge);   // négatif = la marge dépasse déjà la cible
 
-  // Assiette ajustable : surface totale cochée par catégorie du barème.
+  // Assiette ajustable : surface totale cochée par catégorie du barème (VT incluses seulement).
   const surfaces = {};
-  state.vts.forEach(vt=>{
+  state.vts.filter(vtIncluded).forEach(vt=>{
     CATS.forEach(cat=>{
       const s = sumChecked(vt, cat);
       if(s > 0) surfaces[cat] = round2((surfaces[cat]||0) + s);
@@ -1995,7 +2000,7 @@ function lineComplete(pl){
 // Éléments utilisés dans le dossier mais incomplets (prix/description manquants) -> BLOQUANT (calcul + archive)
 function unpricedElementIssues(){
   const issues = [];
-  state.vts.forEach(vt=> (vt.pcLines||[]).forEach(pl=>{
+  state.vts.filter(vtIncluded).forEach(vt=> (vt.pcLines||[]).forEach(pl=>{
     if(!lineComplete(pl)) issues.push(vt.label + ' · ' + lineLabel(pl));
   }));
   return issues;
@@ -2039,8 +2044,14 @@ function windowWarnText(w){
 /* ============================================================================
    LOGIQUE MÉTIER — CALCULS (§5)
    ============================================================================ */
-function habitations(){ return state.vts.filter(v=>v.role==='habitation'); }
+/* Habitation EXCLUE (vt.excluded, étape Extraction) : le dossier se comporte comme si
+   elle n'existait pas — habitations() et orderedVts() la filtrent, donc TOUS les calculs,
+   totaux, contrôles et rapports l'ignorent. Ses données restent intactes (jamais supprimée),
+   le bouton « Réintégrer » la ramène. Les listes d'AFFICHAGE passent par orderedVtsAll(). */
+function vtIncluded(v){ return !v.excluded; }
+function habitations(){ return state.vts.filter(v=>v.role==='habitation' && vtIncluded(v)); }
 function iteVts(){ return state.vts.filter(v=>v.role==='ite'); }
+function excludedHabitations(){ return state.vts.filter(v=>v.role==='habitation' && v.excluded); }
 // Corrections manuelles des widgets (étape 4). Clé stable par VT : nom de fichier (sinon label).
 function ovKey(vt){ return vt.fileName || vt.label; }
 function vtOv(vt){ return (state.overrides && state.overrides.vt[ovKey(vt)]) || {}; }
@@ -2057,8 +2068,10 @@ function vtAudits(vt){
 }
 function totalAudits(){ return habitations().reduce((s,h)=>s+vtAudits(h), 0); }
 // VT ITE dédiée(s) TOUJOURS en tête, puis les habitations (ordre de chargement conservé dans chaque groupe).
-// Tri stable -> utilisé pour tous les affichages, calculs et rapports.
-function orderedVts(){ return [...state.vts].sort((a,b)=> (a.role==='ite'?0:1) - (b.role==='ite'?0:1)); }
+// Tri stable -> orderedVts() (VT incluses seulement) alimente calculs et rapports ;
+// orderedVtsAll() (tout, exclues comprises) alimente les listes affichées aux étapes 1 et 2.
+function orderedVtsAll(){ return [...state.vts].sort((a,b)=> (a.role==='ite'?0:1) - (b.role==='ite'?0:1)); }
+function orderedVts(){ return orderedVtsAll().filter(vtIncluded); }
 function hasDedicatedIte(){ return iteVts().length > 0; }
 
 // Catégories ATTENDUES pour une VT. Source unique du dénominateur : l'affichage de
@@ -2478,10 +2491,11 @@ function renderVtList(){
   saveLS();   // persiste le dossier (VT, rôles, labels) à chaque interaction
   const wrap = $('#vtList');
   if(state.vts.length === 0){ wrap.innerHTML = '<small>Aucune VT chargée.</small>'; return; }
-  wrap.innerHTML = orderedVts().map(vt=>`
-    <div class="vt-block">
+  wrap.innerHTML = orderedVtsAll().map(vt=>`
+    <div class="vt-block${vt.excluded?' vt-off':''}">
       <div class="head">
         <strong>📄 ${esc(vt.fileName)}</strong>
+        ${vt.excluded?'<span class="badge off" title="Exclue à l\'étape Extraction &amp; sélection — plus comptée dans aucun calcul">🚫 Exclue du calcul</span>':''}
         <span class="pill">${(vt.text||'').length.toLocaleString('fr-FR')} car.</span>
         ${ vt.photosLoading
             ? '<span class="pill"><span class="spinner"></span> photos…</span>'
@@ -2774,11 +2788,13 @@ function renderExtractionReport(){
   // doit jamais servir à annoncer un problème.
   const complete = expected > 0 && got === expected;
   const tone = (failed || realMissing > 0) ? 'warn' : (waiting ? 'info' : (complete ? 'ok' : 'info'));
-  const head = expected === 0 && !failed
+  const nExcl = excludedHabitations().length;
+  const head = (expected === 0 && !failed
     ? 'aucune VT extraite pour l’instant'
     : `<strong>${got}/${expected}</strong> catégorie(s) extraite(s)`
       + (failed  ? ` · <strong>${failed} en échec</strong>` : '')
-      + (waiting ? ` · ${waiting} VT en attente` : '');
+      + (waiting ? ` · ${waiting} VT en attente` : ''))
+    + (nExcl ? ` · <span class="badge off">🚫 ${nExcl} habitation(s) exclue(s) du calcul</span>` : '');
   // ÉTAT ISOLATION — l'information n'existe pas dans toutes les VT (colonne « Isolation »
   // parfois laissée vide par le technicien). Elle est lue en dur quand elle y est, donc une
   // catégorie listée ici est bien MUETTE DANS LA VT, pas ratée par l'extraction.
@@ -2806,10 +2822,17 @@ function renderStep3(){
   const wrap = $('#extractList');
   if(state.vts.length===0){ wrap.innerHTML='<div class="alert info">Aucune VT chargée.</div>'; return; }
 
-  wrap.innerHTML = renderExtractionReport() + orderedVts().map(vt=>{
+  wrap.innerHTML = renderExtractionReport() + orderedVtsAll().map(vt=>{
     const badge = vt.role==='ite' ? '<span class="badge ite">VT ITE</span>' : '<span class="badge hab">Habitation</span>';
     let inner;
-    if(vt.extracting){ inner = '<div class="alert info"><span class="spinner"></span> Extraction IA en cours…</div>'; }
+    // Habitation exclue : le détail laisse place à une bannière — les données restent
+    // intactes dans le dossier, seul le flag excluded change (cf. vtIncluded()).
+    if(vt.excluded){
+      inner = `<div class="alert warn">🚫 <strong>Habitation exclue du dossier</strong> — elle n'est plus comptabilisée dans AUCUN calcul
+        (valorisation CEE, charges &amp; marges, proposition de travaux, rapports). Ses données sont conservées :
+        « ↺ Réintégrer » la remet dans le calcul, à l'identique.</div>`;
+    }
+    else if(vt.extracting){ inner = '<div class="alert info"><span class="spinner"></span> Extraction IA en cours…</div>'; }
     else {
       // L'éditeur manuel est TOUJOURS disponible (même si l'extraction a échoué ou n'a pas eu lieu) :
       // on garantit un squelette d'extraction pour pouvoir saisir/éditer les surfaces à la main.
@@ -2903,10 +2926,16 @@ function renderStep3(){
              </label></div></div>`
         : '') + cats;
     }
-    return `<div class="vt-block">
-      <div class="head"><strong>${esc(vt.label)}</strong> ${badge} <span class="pill">${esc(vt.fileName)}</span>
+    // Bouton Exclure / Réintégrer : habitations uniquement (la VT ITE porte le pool ITE
+    // global, l'exclure n'aurait pas de sens — on la supprime à l'étape 1 si besoin).
+    const toggleBtn = vt.role!=='habitation' ? '' : (vt.excluded
+      ? `<button class="btn small blue" data-vton="${vt.id}" title="Réintégrer cette habitation dans tous les calculs">↺ Réintégrer</button>`
+      : `<button class="btn danger small" data-vtoff="${vt.id}" title="Exclure cette habitation : elle sort de TOUS les calculs (tous les onglets). Données conservées, réintégrable à tout moment.">🚫 Exclure du calcul</button>`);
+    return `<div class="vt-block${vt.excluded?' vt-off':''}">
+      <div class="head"><strong>${esc(vt.label)}</strong> ${badge} ${vt.excluded?'<span class="badge off">🚫 Exclue du calcul</span>':''} <span class="pill">${esc(vt.fileName)}</span>
         <span style="flex:1"></span>
-        <button class="btn small blue" data-extract="${vt.id}">${vt.extractedOk?'↻ Ré-extraire':'🤖 Extraire'}</button></div>
+        ${toggleBtn}
+        ${vt.excluded?'':`<button class="btn small blue" data-extract="${vt.id}">${vt.extractedOk?'↻ Ré-extraire':'🤖 Extraire'}</button>`}</div>
       ${inner}</div>`;
   }).join('');
 
@@ -2924,6 +2953,15 @@ function renderStep3(){
     });
   });
   wrap.querySelectorAll('[data-extract]').forEach(b=> b.addEventListener('click', ()=>extractOne(b.dataset.extract)));
+  // Exclure / Réintégrer une habitation entière : simple flag, jamais de suppression.
+  // renderStep3() persiste (saveLS en tête) ; les autres onglets se recalculent à l'affichage.
+  const setVtExcluded = (id, val)=>{
+    const vt = state.vts.find(v=>v.id==id); if(!vt) return;
+    vt.excluded = !!val;
+    renderStep3();
+  };
+  wrap.querySelectorAll('[data-vtoff]').forEach(b=> b.addEventListener('click', ()=> setVtExcluded(b.dataset.vtoff, true)));
+  wrap.querySelectorAll('[data-vton]').forEach(b=> b.addEventListener('click', ()=> setVtExcluded(b.dataset.vton, false)));
   wrap.querySelectorAll('[data-goparams]').forEach(b=> b.addEventListener('click', ()=>showView('params')));
   wrap.querySelectorAll('[data-toggle]').forEach(h=> h.addEventListener('click', e=>{
     const [id,cat]=e.currentTarget.dataset.toggle.split('|'); const vt=state.vts.find(v=>v.id==id);
@@ -6902,7 +6940,7 @@ function propIdentOf(vt){
 }
 
 function propResolveIdentites(){
-  const rows = state.vts.map(vt=>({ vt, role: vt.role, ident: propIdentOf(vt) })).filter(r=>r.ident);
+  const rows = state.vts.filter(vtIncluded).map(vt=>({ vt, role: vt.role, ident: propIdentOf(vt) })).filter(r=>r.ident);
   const vide = { bailleur:{nom:'',tel:''}, chantier:{adresse:'',cp:'',ville:''}, auto:{}, conflits:{}, parLot:{} };
   if(!rows.length) return vide;
 
