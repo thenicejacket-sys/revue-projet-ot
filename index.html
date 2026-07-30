@@ -414,7 +414,6 @@ main{position:relative;z-index:1}
   <button data-view="step2"><span class="num">3</span> Valorisation CEE</button>
   <button data-view="step4"><span class="num">4</span> Charges &amp; marges</button>
   <button data-view="step7"><span class="num">5</span> Proposition de travaux</button>
-  <button data-view="step8"><span class="num">6</span> Facturation</button>
   <span class="spacer"></span>
   <button data-view="history" class="param">📋 Historique</button>
   <button data-view="params" class="param">⚙️ Paramètres</button>
@@ -539,14 +538,8 @@ main{position:relative;z-index:1}
     </div>
   </section>
 
-  <!-- ====================================================== ÉTAPE 6 — FACTURE ====================================================== -->
-  <section class="view" id="step8">
-    <div class="card">
-      <h2>6 · Facturation</h2>
-      <p class="hint">Établit les <strong>documents PDF</strong> du dossier à partir de la proposition validée : <strong>facture</strong>, <strong>facture d'acompte</strong> (saisie libre ou reprise d'un document) et <strong>avoir</strong> d'extourne. Tout est repris puis <strong>librement modifiable</strong> : lignes, montants, destinataire, échéance.</p>
-      <div id="step8Body"></div>
-    </div>
-  </section>
+  <!-- Onglet Facturation retiré (décision réunion 30/07) : la vue step8 n'existe
+       plus ; le module facture reste chargé pour lire les dossiers archivés. -->
 
   <!-- ====================================================== PARAMÈTRES ====================================================== -->
   <section class="view" id="params">
@@ -1128,7 +1121,6 @@ function showView(id){
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
   if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); }
   if(id==='step7') renderStep7();
-  if(id==='step8') renderStep8();
   if(id==='history') renderHistory();
   applyBackground(id);
   window.scrollTo(0,0);
