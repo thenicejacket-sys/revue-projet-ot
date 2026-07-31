@@ -873,7 +873,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2001,6 +2001,20 @@ function calcAjustementVersMarge(margeCible, opts){
    points de lecture (calcul habitation, calcul global, contrôle d'intégrité)
    passent tous par ici : la décision affichée et le contrôle de cohérence ne
    peuvent plus diverger. */
+/* Part du seuil PROJET revenant à un bloc, au prorata de son coût de revient
+   (règle métier Aymeric 2026-07-31 : l'objectif de marge se fixe sur le PROJET
+   GLOBAL, puis se répartit sur les habitations — pas un forfait dupliqué sur
+   chacune). Σ des seuils par bloc = seuil projet, exactement.
+   Sans coût total (dossier vide), parts égales. Fonction PURE : testée. */
+function seuilProrata(seuilProjet, coutBloc, coutTotal, nBlocs){
+  const T = num(coutTotal);
+  if(T > 0) return round2(num(seuilProjet) * (num(coutBloc) / T));
+  const n = Math.max(1, num(nBlocs) || 1);
+  return round2(num(seuilProjet) / n);
+}
+// Seuil du PROJET. En mode montant : le forfait saisi. En mode pourcentage :
+// proportionnel au coût de revient passé (donc au coût TOTAL quand on l'appelle
+// pour le projet). Le seuil d'une habitation ne sort plus d'ici — cf. seuilProrata.
 function seuilMargePour(coutRevient){
   if(state.settings.margeMode === 'pct'){
     const m = num(state.settings.margeCiblePct) / 100;
@@ -2441,12 +2455,14 @@ function calcVT(vt){
   // Marge Brute = Prime CEE − (charges d'achat travaux + Audit VT + frais VT ITE + régie commerciale).
   // TOUTES les charges se déduisent de la prime, régie commerciale incluse (oubli corrigé 2026-07-24).
   let margeBrute = (ov.margeBrute !== undefined && ov.margeBrute !== null) ? num(ov.margeBrute) : prime - chargesTravaux - audit - vtIte - regie;
-  // Seuil via seuilMargePour() : en mode pourcentage il est proportionnel au coût
-  // de revient de CETTE habitation, pas au forfait global.
-  let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= seuilMargePour(coutRevient));
+  // Seuil PROVISOIRE du bloc : calcGlobal() le remplace par la part du seuil PROJET
+  // au prorata du coût de revient (règle 2026-07-31). Il ne reste en vigueur que si
+  // calcVT est appelé hors contexte global — jamais dans le parcours normal.
+  const seuil = seuilMargePour(coutRevient);
+  let go = ov.decision === 'go' ? true : ov.decision === 'nogo' ? false : (marge >= seuil);
 
   return { lignes, chargesTravaux, venteTravaux, audit, vtIte, regie, coutRevient, prime, valoErr, reste, marge, margeBrute,
-           go, ov, distributed:false, iteShare:share };
+           go, seuil, ov, distributed:false, iteShare:share };
 }
 
 function calcGlobal(){
@@ -2465,8 +2481,21 @@ function calcGlobal(){
   tot.reste      = has('reste')      ? num(gov.reste)      : (has('venteTravaux')                 ? tot.venteTravaux - tot.prime        : tot.reste);
   tot.marge      = has('marge')      ? num(gov.marge)      : ((has('venteTravaux')||has('coutRevient')) ? tot.venteTravaux - tot.coutRevient : tot.marge);
   tot.margeBrute = has('margeBrute') ? num(gov.margeBrute) : tot.margeBrute;   // prime & charges non éditables -> pas de déclencheur
-  tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= seuilMargePour(tot.coutRevient));
+  tot.seuil = seuilMargePour(tot.coutRevient);
+  tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= tot.seuil);
   tot.ov = gov;
+  /* SEUIL PAR HABITATION = PART DU SEUIL PROJET (règle 2026-07-31).
+     L'objectif de marge se fixe sur le projet global ; chaque bloc en reçoit la part
+     correspondant à son poids dans le coût de revient. Σ des parts = seuil projet.
+     (En mode pourcentage, le prorata redonne exactement coût_bloc × m/(1−m) : le
+     comportement de ce mode est donc inchangé. En mode montant, c'est la correction :
+     un forfait de 1 500 € au projet ne réclame plus 1 500 € à CHAQUE habitation.) */
+  const actifs = blocks.filter(b=> !b.res.distributed);
+  actifs.forEach(b=>{
+    b.res.seuil = seuilProrata(tot.seuil, b.res.coutRevient, tot.coutRevient, actifs.length);
+    const bov = b.res.ov || {};
+    b.res.go = bov.decision === 'go' ? true : bov.decision === 'nogo' ? false : (b.res.marge >= b.res.seuil);
+  });
   return { blocks, tot };
 }
 
@@ -2524,7 +2553,7 @@ function verifyIntegrity(){
     if(ov.reste==null && ov.prime==null && !near(res.reste, res.venteTravaux-res.prime)) c8.push(vt.label);
     // Le contrôle recalcule le seuil par le MÊME chemin que la décision : sinon un
     // objectif exprimé en pourcentage ferait crier le bouclier sur une fausse erreur.
-    if(!ov.decision && res.go !== (res.marge >= seuilMargePour(res.coutRevient))) c9.push(vt.label);
+    if(!ov.decision && res.go !== (res.marge >= num(res.seuil))) c9.push(vt.label);
     ['chargesTravaux','venteTravaux','audit','vtIte','regie','coutRevient','prime','reste','marge','margeBrute'].forEach(f=>{
       if(!isFinite(num(res[f]))) c2.push(vt.label+' · '+f+' non numérique');
     });
@@ -3710,6 +3739,10 @@ const WIDGETS_USINE = [
     desc:'Charges travaux × % de régie (Paramètres)' },
   { id:'coutRevient',     niveau:'hab', label:'Coût de revient',  formule:'chargesTravaux + auditVT + fraisVtIte + regieCommerciale', champ:'coutRevient', format:'eur', dec:2, ordre:110, visible:false,
     desc:'Somme de tous les coûts : travaux + audit + VT ITE + régie' },
+  // Taux de marge en % du prix de vente (taux de marque) — le pendant en pourcentage de
+  // la Marge Commerciale. Masqué par défaut : à activer dans Paramètres → 🧩 Widgets.
+  { id:'tauxMarge',       niveau:'hab', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:120, visible:false,
+    desc:'Marge Commerciale en % du prix de vente HT (taux de marque)' },
   // ── Niveau PROJET (Total projet / immeuble) — les 7 visibles actuels, dans l'ordre actuel ──
   { id:'coutRevient',     niveau:'proj', label:'Coût de revient total', formule:'chargesTravaux + auditVT + fraisVtIte + regieCommerciale', champ:'coutRevient', format:'eur', dec:2, ordre:10, visible:true,
     desc:'Somme sur toutes les VT : charges travaux + Audit VT + frais VT ITE + régie' },
@@ -3733,6 +3766,8 @@ const WIDGETS_USINE = [
     desc:'Total des frais de VT ITE' },
   { id:'regieCommerciale',niveau:'proj', label:'Régie commerciale',formule:'regieCommerciale', champ:'regie', format:'eur', dec:2, ordre:110, visible:false,
     desc:'Total de la régie commerciale' },
+  { id:'tauxMarge',       niveau:'proj', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:120, visible:false,
+    desc:'Marge Commerciale globale en % du prix de vente HT (taux de marque)' },
 ];
 // Catalogue des VARIABLES utilisables dans une formule — les grandeurs RÉELLES du moteur.
 // fam : famille affichée dans la palette. Chaque variable : libellé métier, unité, infobulle.
@@ -3922,7 +3957,7 @@ function wgBaseVars(niveau, ctx){
       surfPlancher:sumChecked(vt,'Plancher'), surfFenetres:sumChecked(vt,'Fenetres'),
       shab:num(vt.shab), nbAudits:vtAudits(vt), sautsClasse:num(vt.sauts),
       montantAuditVT:num(state.settings.auditVT), montantVtIte:num(state.settings.vtIte),
-      tauxRegie:num(state.settings.regiePct), seuilMarge:seuilMargePour(res.coutRevient),
+      tauxRegie:num(state.settings.regiePct), seuilMarge:num(res.seuil),   // part du seuil PROJET revenant à cette habitation
     };
   }
   const { blocks, tot } = ctx;
@@ -3992,9 +4027,13 @@ function wgDecision(niveau, ctx, cache){
 function wgFmt(def, v){
   if(v === null || v === undefined || !isFinite(v)) return '—';
   const dec = (def.dec === undefined || def.dec === null) ? 2 : Math.max(0, Math.min(6, Math.round(num(def.dec))));
-  if(def.format === 'eur') return eur(round2(v));
-  if(def.format === 'pct') return v.toFixed(dec).replace('.', ',') + ' %';
-  return v.toFixed(dec).replace('.', ',');
+  // Le format € respecte les DÉCIMALES du widget (eur() en impose 2 : on ne l'utilise
+  // qu'à dec=2). Séparateur de milliers dans tous les cas, virgule décimale française.
+  if(def.format === 'eur')
+    return num(v).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + ' €';
+  if(def.format === 'pct')
+    return num(v).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + ' %';
+  return num(v).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
 // La grille de widgets d'un bloc (habitation ou total projet), depuis la CONFIG :
 // ordre, visibilité, libellés, formats — et badge « ƒ » sur toute formule modifiée.
@@ -4018,7 +4057,13 @@ function wgKpiGridHtml(niveau, ctx){
     return kpiCell({scope, key, field:wgOvField(def), type:'num', label:def.label,
       display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
       edited:ov[wgOvField(def)] != null, locked:def.special==='bareme', fmod,
-      formula:(def.special==='bareme' ? def.desc : (def.label+' = '+def.formule+(fmod?' — ƒ formule modifiée (usine : '+(wcUsine(def.niveau,def.id)||{}).formule+')':'')+(def.desc?' — '+def.desc:'')))});
+      formula:(def.special==='bareme'
+        ? def.desc
+        // La formule est affichée au survol PAR DÉFAUT ; décocher « Afficher la formule »
+        // dans l'éditeur ne laisse que la description métier (ou rien).
+        : ((def.showFormule === false ? '' : def.label+' = '+def.formule)
+           + (fmod ? ' — ƒ formule modifiée (usine : '+(wcUsine(def.niveau,def.id)||{}).formule+')' : '')
+           + (def.desc ? (def.showFormule === false ? '' : ' — ')+def.desc : '')))});
   });
   return '<div class="kpi-grid">' + cells.join('') + '</div>';
 }
@@ -4235,6 +4280,10 @@ function openWcEditor(niveau, id){
          <div class="wc-pal">${['+','−','×','÷','(',')'].map(op=>`<span class="chip op" data-ins=" ${op} ">${op}</span>`).join('')}</div>`}
     <label class="fld">Description (infobulle au survol du widget)</label>
     <input type="text" id="wcDesc" value="${esc(d.desc||'')}" placeholder="Explication métier affichée au survol">
+    <label class="flex" style="gap:6px;margin:6px 0 0;align-items:center;cursor:pointer">
+      <input type="checkbox" id="wcShowFrm" ${d.showFormule === false ? '' : 'checked'}>
+      <small>Afficher aussi la formule dans l'infobulle <span style="color:var(--text-muted)">(décoche pour ne garder que ta description)</span></small>
+    </label>
     <div class="wc-prev" id="wcPrev" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:12px">
       <button class="btn ghost" id="wcCancel">Annuler</button>
@@ -4315,6 +4364,7 @@ function openWcEditor(niveau, id){
     d.label = label;
     if(d.special !== 'decision'){ d.format = $m('#wcFormat').value; d.dec = Math.max(0, Math.min(6, Math.round(num($m('#wcDec').value)))); }
     d.desc = $m('#wcDesc').value.trim();
+    d.showFormule = !!$m('#wcShowFrm').checked;
     if(isNew) d.id = wcSlugify(label);
     cfg.defs[niveau+':'+d.id] = d;
     saveLS(); close(); renderWidgetsCfg();

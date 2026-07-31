@@ -20,7 +20,7 @@ const eur = x => round2(x).toFixed(2) + ' €';
 const saveLS = () => {};
 const ovKey = vt => vt.fileName || vt.label;
 const state = { prixVentil: {}, prixManuel: {} };
-eval(['ventilRepartition', 'prixEffectifs', 'setPrixManuel'].map(grab).join('\n'));
+eval(['ventilRepartition', 'prixEffectifs', 'setPrixManuel', 'seuilProrata'].map(grab).join('\n'));
 
 let pass = 0, fail = 0;
 const t = (label, cond, detail) => { cond ? pass++ : fail++; console.log((cond ? '✅' : '❌') + ' ' + label + (cond ? '' : ' — ' + (detail || ''))); };
@@ -92,6 +92,21 @@ t('setPrixManuel pose la surcharge', state.prixManuel['a.pdf'].Combles.vente ===
 t('… sans toucher l’autre habitation', !state.prixManuel['b.pdf']);
 setPrixManuel(vtA, 'Combles', 'vente', null);
 t('champ vidé : surcharge supprimée, magasin nettoyé', !state.prixManuel['a.pdf']);
+
+// ── S1 : objectif de marge fixé au PROJET, réparti au prorata du coût de revient ──
+// (règle 2026-07-31 : un forfait de 1 500 € au projet ne réclame plus 1 500 € par habitation)
+const couts = [6000, 3000, 1000], total = 10000;
+const parts = couts.map(c => seuilProrata(1500, c, total, 3));
+t('forfait 1500 € : habitation à 60 % du coût → 900 €', parts[0] === 900, parts[0]);
+t('… 30 % du coût → 450 €', parts[1] === 450, parts[1]);
+t('… 10 % du coût → 150 €', parts[2] === 150, parts[2]);
+t('Σ des seuils habitations = seuil projet (1500 €)', near(parts.reduce((a, b) => a + b, 0), 1500), parts.join('+'));
+t('coût total nul : parts égales (500 € chacune)', seuilProrata(1500, 0, 0, 3) === 500);
+// En mode pourcentage, le prorata redonne exactement coût_bloc × m/(1−m) : mode inchangé.
+const m = 0.25, seuilProjetPct = round2(total * m / (1 - m));
+t('mode % : prorata ≡ coût_bloc × m/(1−m) (comportement inchangé)',
+  near(seuilProrata(seuilProjetPct, couts[0], total, 3), round2(couts[0] * m / (1 - m))),
+  seuilProrata(seuilProjetPct, couts[0], total, 3));
 
 // ── A1 : aucune de ces fonctions n'écrit dans chargesTable ──
 const srcAll = ['ventilRepartition', 'prixEffectifs', 'setPrixManuel'].map(grab).join('\n');

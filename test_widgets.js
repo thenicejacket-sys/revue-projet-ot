@@ -44,6 +44,21 @@ t('1 / 0 → null', evalStr('1 / 0') === null);
 t('(1/0) + 5 → null (propagation)', evalStr('(1/0) + 5') === null);
 t('wgFmt(null) → « — »', wgFmt({ format: 'eur', dec: 2 }, null) === '—');
 
+// ── Format : les DÉCIMALES configurées sont respectées (bug corrigé 2026-07-31) ──
+const nb = String.fromCharCode(8239), nbsp = String.fromCharCode(160);
+const clean = s => s.replace(new RegExp('[' + nb + nbsp + ']', 'g'), ' ');
+t('€ avec 0 décimale → « 2 226 € »', clean(wgFmt({ format: 'eur', dec: 0 }, 2225.92)) === '2 226 €', wgFmt({ format: 'eur', dec: 0 }, 2225.92));
+t('€ avec 2 décimales → « 2 225,92 € »', clean(wgFmt({ format: 'eur', dec: 2 }, 2225.92)) === '2 225,92 €', wgFmt({ format: 'eur', dec: 2 }, 2225.92));
+t('€ sans dec défini → 2 décimales', clean(wgFmt({ format: 'eur' }, 1500)) === '1 500,00 €', wgFmt({ format: 'eur' }, 1500));
+t('% avec 1 décimale → « 25,4 % »', clean(wgFmt({ format: 'pct', dec: 1 }, 25.37)) === '25,4 %', wgFmt({ format: 'pct', dec: 1 }, 25.37));
+t('nombre avec 0 décimale → « 12 »', clean(wgFmt({ format: 'num', dec: 0 }, 12.4)) === '12', wgFmt({ format: 'num', dec: 0 }, 12.4));
+
+// ── Widget « Taux de marge » d'usine : marge / vente × 100 ──
+const tm = WIDGETS_USINE.find(w => w.niveau === 'hab' && w.id === 'tauxMarge');
+t('widget Taux de marge présent, masqué par défaut', !!tm && tm.visible === false && tm.format === 'pct');
+t('Taux de marge : 730/2000 → 36,5 %', Math.abs(evalStr(tm.formule, { margeCommerciale: 730, prixVenteHT: 2000 }) - 36.5) < 1e-9);
+t('Taux de marge : vente 0 → null (« — »)', evalStr(tm.formule, { margeCommerciale: 730, prixVenteHT: 0 }) === null);
+
 // ── E2 : liste blanche — variable inconnue rejetée ──
 const v1 = wfValidate('foo + 1', 'hab', '∅');
 t('variable inconnue rejetée', v1.ok === false && /Variable inconnue/.test(v1.error), v1.error);
@@ -65,8 +80,8 @@ t('auto-référence = grandeur moteur (pas un cycle)', wfValidate('chargesTravau
 // ── M1 / R2 : l'usine reproduit les 12 widgets actuels, et chaque formule usine
 //    ÉQUIVAUT au champ moteur correspondant (préuve d'identité en config par défaut) ──
 state.widgetConfig = null; wcInit();
-t('usine : 11 widgets Habitations', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 11);
-t('usine : 11 widgets Projet', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 11);
+t('usine : 12 widgets Habitations', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 12);
+t('usine : 12 widgets Projet', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 12);
 t('usine : 5 visibles Habitations (comme aujourd’hui)', WIDGETS_USINE.filter(w => w.niveau === 'hab' && w.visible).length === 5);
 t('usine : 7 visibles Projet (comme aujourd’hui)', WIDGETS_USINE.filter(w => w.niveau === 'proj' && w.visible).length === 7);
 t('aucune formule modifiée en config usine', ['hab', 'proj'].every(n => wcList(n, true).every(d => !wcIsFmod(d))));
@@ -78,7 +93,9 @@ const mock = {
   margeBrute: 230, resteACharge: 500, margeCommerciale: 730,
 };
 const champVar = { chargesTravaux: 'chargesTravaux', venteTravaux: 'prixVenteHT', audit: 'auditVT', vtIte: 'fraisVtIte', regie: 'regieCommerciale', coutRevient: 'coutRevient', prime: 'primeCEE', margeBrute: 'margeBrute', reste: 'resteACharge', marge: 'margeCommerciale' };
-WIDGETS_USINE.filter(w => !w.special).forEach(w => {
+// Widgets adossés à une grandeur moteur (champ). « Taux de marge » est dérivé (pas de
+// champ moteur homonyme) : son équivalence est testée à part, plus bas.
+WIDGETS_USINE.filter(w => !w.special && w.champ).forEach(w => {
   const got = evalStr(w.formule, mock);
   const attendu = mock[champVar[w.champ]];
   t('formule usine ≡ moteur : ' + w.niveau + '/' + w.id, Math.abs(got - attendu) < 1e-9, got + ' ≠ ' + attendu);
