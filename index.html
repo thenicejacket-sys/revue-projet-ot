@@ -752,38 +752,11 @@ main{position:relative;z-index:1}
         </div>
       </div>
 
-      <!-- Coordonnées bancaires et conditions de paiement : identiques sur toutes les
-           factures, donc ici. Le délai et le taux de pénalités sont des mentions
-           LÉGALEMENT OBLIGATOIRES sur une facture (art. L441-10 du Code de commerce). -->
-      <h3 style="font-size:13px;color:var(--txt-dim);margin:14px 0 6px">Règlement des factures</h3>
-      <div class="row">
-        <div class="col">
-          <label class="fld">Banque</label>
-          <input type="text" id="otBanque" placeholder="Nom de la banque" />
-        </div>
-        <div class="col">
-          <label class="fld">IBAN</label>
-          <input type="text" id="otIban" placeholder="FR76 ...." />
-        </div>
-        <div class="col">
-          <label class="fld">BIC</label>
-          <input type="text" id="otBic" placeholder="XXXXFRPP" />
-        </div>
-      </div>
-      <div class="row">
-        <div class="col" style="max-width:260px">
-          <label class="fld">Délai de paiement (jours)</label>
-          <input type="number" id="otDelaiPaiement" value="30" step="1" min="0" />
-        </div>
-        <div class="col" style="max-width:260px">
-          <label class="fld">Pénalités de retard (% / an)</label>
-          <input type="number" id="otPenalitesPct" value="13.15" step="0.01" min="0" />
-          <small>Taux BCE + 10 points. Mention obligatoire sur facture.</small>
-        </div>
-        <div class="col" style="align-self:center">
-          <small>L'indemnité forfaitaire de recouvrement de <strong>40 €</strong> (art. L441-10) est ajoutée automatiquement.</small>
-        </div>
-      </div>
+      <!-- Bloc « Règlement des factures » (banque, IBAN, BIC, délai de paiement,
+           pénalités de retard) RETIRÉ le 2026-07-31 : l'application ne produit plus
+           de facture (décision utilisateurs). Les clés correspondantes restent dans
+           state.settings et dans les archives — aucun dossier archivé n'est cassé,
+           et le bloc se réactive en réaffichant ces champs si la facturation revient. -->
 
         </div>
       </details>
@@ -873,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -5402,11 +5375,11 @@ function renderHistBody(){
         r.typeDoc === 'Proposition de travaux'
           ? ` <span class="badge" style="background:#f3e3ec;color:var(--ot-magenta)" title="Devis généré à l'étape 5${r.numeroDevis?' — '+esc(r.numeroDevis):''}">📄 Proposition${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
         : r.typeDoc === 'Acompte'
-          ? ` <span class="badge" style="background:#eaf1fb;color:var(--ot-bleu)" title="Facture d'acompte générée à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">💶 Acompte${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
+          ? ` <span class="badge" style="background:#eaf1fb;color:var(--ot-bleu)" title="Facture d'acompte archivée — la facturation a été retirée de l'application${r.numeroDevis?' — '+esc(r.numeroDevis):''}">💶 Acompte${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
         : r.typeDoc === 'Avoir'
-          ? ` <span class="badge" style="background:#fbeaea;color:#c0392b" title="Avoir généré à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">↩️ Avoir${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
+          ? ` <span class="badge" style="background:#fbeaea;color:#c0392b" title="Avoir archivé — la facturation a été retirée de l'application${r.numeroDevis?' — '+esc(r.numeroDevis):''}">↩️ Avoir${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>`
         : r.typeDoc === 'Facture'
-          ? ` <span class="badge" style="background:#e6f2e8;color:var(--green-tx)" title="Facture générée à l'étape 6${r.numeroDevis?' — '+esc(r.numeroDevis):''}">🧾 Facture${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>` : ''
+          ? ` <span class="badge" style="background:#e6f2e8;color:var(--green-tx)" title="Facture archivée — la facturation a été retirée de l'application${r.numeroDevis?' — '+esc(r.numeroDevis):''}">🧾 Facture${r.numeroDevis?' '+esc(r.numeroDevis):''}</span>` : ''
       }</td>
       <td class="num">${eur(r.couts)}</td><td class="num">${eur(r.marge)}</td><td class="num">${eur(r.prime)}</td>
       <td>${r.go ? '<span class="badge ok">GO</span>' : '<span class="badge ko">NO-GO</span>'}</td>

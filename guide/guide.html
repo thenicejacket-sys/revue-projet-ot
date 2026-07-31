@@ -136,7 +136,7 @@
     <h1>Guide</h1>
     <div class="h1b">utilisateur</div>
     <div class="trait"></div>
-    <div class="sub">Évaluer un dossier de rénovation énergétique en 6 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO, proposition de travaux à envoyer au client, puis facturation — facture, acompte, avoir.</div>
+    <div class="sub">Évaluer un dossier de rénovation énergétique en 5 étapes : extraction des Visites Techniques, valorisation CEE, charges &amp; marges, décision GO / NO-GO, puis proposition de travaux à envoyer au client.</div>
     <div class="bloc">
       <div class="lab">Application</div>
       <div class="val">Revue Projet OT — Pré-chiffrage CEE / Coup de Pouce</div>
@@ -154,7 +154,7 @@
 <!-- ============ DÉMARRAGE ============ -->
 <section class="page">
   <div class="ph"><div class="n">✦</div><h2>À quoi ça sert &amp; comment démarrer</h2></div>
-  <p class="lead">Revue Projet OT réalise un <b>pré-chiffrage rapide</b> d'un dossier de rénovation : il lit les Visites Techniques (VT) en PDF, calcule la prime CEE, estime les coûts et la marge, vous aide à décider <b>GO / NO-GO</b>, génère la <b>proposition de travaux</b> à envoyer au client, puis les <b>documents de facturation</b>. Tout se passe dans votre navigateur — aucune donnée n'est envoyée sur un serveur (sauf l'extraction IA).</p>
+  <p class="lead">Revue Projet OT réalise un <b>pré-chiffrage rapide</b> d'un dossier de rénovation : il lit les Visites Techniques (VT) en PDF, calcule la prime CEE, estime les coûts et la marge, vous aide à décider <b>GO / NO-GO</b>, et génère la <b>proposition de travaux</b> à envoyer au client. Tout se passe dans votre navigateur — aucune donnée n'est envoyée sur un serveur (sauf l'extraction IA).</p>
 
   <div class="card">
     <h3>Démarrer en 3 points</h3>
@@ -182,7 +182,7 @@
 
 <!-- ============ ÉTAPES 1-2-3 ============ -->
 <section class="page">
-  <div class="ph"><div class="n">1</div><h2>Le parcours en 6 étapes</h2></div>
+  <div class="ph"><div class="n">1</div><h2>Le parcours en 5 étapes</h2></div>
 
   <div class="step"><div class="badge">1</div><div class="body">
     <h3>Chargement des VT</h3>
@@ -209,57 +209,11 @@
     <p>Construit le <b>devis PDF</b> envoyable au client à partir des prix de l'étape 4. Sections pré-remplies (ITE puis un bloc par logement), désignations commerciales, destinataire, conditions. <b>👁️ Simulation</b> affiche le vrai PDF ; <b>⬇️ Télécharger</b> l'enregistre et met à jour l'historique.</p>
   </div></div>
 
-  <div class="step"><div class="badge">6</div><div class="body">
-    <h3>Facturation</h3>
-    <p>Transforme la proposition en <b>documents comptables</b> : la <b>facture</b>, une ou plusieurs <b>factures d'acompte</b>, et l'<b>avoir</b> qui extourne. Tout est repris du devis puis librement modifiable — les travaux réellement exécutés diffèrent souvent de ce qui était prévu. Les mentions légales obligatoires sont ajoutées automatiquement. Page suivante : le détail.</p>
-  </div></div>
+  
 
   <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
 </section>
 
-<!-- ============ FACTURATION ============ -->
-<section class="page">
-  <div class="ph"><div class="n">🧾</div><h2>Étape 6 — facture, acompte, avoir</h2></div>
-  <p class="lead">Un dossier ne produit pas <i>un</i> document mais une <b>suite</b> de documents. Ils vivent tous côte à côte dans l'étape 6, sous la barre <span class="k">Documents de ce dossier</span> : un clic bascule de l'un à l'autre, chaque bouton affiche son montant.</p>
-
-  <div class="astuce">
-    <h3><span class="ico">🧾</span> La facture</h3>
-    <p>Créée automatiquement à l'ouverture de l'étape, à partir de la proposition. Les lignes sont <b>dupliquées</b>, pas partagées : modifier la facture n'altère jamais le devis déjà envoyé. La <b>prime CEE</b> est déduite par défaut — décochez-la si le pollueur la verse directement au client.</p>
-    <p><b>↺ Reprendre depuis la proposition</b> réinitialise le contenu mais <b>garde le numéro et les dates</b> : renuméroter casserait la continuité légale des numéros de facture.</p>
-  </div>
-
-  <div class="astuce">
-    <h3><span class="ico">💶</span> La facture d'acompte</h3>
-    <p><span class="ou">Où</span> barre du haut → <span class="k">Nouvel acompte — origine</span>, puis <b>Créer l'acompte</b>.</p>
-    <p>Deux origines. <b>Saisie libre</b> part d'une ligne vierge : vous décidez la <b>désignation</b>, la <b>quantité</b> et le <b>prix unitaire</b> — un acompte est un montant négocié, pas une règle de trois sur le devis. <b>Reprendre la proposition</b> ou <b>reprendre un document existant</b> recopie les lignes, que vous ajustez ensuite.</p>
-    <p>Un acompte ne porte <b>jamais</b> la prime CEE : elle se déduit sur la facture définitive, sinon elle compterait deux fois.</p>
-  </div>
-
-  <div class="astuce">
-    <h3><span class="ico">🔗</span> Rapprocher un acompte de la facture</h3>
-    <p><span class="ou">Où</span> sur la facture, bloc <b>Acomptes déjà facturés</b>.</p>
-    <p><b>Cochez</b> l'acompte à déduire : il est valorisé <b>sur le document lui-même</b>, donc si vous le corrigez plus tard, le rapprochement suit sans ressaisie. Le PDF liste chaque acompte avec son numéro et sa date, pour que le client retrouve la facture qu'il a déjà reçue.</p>
-    <p>Un acompte émis <b>hors de l'application</b> se saisit à la main (numéro, date, montant) sous le même bloc.</p>
-    <p class="warn-inline"><b>Net à payer et solde ne sont pas la même chose.</b> Le <b>net à payer</b> est le montant de la facture (TTC moins prime). Le <b>solde</b> est ce qui reste dû après déduction des acomptes. L'acompte n'est retranché qu'<b>une</b> fois, dans le bloc règlement.</p>
-  </div>
-
-  <div class="astuce">
-    <h3><span class="ico">↩️</span> L'avoir — extourner un document</h3>
-    <p><span class="ou">Où</span> barre du haut → <span class="k">Extourner un document</span>, puis <b>Créer l'avoir</b>.</p>
-    <p>L'avoir reprend le document choisi avec les <b>quantités inversées</b> : les totaux ressortent négatifs et annulent exactement le net d'origine. Le document extourné <b>reste intact</b> — une facture émise ne se modifie jamais rétroactivement, elle s'annule par un avoir.</p>
-    <p>Le PDF porte le titre <b>AVOIR</b>, désigne la facture annulée, et n'affiche ni échéance ni pénalités de retard : aucun règlement n'est appelé.</p>
-  </div>
-
-  <div class="astuce">
-    <h3><span class="ico">📅</span> Échéance et numérotation</h3>
-    <p>L'<b>échéance</b> suit la date d'émission plus le délai des Paramètres (30 jours par défaut) — <b>jusqu'à ce que vous la saisissiez vous-même</b>. Une date négociée avec le client ne saute plus si vous corrigez la date d'émission.</p>
-    <p>Les numéros sont attribués par type et par année — <b>FAC-</b>, <b>ACO-</b>, <b>AV-</b> — et tiennent compte de l'historique pour rester continus d'un dossier à l'autre.</p>
-  </div>
-
-  <div class="warn">⚠️ <b>Renseignez l'IBAN dans les Paramètres.</b> Sans lui, le document part sans coordonnées bancaires — un avertissement s'affiche, mais rien ne bloque la génération.</div>
-
-  <div class="foot-note"><span>Revue Projet OT — Guide utilisateur</span><span>thenicejacket-sys.github.io/revue-projet-ot</span></div>
-</section>
 
 <!-- ============ WIDGETS — HABITATION ============ -->
 <section class="page">
@@ -496,7 +450,7 @@
         <li><b>Objectif de marge</b> : montant ou pourcentage</li>
         <li><b>Coordonnées OT Énergie</b> : adresse, e-mail, site, téléphone, mentions légales — l'en-tête et le pied de page du devis</li>
       </ul>
-      <div class="tip" style="margin-top:6px">Les Paramètres ne portent que ce qui est <b>identique sur tous les dossiers</b>. Le chargé d'affaires, la TVA, la validité et l'acompte varient d'un devis à l'autre : ils se saisissent dans l'onglet <b>5 · Proposition de travaux</b>.</div>
+      <div class="tip" style="margin-top:6px">Les Paramètres ne portent que ce qui est <b>identique sur tous les dossiers</b>. Le chargé d'affaires, la TVA et la validité varient d'un devis à l'autre : ils se saisissent dans l'onglet <b>5 · Proposition de travaux</b>.</div>
     </div>
     <div class="card"><h3>📋 Historique partagé</h3>
       <ul class="clean">
