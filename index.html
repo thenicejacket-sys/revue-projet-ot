@@ -165,7 +165,9 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 /* Prix achat/vente éditables sur la fiche calcul (étape Charges & marges). */
 .price-cell{cursor:pointer;position:relative}
 .price-cell:hover{outline:1.5px solid var(--primary);outline-offset:-1px;border-radius:4px}
-.price-cell.price-edited{background:#fdecf1}   /* rosé = prix modifié manuellement sur la fiche calcul */
+.price-cell.price-edited{background:#fdecf1}   /* rosé (legacy) = prix barème édité, anciens dossiers */
+.price-cell.price-vent,td.price-vent{background:#fdecf1}      /* ROSÉ = prix de vente VENTILÉ par habitation (ajustement GO / prime CEE) */
+.price-cell.price-manual,td.price-manual{background:#e3edff;color:#1d4ed8;font-weight:700}  /* BLEUTÉ = prix modifié à la main sur CETTE ligne uniquement */
 /* rouge = prix relevé automatiquement par « Ajuster pour atteindre le GO ». Distinct du
    rosé : l'un vient de l'utilisateur, l'autre d'un calcul — il doit pouvoir les séparer. */
 .price-cell.price-auto,td.price-auto{background:#ffe3e3;color:#9c0006;font-weight:700}
@@ -861,7 +863,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-30.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -929,7 +931,11 @@ const state = {
   chargesAuto: {},          // { 'ITI|vente': true, ... } — prix relevés par l'ajustement automatique (affichage rouge)
   chargesAutoBak: {},       // prix d'origine, pour pouvoir annuler l'ajustement
   prixDossier: {},          // { 'Fenetres': {vente: 1549} } — surcharges VALABLES POUR CE DOSSIER SEUL,
-                            // jamais reportées dans le barème des Paramètres
+                            // jamais reportées dans le barème des Paramètres (ancien ajustement global, conservé pour les archives)
+  prixVentil: {},           // { [ovKey(vt)]: { ITI: 62, ... } } — prix de VENTE ventilés PAR HABITATION par l'ajustement GO
+                            // (pondéré par la prime CEE disponible de chaque logement). Affichage ROSÉ. Jamais dans le barème.
+  prixManuel: {},           // { [ovKey(vt)]: { Fenetres: {vente: 1600} } } — prix édités à la main sur UNE ligne d'UNE habitation.
+                            // Affichage BLEUTÉ. Aucun impact sur les autres lignes, habitations, dossiers ni sur le barème.
   elementsTable: null,      // barème des éléments à la pièce { nom: {unite:'PC', achat, vente} }
   history: []               // [ {date, heure, nom, couts, marge, prime, reste, go} ]
 };
@@ -1071,6 +1077,7 @@ function saveLS(){
           factures: SAVED_DOSSIER.factures || [], factureActiveId: SAVED_DOSSIER.factureActiveId || '',
           chargesAuto: SAVED_DOSSIER.chargesAuto || {}, chargesAutoBak: SAVED_DOSSIER.chargesAutoBak || {},
           prixDossier: SAVED_DOSSIER.prixDossier || {},
+          prixVentil: SAVED_DOSSIER.prixVentil || {}, prixManuel: SAVED_DOSSIER.prixManuel || {},
           histId: SAVED_DOSSIER.histId || null }
       : { cas: state.cas, general: state.general, nomDossier: state.nomDossier,
           overrides: state.overrides,
@@ -1096,6 +1103,8 @@ function saveLS(){
           chargesAutoBak: state.chargesAutoBak || {},
           // Prix propres au dossier : ils suivent le dossier, jamais le barème.
           prixDossier: state.prixDossier || {},
+          prixVentil: state.prixVentil || {},
+          prixManuel: state.prixManuel || {},
           // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
           // photos:null — les vignettes ne quittent JAMAIS la session (cf. extractVtPhotos)
           vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false, photos:null, photosLoading:false})) };
@@ -1140,7 +1149,7 @@ function loadLS(){
                         chargesEdited:d.chargesEdited||{}, prop:d.prop||null, facture:d.facture||null,
                         factures:d.factures||[], factureActiveId:d.factureActiveId||'', histId:d.histId||null,
                         chargesAuto:d.chargesAuto||{}, chargesAutoBak:d.chargesAutoBak||{},
-                        prixDossier:d.prixDossier||{} };
+                        prixDossier:d.prixDossier||{}, prixVentil:d.prixVentil||{}, prixManuel:d.prixManuel||{} };
     }
   }catch(e){ console.warn('Lecture localStorage impossible', e.message); }
 }
@@ -1762,9 +1771,10 @@ function parseCharges(workbook){
    l'ajustement automatique vers le GO (local) d'une édition manuelle de prix
    (qui, elle, met bien à jour le barème pour les dossiers suivants).
 
-   Toute la chaîne de calcul passe par ici : le prix d'un article est donc
-   forcément le MÊME partout dans le dossier. Il ne peut pas exister un prix A
-   pour les fenêtres d'une habitation et un prix B pour celles d'une autre. */
+   Depuis 2026-07-31, ce prix « dossier » n'est plus la fin de l'histoire : les
+   surcharges PAR HABITATION (prixManuel, prixVentil — cf. prixEffectifs) passent
+   au-dessus. Un même poste PEUT donc valoir un prix A pour les fenêtres d'une
+   habitation et un prix B pour celles d'une autre. */
 function findChargeCol(name){
   if(!state.chargesTable) return null;
   const norm = s => String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
@@ -1780,9 +1790,11 @@ function findChargeCol(name){
 }
 
 /* ── Édition des prix achat/vente depuis la fiche calcul ───────────────────────
-   Une catégorie (ITE/ITI/Combles/Plancher/Fenêtres) mappe vers une clé du barème.
-   Éditer un prix ici met à jour le barème (donc les Paramètres) et recalcule TOUTES
-   les habitations pour cette catégorie. Le champ passe en rosé (édité manuellement). */
+   DEPUIS 2026-07-31 (demande Aymeric) : éditer un prix ici ne touche PLUS ni le
+   barème des Paramètres ni les autres habitations. La modification vaut pour LA
+   ligne éditée (cette habitation, cette catégorie, ce champ) — BLEUTÉ. Vider le
+   champ supprime la surcharge et restaure le prix calculé.
+   Le barème, lui, ne s'édite plus que dans Paramètres → Barème de prix. */
 function chargeBaremeKey(cat){                       // clé réelle dans state.chargesTable
   const target = CHARGE_MAP[cat] || cat;
   if(!state.chargesTable) state.chargesTable = JSON.parse(JSON.stringify(CHARGES_DEFAULT));
@@ -1808,24 +1820,106 @@ function applyChargePrice(cat, field, val){
 }
 function isChargeAuto(cat, field){ return !!(state.chargesAuto && state.chargesAuto[chargeEditKey(cat, field)]); }
 
+/* ── RÉSOLUTION DU PRIX EFFECTIF d'une catégorie POUR UNE HABITATION ──────────
+   Ordre de priorité, du plus spécifique au plus général :
+     1. prixManuel[habitation][cat][champ]  — édité à la main sur CETTE ligne (bleuté)
+     2. prixVentil[habitation][cat]         — vente ventilée par l'ajustement GO (rosé)
+     3. findChargeCol()                     — barème (+ legacy prixDossier global)
+   Sans surcharge, on retombe exactement sur le barème : comportement historique intact. */
+function prixEffectifs(vt, cat, cc){
+  const key = ovKey(vt);
+  const man = (state.prixManuel && state.prixManuel[key] && state.prixManuel[key][cat]) || {};
+  const ven = state.prixVentil && state.prixVentil[key];
+  const achat = man.achat != null ? num(man.achat) : (cc ? num(cc.achat) : 0);
+  const vente = man.vente != null ? num(man.vente)
+              : (ven && ven[cat] != null ? num(ven[cat]) : (cc ? num(cc.vente) : 0));
+  return { achat, vente,
+           srcAchat: man.achat != null ? 'man' : '',
+           srcVente: man.vente != null ? 'man' : (ven && ven[cat] != null ? 'vent' : '') };
+}
+function setPrixManuel(vt, cat, field, val){
+  const key = ovKey(vt);
+  if(!state.prixManuel) state.prixManuel = {};
+  if(val === null){          // champ vidé -> retour au prix calculé (ventilation ou barème)
+    if(state.prixManuel[key] && state.prixManuel[key][cat]){
+      delete state.prixManuel[key][cat][field];
+      if(!Object.keys(state.prixManuel[key][cat]).length) delete state.prixManuel[key][cat];
+      if(!Object.keys(state.prixManuel[key]).length) delete state.prixManuel[key];
+    }
+  } else {
+    if(!state.prixManuel[key]) state.prixManuel[key] = {};
+    state.prixManuel[key][cat] = Object.assign({}, state.prixManuel[key][cat]);
+    state.prixManuel[key][cat][field] = num(val);
+  }
+  saveLS();
+}
+
 /* ============================================================================
-   AJUSTEMENT AUTOMATIQUE POUR ATTEINDRE LE GO
+   AJUSTEMENT AUTOMATIQUE POUR ATTEINDRE LE GO — VENTILATION PAR HABITATION
    ----------------------------------------------------------------------------
-   Quand la marge commerciale globale passe sous le seuil, ce moteur calcule la
-   hausse de prix de vente nécessaire et la RÉPARTIT sur toutes les catégories
-   au prorata de leur poids, plutôt que de charger un seul poste.
+   Depuis 2026-07-31 (demande Aymeric) : la hausse n'est plus un facteur unique
+   appliqué au dossier entier. Elle est VENTILÉE HABITATION PAR HABITATION,
+   pilotée par la prime CEE de chaque logement :
 
-   Pourquoi une hausse uniforme en pourcentage : la marge vaut vente − coût de
-   revient, et le coût de revient ne dépend pas du prix de vente (la régie se
-   calcule sur les achats). Augmenter la vente de X augmente donc la marge de X,
-   exactement. Un facteur unique appliqué partout comble le déficit sans
-   déformer la structure de prix — aucun poste ne prend plus que sa part.
+   1. Chaque habitation incluse a une CAPACITÉ = max(0, prime CEE − prix de
+      vente actuel) : ce qu'on peut lui facturer en plus SANS augmenter son
+      reste à charge — on maximise l'usage de la prime de chaque appartement.
+   2. Le déficit de marge se répartit d'abord au prorata de ces capacités.
+   3. S'il dépasse la capacité totale, le solde se répartit au prorata des
+      prix de vente (comme l'ancien comportement).
+   4. Dans chaque habitation, sa hausse s'applique uniformément à ses
+      catégories du barème (prorata des ventes cochées), plafonnée à
+      GO_FIX_HAUSSE_MAX (+30 %) PAR HABITATION — l'excédent d'une habitation
+      plafonnée est redistribué une fois sur les autres.
 
-   Ne sont ajustées que les catégories du barème (ITE, ITI, Combles, Plancher,
-   Fenêtres), celles déjà éditables à la main sur la fiche calcul. Les éléments
-   à la pièce et les ajouts individuels ne sont pas touchés : ce sont des
-   montants négociés ligne à ligne.
+   Résultat : un même poste (ex. Plancher) peut finir à des €/m² DIFFÉRENTS
+   entre deux habitations du même dossier. Les prix ventilés sont écrits dans
+   state.prixVentil (par habitation, rosé) — JAMAIS dans le barème.
+   Éléments à la pièce, ajouts individuels et part ITE répartie : non touchés.
    ============================================================================ */
+/* Répartition PURE (testée dans test_ventilation.js) :
+   parts = [{key, venteCat, capacite}], deficit en € (positif = hausse).
+   Retourne { alloc: [{key, hausse, k}], residuel } — k = hausse/venteCat, borné à capMax. */
+function ventilRepartition(parts, deficit, capMax){
+  const D = num(deficit);
+  const out = parts.map(p=>({ key:p.key, venteCat:num(p.venteCat), capacite:Math.max(0,num(p.capacite)), hausse:0 }));
+  const vivants = out.filter(p=>p.venteCat > 0);
+  const sumV = vivants.reduce((s,p)=>s+p.venteCat, 0);
+  if(!vivants.length || sumV <= 0) return { alloc: out.map(p=>({key:p.key, hausse:0, k:0})), residuel: D };
+  if(D <= 0){
+    // Baisse (marge cible bidirectionnelle) : uniforme au prorata des ventes, borne −capMax.
+    const k = Math.max(-capMax, D / sumV);
+    vivants.forEach(p=>{ p.hausse = p.venteCat * k; });
+    return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0})),
+             residuel: round2(D - vivants.reduce((s,p)=>s+p.hausse,0)) };
+  }
+  // Étape 1 — au prorata de la CAPACITÉ prime (remplir la prime de chaque logement)
+  const sumCap = vivants.reduce((s,p)=>s+p.capacite, 0);
+  let restant = D;
+  if(sumCap > 0){
+    const surCap = Math.min(D, sumCap);
+    vivants.forEach(p=>{ p.hausse = surCap * (p.capacite / sumCap); });
+    restant = D - surCap;
+  }
+  // Étape 2 — solde au prorata des ventes
+  if(restant > 0) vivants.forEach(p=>{ p.hausse += restant * (p.venteCat / sumV); });
+  // Plafond par habitation (+capMax) : une passe de redistribution vers les non plafonnées
+  for(let pass = 0; pass < 2; pass++){
+    let excedent = 0;
+    vivants.forEach(p=>{
+      const max = p.venteCat * capMax;
+      if(p.hausse > max){ excedent += p.hausse - max; p.hausse = max; p.plafond = true; }
+    });
+    if(excedent <= 0.005) break;
+    const libres = vivants.filter(p=>!p.plafond);
+    const sumL = libres.reduce((s,p)=>s+p.venteCat, 0);
+    if(!libres.length || sumL <= 0) break;
+    libres.forEach(p=>{ p.hausse += excedent * (p.venteCat / sumL); });
+  }
+  const total = vivants.reduce((s,p)=>s+Math.min(p.hausse, p.venteCat*capMax),0);
+  return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0, plafond:!!p.plafond})),
+           residuel: round2(D - total) };
+}
 const GO_FIX_HAUSSE_MAX = 0.30;   // garde-fou : +30 % au maximum sur un prix de vente
 
 /* Moteur générique : viser un MONTANT de marge (€). Deux appelants seulement —
@@ -1833,44 +1927,50 @@ const GO_FIX_HAUSSE_MAX = 0.30;   // garde-fou : +30 % au maximum sur un prix de
    commerciale cible convertie en euros. Un seul moteur, donc jamais deux
    ajustements concurrents qui écriraient sur les mêmes prix. */
 function calcAjustementVersMarge(margeCible, opts){
-  const { tot } = calcGlobal();
+  const g = calcGlobal();
+  const tot = g.tot;
   const cible = num(margeCible);
   const deficit = round2(cible - tot.marge);   // négatif = la marge dépasse déjà la cible
 
-  // Assiette ajustable : surface totale cochée par catégorie du barème (VT incluses seulement).
-  const surfaces = {};
-  state.vts.filter(vtIncluded).forEach(vt=>{
-    CATS.forEach(cat=>{
-      const s = sumChecked(vt, cat);
-      if(s > 0) surfaces[cat] = round2((surfaces[cat]||0) + s);
-    });
+  // ASSIETTE PAR HABITATION : pour chaque habitation incluse, ses catégories du
+  // barème chiffrées (hors éléments à la pièce et part ITE répartie) + sa CAPACITÉ
+  // prime = max(0, prime CEE − prix de vente actuel). VT ITE et exclues : hors jeu.
+  const parts = [];
+  g.blocks.forEach(({vt, res})=>{
+    if(vt.role !== 'habitation' || res.distributed) return;
+    const cats = res.lignes.filter(l=> !l.pc && !l.itePart && CHARGE_MAP[l.cat] && num(l.vente) > 0 && num(l.surf) > 0);
+    if(!cats.length) return;
+    const venteCat = round2(cats.reduce((s,l)=> s + num(l.vR), 0));
+    if(venteCat <= 0) return;
+    parts.push({ key: ovKey(vt), label: vt.label, venteCat,
+                 prime: num(res.prime), capacite: Math.max(0, num(res.prime) - num(res.venteTravaux)),
+                 cats: cats.map(l=>({ cat: l.cat, vente: num(l.vente), surf: num(l.surf) })) });
   });
-  let venteAjustable = 0;
+  const venteAjustable = round2(parts.reduce((s,p)=> s + p.venteCat, 0));
+  // postes : agrégat par catégorie conservé pour l'affichage global (aperçu Paramètres).
   const postes = [];
-  Object.keys(surfaces).forEach(cat=>{
-    const cc = findChargeCol(CHARGE_MAP[cat]);
-    if(!cc || num(cc.vente) <= 0) return;   // prix manquant : on ne touche pas
-    const montant = round2(surfaces[cat] * num(cc.vente));
-    venteAjustable += montant;
-    postes.push({ cat, surf: surfaces[cat], vente: num(cc.vente), montant });
-  });
-  venteAjustable = round2(venteAjustable);
+  const byCat = {};
+  parts.forEach(p=> p.cats.forEach(c=>{
+    byCat[c.cat] = byCat[c.cat] || { cat:c.cat, surf:0, vente:c.vente, montant:0 };
+    byCat[c.cat].surf = round2(byCat[c.cat].surf + c.surf);
+    byCat[c.cat].montant = round2(byCat[c.cat].montant + c.surf*c.vente);
+  }));
+  Object.values(byCat).forEach(p=> postes.push(p));
 
-  // Le bouton GO ne descend jamais les prix (il comble un manque). Viser une marge
-  // cible, si : atteindre 25 % quand on est à 30 % suppose de BAISSER les prix.
   const bidirectionnel = !!(opts && opts.bidirectionnel);
   const atteint = bidirectionnel ? Math.abs(deficit) < 0.01 : deficit <= 0;
   const variation = venteAjustable > 0 ? deficit / venteAjustable : Infinity;
+  // Ventilation par habitation, pondérée par la capacité prime (cf. doctrine ci-dessus).
+  const rep = ventilRepartition(parts, deficit, GO_FIX_HAUSSE_MAX);
+  rep.alloc.forEach(al=>{ const p = parts.find(x=>x.key===al.key); if(p){ p.hausse = al.hausse; p.k = al.k; p.plafond = !!al.plafond; } });
   return {
     dejaGo: atteint, atteint, deficit, seuil: cible, marge: tot.marge,
     coutRevient: tot.coutRevient, venteActuelle: tot.venteTravaux,
-    venteAjustable, postes, bidirectionnel,
-    // Deux lectures du même écart : ce qui manque en part de marge attendue,
-    // et ce que ça coûterait sur les prix — c'est la seconde qui décide.
+    venteAjustable, postes, parts, residuel: rep.residuel, bidirectionnel,
     pctMarge: cible > 0 ? (deficit / cible) : null,
     pctHausse: isFinite(variation) ? variation : null,
-    faisable: isFinite(variation) && Math.abs(variation) <= GO_FIX_HAUSSE_MAX && postes.length > 0,
-    aucunPoste: postes.length === 0,
+    faisable: isFinite(variation) && Math.abs(variation) <= GO_FIX_HAUSSE_MAX && parts.length > 0,
+    aucunPoste: parts.length === 0,
   };
 }
 
@@ -1924,51 +2024,82 @@ function calcAjustementMargeCible(){
   return calcAjustementVersMarge(cible, { bidirectionnel: true });
 }
 
+/* Écriture de la ventilation dans state.prixVentil — PAR HABITATION, jamais le barème.
+   Arrondi euro SUPÉRIEUR pour l'ajustement GO (l'arrondi joue pour la marge) ;
+   arrondi exact (centimes) quand on vise une marge PRÉCISE forcée sur un widget. */
+function appliquerVentilation(a, opts){
+  if(!state.prixVentil) state.prixVentil = {};
+  const arrondi = (opts && opts.exact) ? (x=>round2(x)) : (x=>Math.ceil(x));
+  (a.parts||[]).forEach(p=>{
+    if(!p.k) return;
+    state.prixVentil[p.key] = state.prixVentil[p.key] || {};
+    p.cats.forEach(c=>{ state.prixVentil[p.key][c.cat] = arrondi(c.vente * (1 + p.k)); });
+  });
+  saveLS();
+}
 function appliquerAjustementGo(a0){
   const a = a0 || calcAjustementGo();
   if(a.atteint || a.aucunPoste) return a;
-  // Le signe est conservé : un déficit négatif fait BAISSER les prix (marge cible).
-  const brut = a.pctHausse;
-  const borne = Math.sign(brut) * Math.min(Math.abs(brut), GO_FIX_HAUSSE_MAX);
-  const k = 1 + borne;
-  if(!state.chargesAuto) state.chargesAuto = {};
-  if(!state.chargesAutoBak) state.chargesAutoBak = {};
-  if(!state.prixDossier) state.prixDossier = {};
-  a.postes.forEach(p=>{
-    // Le backup est indexé par CATÉGORIE, pas par clé de barème : chargeBaremeKey()
-    // fait une recherche normalisée (accents, casse) et peut renvoyer une clé
-    // différente de CHARGE_MAP — restaurer via la catégorie garantit qu'on réécrit
-    // exactement là où on a écrit.
-    if(state.chargesAutoBak[p.cat] === undefined) state.chargesAutoBak[p.cat] = p.vente;
-    // Arrondi à l'euro SUPÉRIEUR : des prix ronds, et l'arrondi joue toujours
-    // en faveur de la marge — on ne repasse jamais sous le seuil à cause de lui.
-    const bk = chargeBaremeKey(p.cat);
-    // ÉCRITURE DANS LE DOSSIER, PAS DANS LE BARÈME : l'ajustement est une décision
-    // commerciale propre à ce chantier. Il ne doit pas contaminer les Paramètres
-    // ni les dossiers suivants — contrairement à une édition manuelle de prix.
-    state.prixDossier[bk] = Object.assign({}, state.prixDossier[bk], { vente: Math.ceil(p.vente * k) });
-    state.chargesAuto[chargeEditKey(p.cat, 'vente')] = true;
-  });
-  saveLS();
+  appliquerVentilation(a);
   // Recalcul APRÈS écriture, sur la MÊME cible : sinon un ajustement vers la marge
   // cible se relirait avec le seuil GO et annoncerait un résultat qui n'est pas le sien.
   return calcAjustementVersMarge(a.seuil, { bidirectionnel: a.bidirectionnel });
 }
 
+/* ── MARGE COMMERCIALE FORCÉE SUR UN WIDGET (✎) ───────────────────────────────
+   Demande Aymeric 2026-07-31 : forcer la marge sur le widget ne pose plus une
+   valeur d'affichage — ça RECALCULE les prix de vente pour l'atteindre :
+   - niveau habitation : ventilation uniforme sur les catégories de CETTE habitation ;
+   - niveau projet : ventilation sur les habitations, pondérée par la capacité
+     prime CEE (même moteur que l'ajustement GO), bidirectionnelle.
+   La marge devient alors RÉELLE (prix rosés) : pas d'override stocké, le bouclier
+   et le GO/NO-GO travaillent sur des vrais prix. Borné à ±30 % (alerte si atteint). */
+function appliquerMargeWidget(scope, key, cible){
+  const g = calcGlobal();
+  if(scope === 'g'){
+    const a = calcAjustementVersMarge(num(cible), { bidirectionnel: true });
+    if(a.aucunPoste){ applyOv('g', '', 'marge', num(cible)); return; }   // rien à ventiler : simple valeur forcée
+    appliquerVentilation(a, { exact: true });
+    if(state.overrides && state.overrides.global) delete state.overrides.global.marge;
+    if(Math.abs(a.residuel) > 1) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % par habitation : il reste ' + eur(a.residuel) + ' d\'écart avec la marge demandée.');
+  } else {
+    const b = g.blocks.find(x=> ovKey(x.vt) === key);
+    if(!b) return;
+    const cats = b.res.lignes.filter(l=> !l.pc && !l.itePart && CHARGE_MAP[l.cat] && num(l.vente) > 0 && num(l.surf) > 0);
+    const venteCat = cats.reduce((s,l)=> s + num(l.vR), 0);
+    if(venteCat <= 0){ applyOv('v', key, 'marge', num(cible)); return; } // aucune catégorie chiffrée : simple valeur forcée
+    const deficit = num(cible) - num(b.res.marge);
+    const k = Math.max(-GO_FIX_HAUSSE_MAX, Math.min(GO_FIX_HAUSSE_MAX, deficit / venteCat));
+    if(!state.prixVentil) state.prixVentil = {};
+    state.prixVentil[key] = state.prixVentil[key] || {};
+    cats.forEach(l=>{ state.prixVentil[key][l.cat] = round2(num(l.vente) * (1 + k)); });
+    if(state.overrides && state.overrides.vt && state.overrides.vt[key]) delete state.overrides.vt[key].marge;
+    if(Math.abs(deficit / venteCat) > GO_FIX_HAUSSE_MAX) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % : la marge demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
+  }
+  saveLS();
+}
+
 function annulerAjustementGo(){
-  if(!state.chargesAutoBak) return;
-  Object.keys(state.chargesAutoBak).forEach(cat=>{
-    const bk = chargeBaremeKey(cat);
-    if(state.prixDossier && state.prixDossier[bk]){
-      delete state.prixDossier[bk].vente;
-      if(!Object.keys(state.prixDossier[bk]).length) delete state.prixDossier[bk];
-    }
-  });
+  // Nouvelle ventilation par habitation : on la vide entièrement.
+  state.prixVentil = {};
+  // Legacy (dossiers d'avant 2026-07-31) : ajustement global via prixDossier.
+  if(state.chargesAutoBak){
+    Object.keys(state.chargesAutoBak).forEach(cat=>{
+      const bk = chargeBaremeKey(cat);
+      if(state.prixDossier && state.prixDossier[bk]){
+        delete state.prixDossier[bk].vente;
+        if(!Object.keys(state.prixDossier[bk]).length) delete state.prixDossier[bk];
+      }
+    });
+  }
   state.chargesAutoBak = {};
   state.chargesAuto = {};
   saveLS();
 }
-function ajustementActif(){ return !!(state.chargesAutoBak && Object.keys(state.chargesAutoBak).length); }
+function ajustementActif(){
+  return !!(state.prixVentil && Object.keys(state.prixVentil).length)
+      || !!(state.chargesAutoBak && Object.keys(state.chargesAutoBak).length);
+}
 
 /* Bandeau sous la décision globale. Il donne d'abord le CHIFFRE qui permet de
    décider — combien il manque, et surtout ce que ça représente en hausse de prix —
@@ -1982,7 +2113,7 @@ function goFixHtml(){
   if(a.dejaGo){
     if(!actif) return '';
     return '<div class="go-fix ok">✅ <strong>Objectif de marge atteint</strong>'
-      + ' <small>après ajustement automatique des prix de vente (en rouge dans les tableaux).</small>'
+      + ' <small>après ventilation des prix de vente par habitation (en rosé dans les tableaux).</small>'
       + '<span style="flex:1"></span>'
       + '<button class="btn small ghost" id="goFixUndo">↺ Revenir aux prix d\'origine</button></div>';
   }
@@ -2002,7 +2133,7 @@ function goFixHtml(){
     + '<span style="flex:1"></span>'
     + (dur
         ? '<small style="color:#9c0006;max-width:280px">Au-delà de +' + (GO_FIX_HAUSSE_MAX*100) + ' %, l\'ajustement est bloqué : à ce niveau ce n\'est plus un arrondi commercial, c\'est un autre projet.</small>'
-        : '<button class="btn success small" id="goFixApply" title="Répartit la hausse sur toutes les catégories chiffrées, au prorata de leur poids. Les prix relevés apparaissent en rouge.">⚖️ Ajuster les prix pour atteindre le GO</button>')
+        : '<button class="btn success small" id="goFixApply" title="Ventile la hausse habitation par habitation, pondérée par la prime CEE disponible de chaque logement. Les prix ventilés apparaissent en rosé — le barème des Paramètres n\'est pas touché.">⚖️ Ajuster les prix pour atteindre le GO</button>')
     + (actif ? ' <button class="btn small ghost" id="goFixUndo">↺ Prix d\'origine</button>' : '')
     + '</div>';
 }
@@ -2214,10 +2345,13 @@ function calcTravaux(vt){
     const surf = sumChecked(vt, cat);   // CALCUL = uniquement les lignes cochées (le % est purement indicatif)
     if(surf <= 0 && effectiveInstances(vt,cat).length===0) continue;
     const cc = findChargeCol(CHARGE_MAP[cat]);
-    const achat = cc ? cc.achat : 0, vente = cc ? cc.vente : 0;
+    // Prix EFFECTIF de cette habitation : manuel (bleuté) > ventilé (rosé) > barème.
+    const px = prixEffectifs(vt, cat, cc);
+    const achat = px.achat, vente = px.vente;
     const cR = surf*achat, vR = surf*vente;
     chargesTravaux += cR; venteTravaux += vR;
-    lignes.push({ cat, label:CAT_LABEL[cat], surf, achat, vente, cR, vR, missing: !cc && surf>0 });
+    lignes.push({ cat, label:CAT_LABEL[cat], surf, achat, vente, cR, vR, missing: !cc && surf>0,
+                  srcAchat: px.srcAchat, srcVente: px.srcVente });
   }
   // Éléments additionnels à la pièce (barème éléments OU ajout individuel) — ajout ADDITIONNEL par habitation
   (vt.pcLines||[]).forEach(pl=>{
@@ -2465,7 +2599,7 @@ let GOLDEN_RESULTS = [];
 function runGoldenTests(){
   // prixDossier DOIT figurer ici : sans lui, les scénarios golden hériteraient des
   // prix ajustés du dossier ouvert et échoueraient sans raison apparente.
-  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable','prixDossier'];
+  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable','prixDossier','prixVentil','prixManuel'];
   const snap = {}; KEYS.forEach(k=> snap[k] = state[k]);
   const results = [];
   try{
@@ -4190,7 +4324,15 @@ function openKpiEditor(kpi){
   const parts = kpi.dataset.ov.split('|');
   const scope = parts[0], key = decodeURIComponent(parts[1]), field = parts[2], type = parts[3];
   const valBox = kpi.querySelector('.val');
-  const commit = v => { applyOv(scope, key, field, v); renderStep4(); };
+  // MARGE COMMERCIALE : forcer la valeur ne pose pas un override d'affichage —
+  // ça VENTILE les prix de vente pour l'atteindre (habitation seule, ou projet
+  // pondéré par la prime CEE). Cf. appliquerMargeWidget. Les autres widgets
+  // gardent l'override classique (✎/↺).
+  const commit = v => {
+    if(field === 'marge' && v !== null && v !== '') appliquerMargeWidget(scope, key, num(v));
+    else applyOv(scope, key, field, v);
+    renderStep4();
+  };
   if(type === 'dec'){
     valBox.innerHTML = '<select><option value="">Auto (calculé)</option><option value="go">✅ GO</option><option value="nogo">⛔ NO-GO</option></select>';
     const sel = valBox.querySelector('select');
@@ -4208,23 +4350,23 @@ function openKpiEditor(kpi){
     inp.addEventListener('blur', ()=> fin(true));
   }
 }
-// Éditeur d'un prix achat/vente sur la fiche calcul : saisie -> pop-up de confirmation
-// -> mise à jour du barème + recalcul de toutes les habitations + cellule rosée.
+// Éditeur d'un prix achat/vente sur la fiche calcul : la modification vaut pour
+// CETTE habitation et cette catégorie UNIQUEMENT (bleuté). Ni pop-up, ni barème,
+// ni recalcul des autres habitations. Champ vidé -> retour au prix calculé.
 function openPriceEditor(td){
   if(td.querySelector('input')) return;
-  const [cat, field] = td.dataset.price.split('|');
+  const [vtId, cat, field] = td.dataset.price.split('|');
+  const vt = state.vts.find(v=> v.id == vtId); if(!vt) return;
   const cur = num(td.dataset.val);
-  const label = CAT_LABEL[cat] || cat;
-  td.innerHTML = `<input type="number" step="1" min="0" value="${cur}">`;
+  td.innerHTML = `<input type="number" step="1" min="0" value="${cur}" title="Vider le champ = revenir au prix calculé (ventilation ou barème)">`;
   const inp = td.querySelector('input'); inp.focus(); inp.select();
   let done = false;
   const finish = save => {
     if(done) return; done = true;
-    const val = num(inp.value);
-    if(save && val !== cur){
-      const q = 'Mettre à jour le prix '+(field==='achat'?"d'achat":'de vente')+' HT de « '+label+' » de '+eur(cur)+' à '+eur(val)+' ?\n\n'
-              + 'Le barème (Paramètres) sera mis à jour et toutes les habitations recalculées pour cette catégorie.';
-      if(confirm(q)) applyChargePrice(cat, field, val);
+    if(save){
+      const raw = String(inp.value).trim();
+      if(raw === '') setPrixManuel(vt, cat, field, null);          // vidé : surcharge supprimée
+      else if(num(raw) !== cur) setPrixManuel(vt, cat, field, num(raw));
     }
     renderStep4();
   };
@@ -4279,16 +4421,22 @@ function renderStep4(){
     const badge = vt.role==='ite'
       ? '<span class="badge ite">VT ITE — bloc global'+(res.distributed?', coûts répartis sur les habitations':', pas d\'Audit VT')+'</span>'
       : '<span class="badge hab">Habitation'+((vt.hasIte||'oui')==='non'?' — sans ITE':'')+'</span>';
-    // Trois états possibles pour un prix : intact, rosé s'il a été repris à la main,
-    // rouge s'il a été relevé par l'ajustement automatique vers le GO.
-    const priceCls = (l, field)=> isChargeAuto(l.cat,field) ? 'price-auto'
-                               : (isChargeEdited(l.cat,field) ? 'price-edited' : '');
-    const priceTitre = (l, field)=> isChargeAuto(l.cat,field)
-      ? 'Prix relevé automatiquement pour atteindre le seuil de marge (valeur d\'origine : '
-        + eur(state.chargesAutoBak[l.cat]) + '). Cliquer pour le corriger.'
-      : 'Cliquer pour éditer ce prix — met à jour le barème (Paramètres) et recalcule toutes les habitations de cette catégorie';
+    // États d'un prix : BLEUTÉ = modifié à la main sur CETTE ligne (aucun impact ailleurs),
+    // ROSÉ = ventilé par habitation (ajustement GO / marge forcée, pondération prime CEE),
+    // rouge/rosé legacy = anciens dossiers (ajustement global / barème édité).
+    const src = (l, field)=> field==='achat' ? l.srcAchat : l.srcVente;
+    const priceCls = (l, field)=> src(l,field)==='man' ? 'price-manual'
+                               : (src(l,field)==='vent' ? 'price-vent'
+                               : (isChargeAuto(l.cat,field) ? 'price-auto'
+                               : (isChargeEdited(l.cat,field) ? 'price-edited' : '')));
+    const priceTitre = (l, field)=> src(l,field)==='man'
+      ? 'Prix modifié manuellement sur CETTE ligne uniquement — aucun impact sur les autres habitations, le barème ni les autres dossiers. Cliquer pour corriger ; vider le champ restaure le prix calculé.'
+      : (src(l,field)==='vent'
+        ? 'Prix de vente VENTILÉ pour cette habitation (ajustement de marge, pondéré par sa prime CEE). Barème d\'origine : '
+          + eur((findChargeCol(CHARGE_MAP[l.cat])||{}).vente||0) + '. « ↺ Prix d\'origine » annule la ventilation.'
+        : 'Cliquer pour modifier ce prix — pour CETTE habitation et cette catégorie uniquement (le barème des Paramètres n\'est pas touché)');
     const priceTd = (l, field, val)=> isEditablePriceLine(l) && !FROZEN
-      ? `<td class="num price-cell ${priceCls(l,field)}" data-price="${esc(l.cat)}|${field}" data-val="${round2(val)}" title="${esc(priceTitre(l,field))}">${eur(val)}</td>`
+      ? `<td class="num price-cell ${priceCls(l,field)}" data-price="${vt.id}|${esc(l.cat)}|${field}" data-val="${round2(val)}" title="${esc(priceTitre(l,field))}">${eur(val)}</td>`
       : `<td class="num ${priceCls(l,field)}">${eur(val)}</td>`;
     const lignesHtml = res.lignes.map(l=>`<tr ${l.missing?'class="muted-row"':''}>
           <td>${esc(l.label)} ${l.missing?'<span class="badge warn">prix manquant</span>':''}</td>
@@ -4339,17 +4487,15 @@ function renderStep4(){
     autoArchiveFromStep4();
     const zone = $('#scanIAResult');
     if(zone){
-      const lignes = (avant.postes||[]).map(p=>{
-        const nv = (findChargeCol(CHARGE_MAP[p.cat])||{}).vente;
-        return '<li>' + esc(CAT_LABEL[p.cat]||p.cat) + ' : ' + eur(p.vente) + ' → <strong>' + eur(nv) + '</strong>'
-             + ' <small>(' + m2(p.surf) + ')</small></li>';
-      }).join('');
+      const pctFr = k => (k*100).toFixed(1).replace('.', ',');
+      const lignes = (avant.parts||[]).filter(p=>p.hausse).map(p=>
+        '<li><strong>' + esc(p.label) + '</strong> : +' + eur(p.hausse) + ' (+' + pctFr(p.k) + ' %)'
+        + ' <small>— capacité prime ' + eur(p.capacite) + (p.plafond ? ' · plafonnée à +' + (GO_FIX_HAUSSE_MAX*100) + ' %' : '') + '</small></li>').join('');
       zone.innerHTML = '<div class="alert ' + (apres.dejaGo?'ok':'warn') + '">'
-        + (apres.dejaGo ? '✅ <strong>Seuil de marge atteint.</strong> ' : '⚠️ <strong>Hausse plafonnée à +'+(GO_FIX_HAUSSE_MAX*100)+' %</strong> — il manque encore ' + eur(apres.deficit) + '. ')
-        + 'Prix de vente relevés de <strong>+' + ((Math.min(avant.pctHausse, GO_FIX_HAUSSE_MAX))*100).toFixed(1).replace('.',',') + ' %</strong>, '
-        + 'répartis au prorata sur ' + (avant.postes||[]).length + ' catégorie(s) :'
+        + (apres.dejaGo ? '✅ <strong>Seuil de marge atteint.</strong> ' : '⚠️ <strong>Ventilation plafonnée</strong> — il manque encore ' + eur(apres.deficit) + '. ')
+        + 'Hausse <strong>ventilée par habitation</strong>, pondérée par la prime CEE disponible de chaque logement :'
         + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
-        + '<small>Les prix relevés apparaissent en rouge dans les tableaux ci-dessus. Ils remplacent le barème — « ↺ Prix d\'origine » les restaure.</small></div>';
+        + '<small>Les prix ventilés apparaissent en rosé dans les tableaux ci-dessus — propres à chaque habitation, le barème des Paramètres n\'est jamais touché. « ↺ Prix d\'origine » les annule.</small></div>';
     }
   });
   const btnUndo = area.querySelector('#goFixUndo');
@@ -4681,6 +4827,8 @@ function buildDossierSnapshot(){
     chargesAuto: JSON.parse(JSON.stringify(state.chargesAuto || {})),       // et le rouge de l'ajustement
     chargesAutoBak: JSON.parse(JSON.stringify(state.chargesAutoBak || {})),
     prixDossier: JSON.parse(JSON.stringify(state.prixDossier || {})),
+    prixVentil: JSON.parse(JSON.stringify(state.prixVentil || {})),   // ventilation GO par habitation (rosé)
+    prixManuel: JSON.parse(JSON.stringify(state.prixManuel || {})),   // prix édités ligne à ligne (bleuté)
     elementsTable: state.elementsTable,
     // Onglet 1 : uniquement les TITRES des fichiers (jamais leur contenu) + données d'extraction/réponses
     // photos:null — jamais dans le snapshot Supabase (cf. extractVtPhotos)
@@ -4922,7 +5070,7 @@ function renderHistBody(){
 async function downloadHistoryReport(id){
   let snap; try{ snap = await HistoryStore.get(id); }catch(e){ alert('Ouverture impossible : '+e.message); return; }
   if(!snap) return;
-  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable','elementsTable','prixDossier'];
+  const KEYS = ['cas','nomDossier','vts','general','overrides','settings','valoTable','pollueurs','chargesTable','elementsTable','prixDossier','prixVentil','prixManuel'];
   const bak = {}; KEYS.forEach(k=> bak[k]=state[k]);
   try{
     state.cas=snap.cas; state.nomDossier=snap.nom; state.vts=snap.vts||[]; state.general=snap.general||{pollueur:''};
@@ -4957,6 +5105,8 @@ async function openArchived(id){
   state.chargesAuto = snap.chargesAuto || {};
   state.chargesAutoBak = snap.chargesAutoBak || {};
   state.prixDossier = snap.prixDossier || {};
+  state.prixVentil = snap.prixVentil || {};
+  state.prixManuel = snap.prixManuel || {};
   // Config widgets du dossier (schema 3). Un snapshot schema 2 n'en a pas : on GARDE la
   // config courante (comportement d'époque = formules d'usine, wcInit comble l'absence).
   if(snap.widgetConfig) state.widgetConfig = JSON.parse(JSON.stringify(snap.widgetConfig));
@@ -5243,10 +5393,10 @@ function recalculerAvecMargeCible(){
   const reelPct = g.tot.venteTravaux > 0 ? (g.tot.marge / g.tot.venteTravaux) : 0;
   const zone = $('#scanIAResult');
   if(zone){
-    const lignes = (avant.postes||[]).map(p=>{
-      const nv = (findChargeCol(CHARGE_MAP[p.cat])||{}).vente;
-      return '<li>' + esc(CAT_LABEL[p.cat]||p.cat) + ' : ' + eur(p.vente) + ' → <strong>' + eur(nv) + '</strong></li>';
-    }).join('');
+    const pctFr2 = k => (Math.abs(k)*100).toFixed(1).replace('.', ',');
+    const lignes = (avant.parts||[]).filter(p=>p.hausse).map(p=>
+      '<li><strong>' + esc(p.label) + '</strong> : ' + (p.hausse>0?'+':'−') + eur(Math.abs(p.hausse))
+      + ' (' + (p.k>0?'+':'−') + pctFr2(p.k) + ' %) <small>— capacité prime ' + eur(p.capacite) + '</small></li>').join('');
     const nbsp = String.fromCharCode(160);
     zone.innerHTML = '<div class="alert ' + (apres.atteint ? 'ok' : 'warn') + '">'
       + (apres.atteint ? '✅ ' : '⚠️ ')
@@ -5257,7 +5407,7 @@ function recalculerAvecMargeCible(){
       + (apres.atteint ? '' : '<br>Écart restant : ' + eur(Math.abs(apres.deficit)) + ' — la variation a été plafonnée à '
           + (GO_FIX_HAUSSE_MAX*100) + '%.')
       + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
-      + '<small>Prix de vente propres à CE dossier (en rouge ci-dessus). Le barème des Paramètres n\'est pas modifié. « ↺ Prix d\'origine » restaure.</small></div>';
+      + '<small>Variation ventilée par habitation (pondérée par la prime CEE), en rosé ci-dessus — propre à CE dossier. Le barème des Paramètres n\'est pas modifié. « ↺ Prix d\'origine » restaure.</small></div>';
   }
   autoArchiveFromStep4();
 }
@@ -9361,6 +9511,8 @@ function renderResumeBanner(){
     state.chargesAuto = d.chargesAuto || {};       // idem pour les prix ajustés (rouge)
     state.chargesAutoBak = d.chargesAutoBak || {};
     state.prixDossier = d.prixDossier || {};
+    state.prixVentil = d.prixVentil || {};
+    state.prixManuel = d.prixManuel || {};
     state.prop = d.prop || null;                   // la proposition de travaux revient avec SON dossier
     state.factures = d.factures || [];              // idem pour tout le journal de facturation
     state.factureActiveId = d.factureActiveId || '';
