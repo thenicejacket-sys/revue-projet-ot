@@ -386,10 +386,43 @@
   </div>
 
   <div class="astuce">
-    <h3><span class="ico">🔴</span> Prix en rouge, prix en rosé : la différence</h3>
-    <p><b>Rosé</b> = prix que <i>vous</i> avez modifié à la main. Il met à jour le barème des Paramètres, donc vos prochains dossiers.</p>
-    <p><b>Rouge</b> = prix relevé par un ajustement automatique. Il ne vaut que <b>pour ce dossier</b> : le barème n'est pas touché. Survolez-le pour voir la valeur d'origine ; <b>↺ Prix d'origine</b> restaure tout.</p>
-    <p>Dans les deux cas, un article a <b>un seul prix dans tout le dossier</b> — jamais un tarif différent d'une habitation à l'autre.</p>
+    <h3><span class="ico">🎨</span> Prix en rosé, prix en bleuté : la différence</h3>
+    <p><b>Rosé</b> = prix de vente <b>ventilé</b> par un ajustement de marge (bouton GO, recalcul de marge, ou marge/taux forcé sur un widget). Il est <b>propre à cette habitation</b> et ne vaut que pour ce dossier. Survolez-le : l'infobulle donne le prix du barème d'origine. <b>↺ Prix d'origine</b> annule toute la ventilation.</p>
+    <p><b>Bleuté</b> = prix que <i>vous</i> avez saisi à la main sur cette ligne. Il ne touche <b>que cette ligne de cette habitation</b> : ni les autres logements, ni le barème des Paramètres, ni vos autres dossiers. Pour revenir au prix calculé, videz le champ.</p>
+    <p>Depuis juillet 2026, un même poste <b>peut donc valoir un prix différent d'une habitation à l'autre</b> — c'est le principe de la ventilation (voir l'encart ⚖️ ci-dessous). Le barème des Paramètres, lui, ne se modifie plus que depuis les Paramètres.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">⚖️</span> Comment la ventilation des prix fonctionne — la méthode</h3>
+    <p><span class="ou">Où</span> Étape 4, bouton <b>⚖️ Ajuster les prix pour atteindre le GO</b>, recalcul de marge des Paramètres, ou <b>✎</b> sur les widgets <b>Marge Commerciale</b> / <b>Taux de marge</b>.</p>
+    <p>Il manque de la marge au projet. Plutôt que d'augmenter tous les prix du même pourcentage, l'application <b>répartit la hausse habitation par habitation</b>, en trois étapes, de la plus juste à la plus neutre :</p>
+    <p><b>1. La prime CEE encore disponible.</b> Pour chaque logement, on calcule <b>prime CEE − prix de vente actuel</b> : ce qu'on peut encore facturer <i>sans augmenter le reste à charge du client</i>. La hausse va d'abord là, au prorata de ces montants. C'est ce qui maximise l'usage de la prime de chaque appartement.</p>
+    <p><b>2. Le manque de marge de chaque habitation.</b> Si les primes sont déjà toutes dépassées (capacité nulle), la suite va aux logements qui <b>n'atteignent pas leur cible</b> — chaque habitation ayant sa part de l'objectif projet, au prorata de son coût de revient. Une habitation <b>déjà au-dessus de sa cible n'est pas augmentée</b>.</p>
+    <p><b>3. Le solde au prorata des prix de vente.</b> S'il reste quelque chose à répartir, il se distribue proportionnellement, sans déformer la structure de prix.</p>
+    <p>Dans chaque habitation, sa hausse s'applique uniformément à ses catégories du barème (ITE, ITI, Combles, Plancher, Fenêtres). Les éléments à la pièce, les ajouts individuels et la part ITE répartie <b>ne sont jamais touchés</b>. La hausse est <b>plafonnée à +30 % par habitation</b> ; si une habitation plafonne, son excédent est redistribué sur les autres, et le message vous dit ce qu'il reste à combler.</p>
+    <div class="tip"><b>Exemple.</b> Objectif projet 1 500 € de marge manquants. L'Habitation A a encore 600 € de prime disponible, l'Habitation B rien mais il lui manque 900 € pour sa cible, l'Habitation C est déjà au-dessus. Résultat : A prend 600 €, B prend 900 €, C ne bouge pas. Après ajustement, le rapport détaille pour chaque logement sa hausse, sa prime disponible et son manque à la cible.</div>
+    <p>Les prix ventilés apparaissent en <b>rosé</b> et restent attachés au dossier : le <b>barème des Paramètres n'est jamais modifié</b>, et un dossier archivé rouvre avec ses prix d'époque.</p>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">🧩</span> Paramétrer les widgets de l'étape 4</h3>
+    <p><span class="ou">Où</span> Paramètres → <b>🧩 Widgets</b>, deux sous-onglets : <b>🏠 Habitations</b> (les indicateurs de chaque bloc habitation) et <b>📊 Projet</b> (ceux du Total).</p>
+    <p><b>Réordonner</b> : glissez la poignée <b>⠿</b>, ou utilisez <b>↑ ↓</b>. <b>Masquer</b> sans rien perdre : <b>👁</b>. <b>Retirer</b> : <b>🗑</b> — un widget d'origine reste restaurable via « Restaurer un widget usine supprimé », un widget personnalisé est supprimé définitivement.</p>
+    <p><b>Modifier ou créer un widget</b> : bouton <b>✎ Éditer</b> ou <b>＋ Créer un widget</b>. Vous choisissez l'intitulé, le <b>format</b> (€, nombre, %) et le nombre de <b>décimales</b>, puis vous composez la <b>formule</b> de deux façons au choix, mélangeables : en cliquant les pastilles de la <b>palette</b> (Résultats du calcul, Surfaces cochées, Habitation, Paramètres, autres Widgets, opérateurs), ou en tapant dans le champ, qui vous propose les noms au fur et à mesure. L'<b>aperçu live</b> affiche le résultat sur votre dossier en cours, habitation par habitation, <i>avant</i> de valider. Un message clair signale une variable inconnue, une parenthèse oubliée ou une référence circulaire.</p>
+    <p><b>Un pourcentage</b> s'obtient en divisant puis en multipliant par 100, avec le format « % ». Exemple : <code>margeCommerciale / prixVenteHT * 100</code> — c'est exactement le widget <b>Taux de marge</b> fourni d'origine.</p>
+    <p><b>Infobulle</b> : votre description s'affiche au survol du widget. La formule y est ajoutée par défaut ; décochez <b>« Afficher aussi la formule »</b> pour ne garder que votre texte.</p>
+    <p><b>Retour usine</b> : <b>⟳ usine</b> sur un widget, ou <b>⟳ Tout réinitialiser</b>. Une formule modifiée par rapport à l'origine est signalée par un <b>ƒ</b> sur le widget et listée dans le bouclier 🛡️ — rien ne change en silence.</p>
+    <p><b>Sauvegarde et partage</b> : <b>⬇ Exporter (JSON)</b> télécharge toute votre configuration, <b>⬆ Importer</b> la recharge (sur un autre poste, par exemple). Chaque dossier archivé emporte la configuration en vigueur au moment de l'archivage.</p>
+    <div class="tip">Les formules <b>Prime CEE</b> et <b>Décision</b> sont verrouillées : la première vient du barème de valorisation, la seconde compare la marge au seuil. Tout le reste de ces deux widgets (intitulé, format, ordre, visibilité) se modifie normalement.</div>
+  </div>
+
+  <div class="astuce">
+    <h3><span class="ico">📊</span> Paramétrer l'histogramme (KPI de l'étape 4)</h3>
+    <p><span class="ou">Où</span> Paramètres → <b>📊 Histogramme</b>. Le graphique lui-même se trouve à l'étape 4, sous le Total projet.</p>
+    <p>L'histogramme compare le <b>Total projet</b> et <b>chaque habitation</b> incluse. Ses séries sont <b>vos widgets Habitations</b> — y compris ceux que vous avez créés : ce que vous configurez en 🧩 Widgets devient disponible ici.</p>
+    <p><b>Composer</b> : <b>↑ ↓</b> pour l'ordre d'affichage, <b>👁</b> pour masquer une série, <b>🗑</b> pour la retirer, <b>＋ Ajouter une série depuis un widget…</b> pour en ajouter une. <b>⟳ Réinitialiser</b> revient aux 5 séries d'origine.</p>
+    <p><b>Barres ou courbe</b> : chaque série s'affiche en <b>▮ Barres</b> ou en <b>─ Courbe</b> tracée par-dessus — pratique pour suivre la Marge Commerciale d'un logement à l'autre. Pour une courbe, réglez son <b>épaisseur</b> (1 à 6). <b>Couleur</b> : cliquez la pastille et choisissez parmi les teintes proposées (celles déjà prises sont grisées ; la palette est limitée à 8 séries pour rester lisible, y compris pour les daltoniens).</p>
+    <p><b>Toujours à jour</b> : le graphique est redessiné à chaque calcul. Modifiez un prix, une sélection, un paramètre, excluez une habitation, forcez une marge — il suit immédiatement. Le bouton <b>⬇️ Télécharger l'image</b> produit un PNG au nom de votre dossier, titre et légende inclus, prêt à envoyer.</p>
   </div>
 
   <div class="astuce">

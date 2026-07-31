@@ -35,8 +35,39 @@ t('capacité 3000/1000, déficit 2000 → A prend 1500', near(r.alloc[0].hausse,
 t('… et B prend 500 (prorata prime, pas prorata vente)', near(r.alloc[1].hausse, 500), r.alloc[1].hausse);
 t('déficit entièrement couvert (résiduel 0)', near(r.residuel, 0), r.residuel);
 
+// ── Étape 2 : DÉFICIT DE MARGE (2026-07-31) — quand aucune prime n'est disponible,
+//    la hausse va aux habitations qui manquent leur cible, pas aux autres.
+//    Scénario réel du dossier « Laloux » : 3 habitations, primes toutes dépassées,
+//    seule l'Habitation 4 est sous son seuil.
+r = ventilRepartition([
+  { key: 'H3', venteCat: 9561, capacite: 0, deficitMarge: 0 },      // marge 2883 > seuil 2226
+  { key: 'H4', venteCat: 9535, capacite: 0, deficitMarge: 2476 },   // marge 527 < seuil 3003
+  { key: 'H5', venteCat: 12032, capacite: 0, deficitMarge: 0 },     // marge 4375 > seuil 2552
+], 2476, 0.30);
+t('capacité prime nulle : la hausse va à l’habitation en manque', near(r.alloc[1].hausse, 2476), r.alloc[1].hausse);
+t('… habitation déjà au-dessus de sa cible : inchangée (H3)', r.alloc[0].hausse === 0, r.alloc[0].hausse);
+t('… inchangée aussi pour H5', r.alloc[2].hausse === 0, r.alloc[2].hausse);
+t('déficit projet entièrement couvert', near(r.residuel, 0), r.residuel);
+// Priorité : la prime passe AVANT le déficit de marge
+r = ventilRepartition([
+  { key: 'A', venteCat: 10000, capacite: 800, deficitMarge: 0 },
+  { key: 'B', venteCat: 10000, capacite: 0, deficitMarge: 5000 },
+], 1800, 0.30);
+t('prime d’abord : A absorbe ses 800 € de prime disponible', near(r.alloc[0].hausse, 800), r.alloc[0].hausse);
+t('… puis le reste va au déficit de marge de B', near(r.alloc[1].hausse, 1000), r.alloc[1].hausse);
+// Déficits partout nuls et prime nulle : on retombe sur le prorata des ventes (neutre)
+r = ventilRepartition([
+  { key: 'A', venteCat: 10000, capacite: 0, deficitMarge: 0 },
+  { key: 'B', venteCat: 30000, capacite: 0, deficitMarge: 0 },
+], 4000, 0.30);
+t('aucun critère : prorata des ventes (1000 / 3000)', near(r.alloc[0].hausse, 1000) && near(r.alloc[1].hausse, 3000), r.alloc[0].hausse + '/' + r.alloc[1].hausse);
+
 // ── V1 : le même poste peut finir à des k différents par habitation ──
-t('taux de hausse DIFFÉRENTS entre habitations', Math.abs(r.alloc[0].k - r.alloc[1].k) > 0.05, r.alloc[0].k + ' vs ' + r.alloc[1].k);
+const rDiff = ventilRepartition([
+  { key: 'A', venteCat: 10000, capacite: 3000, deficitMarge: 0 },
+  { key: 'B', venteCat: 10000, capacite: 1000, deficitMarge: 0 },
+], 2000, 0.30);
+t('taux de hausse DIFFÉRENTS entre habitations', Math.abs(rDiff.alloc[0].k - rDiff.alloc[1].k) > 0.05, rDiff.alloc[0].k + ' vs ' + rDiff.alloc[1].k);
 
 // ── Débordement de la capacité : solde au prorata des ventes ──
 r = ventilRepartition([

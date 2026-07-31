@@ -873,7 +873,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -1891,11 +1891,17 @@ function setPrixManuel(vt, cat, field, val){
    Éléments à la pièce, ajouts individuels et part ITE répartie : non touchés.
    ============================================================================ */
 /* Répartition PURE (testée dans test_ventilation.js) :
-   parts = [{key, venteCat, capacite}], deficit en € (positif = hausse).
-   Retourne { alloc: [{key, hausse, k}], residuel } — k = hausse/venteCat, borné à capMax. */
+   parts = [{key, venteCat, capacite, deficitMarge}], deficit projet en € (positif = hausse).
+   Retourne { alloc: [{key, hausse, k}], residuel } — k = hausse/venteCat, borné à capMax.
+   TROIS ÉTAPES, du plus juste au plus neutre :
+     1. capacité PRIME  — remplir la prime CEE encore disponible de chaque logement ;
+     2. déficit de MARGE — ce qui manque à chaque habitation pour atteindre SA part du
+        seuil projet (une habitation déjà au-dessus de sa cible n'absorbe rien) ;
+     3. prorata des VENTES pour le solde éventuel. */
 function ventilRepartition(parts, deficit, capMax){
   const D = num(deficit);
-  const out = parts.map(p=>({ key:p.key, venteCat:num(p.venteCat), capacite:Math.max(0,num(p.capacite)), hausse:0 }));
+  const out = parts.map(p=>({ key:p.key, venteCat:num(p.venteCat), capacite:Math.max(0,num(p.capacite)),
+                              deficitMarge:Math.max(0,num(p.deficitMarge)), hausse:0 }));
   const vivants = out.filter(p=>p.venteCat > 0);
   const sumV = vivants.reduce((s,p)=>s+p.venteCat, 0);
   if(!vivants.length || sumV <= 0) return { alloc: out.map(p=>({key:p.key, hausse:0, k:0})), residuel: D };
@@ -1906,7 +1912,8 @@ function ventilRepartition(parts, deficit, capMax){
     return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0})),
              residuel: round2(D - vivants.reduce((s,p)=>s+p.hausse,0)) };
   }
-  // Étape 1 — au prorata de la CAPACITÉ prime (remplir la prime de chaque logement)
+  // Étape 1 — au prorata de la CAPACITÉ prime (remplir la prime de chaque logement,
+  // sans augmenter son reste à charge). Priorité absolue.
   const sumCap = vivants.reduce((s,p)=>s+p.capacite, 0);
   let restant = D;
   if(sumCap > 0){
@@ -1914,7 +1921,20 @@ function ventilRepartition(parts, deficit, capMax){
     vivants.forEach(p=>{ p.hausse = surCap * (p.capacite / sumCap); });
     restant = D - surCap;
   }
-  // Étape 2 — solde au prorata des ventes
+  // Étape 2 — au prorata du DÉFICIT DE MARGE de chaque habitation (2026-07-31) :
+  // la hausse va là où la marge manque réellement, pas sur les logements déjà
+  // au-dessus de leur cible. Sans cette étape, un dossier dont toutes les primes
+  // sont déjà dépassées repartait en hausse uniforme, y compris sur les habitations
+  // qui n'en avaient pas besoin.
+  if(restant > 0){
+    const sumDef = vivants.reduce((s,p)=>s+p.deficitMarge, 0);
+    if(sumDef > 0){
+      const surDef = Math.min(restant, sumDef);
+      vivants.forEach(p=>{ p.hausse += surDef * (p.deficitMarge / sumDef); });
+      restant -= surDef;
+    }
+  }
+  // Étape 3 — solde au prorata des ventes (neutre)
   if(restant > 0) vivants.forEach(p=>{ p.hausse += restant * (p.venteCat / sumV); });
   // Plafond par habitation (+capMax) : une passe de redistribution vers les non plafonnées
   for(let pass = 0; pass < 2; pass++){
@@ -1957,6 +1977,9 @@ function calcAjustementVersMarge(margeCible, opts){
     if(venteCat <= 0) return;
     parts.push({ key: ovKey(vt), label: vt.label, venteCat,
                  prime: num(res.prime), capacite: Math.max(0, num(res.prime) - num(res.venteTravaux)),
+                 // Ce qui manque à CETTE habitation pour atteindre sa part du seuil projet
+                 // (cf. seuilProrata). Négatif = déjà au-dessus de sa cible -> poids nul.
+                 deficitMarge: Math.max(0, num(res.seuil) - num(res.marge)),
                  cats: cats.map(l=>({ cat: l.cat, vente: num(l.vente), surf: num(l.surf) })) });
   });
   const venteAjustable = round2(parts.reduce((s,p)=> s + p.venteCat, 0));
@@ -2176,7 +2199,7 @@ function goFixHtml(){
     + '<span style="flex:1"></span>'
     + (dur
         ? '<small style="color:#9c0006;max-width:280px">Au-delà de +' + (GO_FIX_HAUSSE_MAX*100) + ' %, l\'ajustement est bloqué : à ce niveau ce n\'est plus un arrondi commercial, c\'est un autre projet.</small>'
-        : '<button class="btn success small" id="goFixApply" title="Ventile la hausse habitation par habitation, pondérée par la prime CEE disponible de chaque logement. Les prix ventilés apparaissent en rosé — le barème des Paramètres n\'est pas touché.">⚖️ Ajuster les prix pour atteindre le GO</button>')
+        : '<button class="btn success small" id="goFixApply" title="Ventile la hausse habitation par habitation : prime CEE encore disponible d\'abord, puis le manque de marge de chaque logement. Les prix ventilés apparaissent en rosé — le barème des Paramètres n\'est pas touché. Détail de la méthode dans le guide.">⚖️ Ajuster les prix pour atteindre le GO</button>')
     + (actif ? ' <button class="btn small ghost" id="goFixUndo">↺ Prix d\'origine</button>' : '')
     + '</div>';
 }
@@ -4826,12 +4849,13 @@ function renderStep4(){
     const zone = $('#scanIAResult');
     if(zone){
       const pctFr = k => (k*100).toFixed(1).replace('.', ',');
-      const lignes = (avant.parts||[]).filter(p=>p.hausse).map(p=>
-        '<li><strong>' + esc(p.label) + '</strong> : +' + eur(p.hausse) + ' (+' + pctFr(p.k) + ' %)'
-        + ' <small>— capacité prime ' + eur(p.capacite) + (p.plafond ? ' · plafonnée à +' + (GO_FIX_HAUSSE_MAX*100) + ' %' : '') + '</small></li>').join('');
+      const lignes = (avant.parts||[]).map(p=>
+        '<li><strong>' + esc(p.label) + '</strong> : ' + (p.hausse ? '+' + eur(p.hausse) + ' (+' + pctFr(p.k) + ' %)' : '<em>inchangée</em>')
+        + ' <small>— prime disponible ' + eur(p.capacite) + ' · manque à sa cible ' + eur(p.deficitMarge)
+        + (p.plafond ? ' · plafonnée à +' + (GO_FIX_HAUSSE_MAX*100) + ' %' : '') + '</small></li>').join('');
       zone.innerHTML = '<div class="alert ' + (apres.dejaGo?'ok':'warn') + '">'
         + (apres.dejaGo ? '✅ <strong>Seuil de marge atteint.</strong> ' : '⚠️ <strong>Ventilation plafonnée</strong> — il manque encore ' + eur(apres.deficit) + '. ')
-        + 'Hausse <strong>ventilée par habitation</strong>, pondérée par la prime CEE disponible de chaque logement :'
+        + 'Hausse <strong>ventilée par habitation</strong> : prime CEE disponible d\'abord, puis le manque de marge de chaque logement :'
         + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
         + '<small>Les prix ventilés apparaissent en rosé dans les tableaux ci-dessus — propres à chaque habitation, le barème des Paramètres n\'est jamais touché. « ↺ Prix d\'origine » les annule.</small></div>';
     }
