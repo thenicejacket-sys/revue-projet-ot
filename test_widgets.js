@@ -55,7 +55,7 @@ t('nombre avec 0 décimale → « 12 »', clean(wgFmt({ format: 'num', dec: 0 },
 
 // ── Widget « Taux de marge » d'usine : marge / vente × 100 ──
 const tm = WIDGETS_USINE.find(w => w.niveau === 'hab' && w.id === 'tauxMarge');
-t('widget Taux de marge présent, masqué par défaut', !!tm && tm.visible === false && tm.format === 'pct');
+t('widget Taux de marge présent, visible, au format %', !!tm && tm.visible === true && tm.format === 'pct');
 t('Taux de marge : 730/2000 → 36,5 %', Math.abs(evalStr(tm.formule, { margeCommerciale: 730, prixVenteHT: 2000 }) - 36.5) < 1e-9);
 t('Taux de marge : vente 0 → null (« — »)', evalStr(tm.formule, { margeCommerciale: 730, prixVenteHT: 0 }) === null);
 
@@ -82,8 +82,18 @@ t('auto-référence = grandeur moteur (pas un cycle)', wfValidate('chargesTravau
 state.widgetConfig = null; wcInit();
 t('usine : 12 widgets Habitations', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 12);
 t('usine : 12 widgets Projet', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 12);
-t('usine : 5 visibles Habitations (comme aujourd’hui)', WIDGETS_USINE.filter(w => w.niveau === 'hab' && w.visible).length === 5);
-t('usine : 7 visibles Projet (comme aujourd’hui)', WIDGETS_USINE.filter(w => w.niveau === 'proj' && w.visible).length === 7);
+t('usine : 6 visibles Habitations (5 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'hab' && w.visible).length === 6);
+t('usine : 8 visibles Projet (7 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'proj' && w.visible).length === 8);
+// Taux de marge placé juste après la Marge Commerciale, avant la Décision
+t('Taux de marge après Marge Commerciale (hab)', wcUsine('hab','tauxMarge').ordre > wcUsine('hab','margeCommerciale').ordre && wcUsine('hab','tauxMarge').ordre < wcUsine('hab','decision').ordre);
+t('Taux de marge après Marge Commerciale (proj)', wcUsine('proj','tauxMarge').ordre > wcUsine('proj','margeCommerciale').ordre && wcUsine('proj','tauxMarge').ordre < wcUsine('proj','decision').ordre);
+// Réciprocité montant ⇄ pourcentage : t = marge/vente×100 et marge = coût×t/(100−t)
+const cibleDepuisTaux = (cout, t) => Math.round(cout * t / (100 - t) * 100) / 100;
+const margeVoulue = cibleDepuisTaux(15000, 25);
+t('taux 25 % sur coût 15 000 € → marge 5 000 €', margeVoulue === 5000, margeVoulue);
+t('… et 5 000 / (15 000 + 5 000) redonne bien 25 %', Math.abs(margeVoulue / (15000 + margeVoulue) * 100 - 25) < 1e-9);
+t('clé d’override du Taux de marge = w_tauxMarge', wgOvField(wcUsine('hab','tauxMarge')) === 'w_tauxMarge');
+t('clé d’override d’un natif adossé au moteur inchangée', wgOvField(wcUsine('hab','margeCommerciale')) === 'marge');
 t('aucune formule modifiée en config usine', ['hab', 'proj'].every(n => wcList(n, true).every(d => !wcIsFmod(d))));
 
 // Jeu de valeurs moteur COHÉRENT (mêmes définitions que calcVT) :

@@ -873,7 +873,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2081,13 +2081,29 @@ function appliquerAjustementGo(a0){
      prime CEE (même moteur que l'ajustement GO), bidirectionnelle.
    La marge devient alors RÉELLE (prix rosés) : pas d'override stocké, le bouclier
    et le GO/NO-GO travaillent sur des vrais prix. Borné à ±30 % (alerte si atteint). */
+/* TAUX DE MARGE FORCÉ (widget %, demande Aymeric 2026-07-31) — réciproque du montant :
+   fixer un taux t revient à viser une marge en euros. Le coût de revient ne dépend pas
+   du prix de vente, donc marge = t/100 × vente et vente = coût + marge
+   ⇒ marge = coût × t / (100 − t). On délègue ensuite à appliquerMargeWidget :
+   habitation → ventilation sur ses catégories ; projet → ventilation sur les
+   habitations pondérée par la prime CEE. Bouger le montant met à jour le taux et
+   inversement : les deux widgets lisent le même calcul. */
+function appliquerTauxMargeWidget(scope, key, taux){
+  const t = num(taux);
+  if(t >= 100){ alert('Le taux de marge doit rester sous 100 % du prix de vente (100 % = prix infini).'); return; }
+  const g = calcGlobal();
+  let cout;
+  if(scope === 'g') cout = num(g.tot.coutRevient);
+  else { const b = g.blocks.find(x=> ovKey(x.vt) === key); if(!b) return; cout = num(b.res.coutRevient); }
+  appliquerMargeWidget(scope, key, round2(cout * t / (100 - t)));
+}
 function appliquerMargeWidget(scope, key, cible){
   const g = calcGlobal();
   if(scope === 'g'){
     const a = calcAjustementVersMarge(num(cible), { bidirectionnel: true });
     if(a.aucunPoste){ applyOv('g', '', 'marge', num(cible)); return; }   // rien à ventiler : simple valeur forcée
     appliquerVentilation(a, { exact: true });
-    if(state.overrides && state.overrides.global) delete state.overrides.global.marge;
+    if(state.overrides && state.overrides.global){ delete state.overrides.global.marge; delete state.overrides.global.w_tauxMarge; }
     if(Math.abs(a.residuel) > 1) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % par habitation : il reste ' + eur(a.residuel) + ' d\'écart avec la marge demandée.');
   } else {
     const b = g.blocks.find(x=> ovKey(x.vt) === key);
@@ -2100,7 +2116,7 @@ function appliquerMargeWidget(scope, key, cible){
     if(!state.prixVentil) state.prixVentil = {};
     state.prixVentil[key] = state.prixVentil[key] || {};
     cats.forEach(l=>{ state.prixVentil[key][l.cat] = round2(num(l.vente) * (1 + k)); });
-    if(state.overrides && state.overrides.vt && state.overrides.vt[key]) delete state.overrides.vt[key].marge;
+    if(state.overrides && state.overrides.vt && state.overrides.vt[key]){ delete state.overrides.vt[key].marge; delete state.overrides.vt[key].w_tauxMarge; }
     if(Math.abs(deficit / venteCat) > GO_FIX_HAUSSE_MAX) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % : la marge demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
   }
   saveLS();
@@ -3741,8 +3757,8 @@ const WIDGETS_USINE = [
     desc:'Somme de tous les coûts : travaux + audit + VT ITE + régie' },
   // Taux de marge en % du prix de vente (taux de marque) — le pendant en pourcentage de
   // la Marge Commerciale. Masqué par défaut : à activer dans Paramètres → 🧩 Widgets.
-  { id:'tauxMarge',       niveau:'hab', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:120, visible:false,
-    desc:'Marge Commerciale en % du prix de vente HT (taux de marque)' },
+  { id:'tauxMarge',       niveau:'hab', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:45, visible:true,
+    desc:'Marge Commerciale en % du prix de vente HT (taux de marque) — éditable : forcer le taux ventile les prix de vente' },
   // ── Niveau PROJET (Total projet / immeuble) — les 7 visibles actuels, dans l'ordre actuel ──
   { id:'coutRevient',     niveau:'proj', label:'Coût de revient total', formule:'chargesTravaux + auditVT + fraisVtIte + regieCommerciale', champ:'coutRevient', format:'eur', dec:2, ordre:10, visible:true,
     desc:'Somme sur toutes les VT : charges travaux + Audit VT + frais VT ITE + régie' },
@@ -3766,8 +3782,8 @@ const WIDGETS_USINE = [
     desc:'Total des frais de VT ITE' },
   { id:'regieCommerciale',niveau:'proj', label:'Régie commerciale',formule:'regieCommerciale', champ:'regie', format:'eur', dec:2, ordre:110, visible:false,
     desc:'Total de la régie commerciale' },
-  { id:'tauxMarge',       niveau:'proj', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:120, visible:false,
-    desc:'Marge Commerciale globale en % du prix de vente HT (taux de marque)' },
+  { id:'tauxMarge',       niveau:'proj', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:65, visible:true,
+    desc:'Marge Commerciale globale en % du prix de vente HT — éditable : forcer le taux ventile les prix sur les habitations' },
 ];
 // Catalogue des VARIABLES utilisables dans une formule — les grandeurs RÉELLES du moteur.
 // fam : famille affichée dans la palette. Chaque variable : libellé métier, unité, infobulle.
@@ -4010,7 +4026,9 @@ function wgValue(niveau, def, ctx, cache, stack){
   cache[def.id] = v;
   return v;
 }
-function wgOvField(def){ return def.custom ? ('w_'+def.id) : def.champ; }
+// Clé d'override d'un widget : le champ moteur pour les natifs adossés à une grandeur
+// (compat archives), « w_<id> » pour les personnalisés ET les natifs dérivés (Taux de marge).
+function wgOvField(def){ return (def.champ && !def.custom) ? def.champ : ('w_' + def.id); }
 // Décision : suit la valeur CONFIGURÉE de la Marge Commerciale (si sa formule a été
 // modifiée, la décision suit — choix assumé, signalé par le bouclier). Override decision gagne.
 function wgDecision(niveau, ctx, cache){
@@ -4472,6 +4490,7 @@ function openKpiEditor(kpi){
   // gardent l'override classique (✎/↺).
   const commit = v => {
     if(field === 'marge' && v !== null && v !== '') appliquerMargeWidget(scope, key, num(v));
+    else if(field === 'w_tauxMarge' && v !== null && v !== '') appliquerTauxMargeWidget(scope, key, num(v));
     else applyOv(scope, key, field, v);
     renderStep4();
   };
@@ -4575,7 +4594,7 @@ function renderProjetChart(blocks, tot){
   const step = niceStep((vMax - vMin) / 4);
   vMax = Math.ceil(vMax/step)*step; vMin = Math.floor(vMin/step)*step;
   const fmtAxe = v => Math.abs(vMax - vMin) >= 20000 ? (Math.round(v/1000)).toLocaleString('fr-FR')+' k€' : Math.round(v).toLocaleString('fr-FR')+' €';
-  const T = 64, B = 30, L = 74, R = 14, plotH = 240;
+  const B = 30, L = 74, R = 14, plotH = 240;
   const barW = 20, barGap = 3, groupGap = 34;
   // Les COURBES ne réservent pas de largeur de barre : le groupe se dimensionne
   // sur les seules séries en barres (au moins un emplacement pour la géométrie).
@@ -4584,22 +4603,43 @@ function renderProjetChart(blocks, tot){
   SERIES.forEach((s, si)=>{ barIdx[si] = (s.type === 'ligne') ? -1 : nBars++; });
   const nSlots = Math.max(1, nBars);
   const groupW = nSlots*barW + (nSlots-1)*barGap;
-  const W = L + R + groups.length*groupW + (groups.length-1)*groupGap;
+  const plotW = groups.length*groupW + (groups.length-1)*groupGap;
+  /* LÉGENDE : mesurée puis REPLIÉE sur plusieurs lignes. Avant, elle tenait sur une
+     seule ligne calée sur la largeur des barres : au-delà de 4 séries, la dernière
+     sortait du cadre (invisible à l'écran ET dans le PNG). Désormais la largeur du
+     SVG tient compte de la plus longue entrée, et la hauteur du bandeau suit le
+     nombre de lignes. */
+  const LEG_H = 18;
+  const legItems = SERIES.map(s=> ({ s, w: 15 + String(s.label).length*6.4 + 20 }));
+  const availW = Math.max(plotW, ...legItems.map(i=>i.w));
+  const W = L + R + availW;
+  const legLines = [];
+  let curLine = [], curW = 0;
+  legItems.forEach(it=>{
+    if(curLine.length && curW + it.w > availW){ legLines.push(curLine); curLine = []; curW = 0; }
+    curLine.push(it); curW += it.w;
+  });
+  if(curLine.length) legLines.push(curLine);
+  const T = 34 + legLines.length*LEG_H + 12;
   const H = T + plotH + B;
   const y = v => T + (vMax - v)/(vMax - vMin)*plotH;
   const parts = [];
   // Titre (nom du dossier) + légende — DANS le SVG : le PNG téléchargé est autoporteur.
   parts.push(`<text x="${L}" y="20" font-size="15" font-weight="700" fill="#1B3F8B" font-family="Montserrat,Arial,sans-serif">${esc(state.nomDossier||'Projet')} — synthèse par habitation</text>`);
-  let lx = L;
-  SERIES.forEach(s=>{
-    if(s.type === 'ligne'){
-      parts.push(`<line x1="${lx}" y1="39.5" x2="${lx+12}" y2="39.5" stroke="${s.color}" stroke-width="${Math.min(4, s.epaisseur)}" stroke-linecap="round"/>`);
-      parts.push(`<circle cx="${lx+6}" cy="39.5" r="3" fill="${s.color}" stroke="#fff" stroke-width="1.5"/>`);
-    } else {
-      parts.push(`<rect x="${lx}" y="34" width="11" height="11" rx="2" fill="${s.color}"/>`);
-    }
-    parts.push(`<text x="${lx+15}" y="44" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${esc(s.label)}</text>`);
-    lx += 15 + s.label.length*6.2 + 18;
+  legLines.forEach((line, li)=>{
+    const yTop = 34 + li*LEG_H, yTxt = yTop + 10, yMid = yTop + 5.5;
+    let lx = L;
+    line.forEach(it=>{
+      const s = it.s;
+      if(s.type === 'ligne'){
+        parts.push(`<line x1="${lx}" y1="${yMid}" x2="${lx+12}" y2="${yMid}" stroke="${s.color}" stroke-width="${Math.min(4, s.epaisseur)}" stroke-linecap="round"/>`);
+        parts.push(`<circle cx="${lx+6}" cy="${yMid}" r="3" fill="${s.color}" stroke="#fff" stroke-width="1.5"/>`);
+      } else {
+        parts.push(`<rect x="${lx}" y="${yTop}" width="11" height="11" rx="2" fill="${s.color}"/>`);
+      }
+      parts.push(`<text x="${lx+15}" y="${yTxt}" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${esc(s.label)}</text>`);
+      lx += it.w;
+    });
   });
   // Grille récessive + axe des € (encre discrète, jamais la couleur des séries)
   for(let v = vMin; v <= vMax + 0.001; v += step){
