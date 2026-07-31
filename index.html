@@ -873,7 +873,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -4322,6 +4322,7 @@ function openWcEditor(niveau, id){
 }
 
 /* ── UI Paramètres → 📊 Histogramme : séries pilotées par les widgets ── */
+let _ccPickOpen = null;   // série dont le sélecteur de couleur est déplié
 function renderChartCfg(){
   const wrap = $('#chartCfg'); if(!wrap) return;
   ccInit(); wcInit();
@@ -4335,11 +4336,20 @@ function renderChartCfg(){
         <button class="btn small ghost" data-ccup="${s.id}" title="Monter" ${i===0?'disabled':''}>↑</button>
         <button class="btn small ghost" data-ccdown="${s.id}" title="Descendre" ${i===series.length-1?'disabled':''}>↓</button>
         <button class="btn small ghost" data-cceye="${s.id}" title="${s.visible?'Masquer cette série':'Afficher cette série'}">${s.visible?'👁':'🚫'}</button>
-        <span style="width:14px;height:14px;border-radius:3px;background:${s.color};display:inline-block"></span>
+        <button class="btn small ghost" data-ccpick="${s.id}" title="Changer la couleur de cette série" style="padding:4px 6px"><span style="width:14px;height:14px;border-radius:3px;background:${s.color};display:inline-block"></span></button>
         <span class="wc-name">${esc(defsHab[s.id].label)}${defsHab[s.id].custom?' <span class="pill">perso</span>':''}</span>
+        <select data-cctype="${s.id}" style="width:auto" title="Barres, ou courbe tracée par-dessus (utile pour la Marge Commerciale)">
+          <option value="bar" ${s.type!=='ligne'?'selected':''}>▮ Barres</option>
+          <option value="ligne" ${s.type==='ligne'?'selected':''}>─ Courbe</option>
+        </select>
+        ${s.type==='ligne'?`<label class="flex" style="gap:4px;margin:0" title="Épaisseur du trait (1 à 6 px)"><small>épaisseur</small><input type="number" data-cceps="${s.id}" value="${s.epaisseur||2}" min="1" max="6" step="1" style="width:56px"></label>`:''}
         <span class="spacer" style="flex:1"></span>
         <button class="btn danger small" data-ccdel="${s.id}" title="Retirer de l'histogramme (le widget n'est pas touché)">🗑</button>
-      </div>`).join('')}
+      </div>
+      ${_ccPickOpen===s.id?`<div class="wc-row" style="background:#f6f8fd;gap:4px"><small style="color:var(--text-muted);margin-right:6px">Couleur :</small>${CHART_COLORS.map(c=>{
+        const taken = series.some(x=> x.color===c && x.id!==s.id);
+        return `<button class="btn small ghost" data-ccsetcol="${s.id}|${c}" ${taken?'disabled':''} title="${taken?'Déjà utilisée par une autre série':c}" style="padding:3px"><span style="width:17px;height:17px;border-radius:4px;background:${c};display:inline-block;${taken?'opacity:.25':''}${c===s.color?';outline:2px solid #1B3F8B;outline-offset:1px':''}"></span></button>`;
+      }).join('')}</div>`:''}`).join('')}
     <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
       ${eligible.length ? (freeColor
         ? `<select id="ccAddSel" style="width:auto"><option value="">＋ Ajouter une série depuis un widget…</option>${eligible.map(d=>`<option value="${d.id}">${esc(d.label)}${d.custom?' (perso)':''}</option>`).join('')}</select>`
@@ -4362,6 +4372,22 @@ function renderChartCfg(){
   }));
   wrap.querySelectorAll('[data-ccdel]').forEach(b=> b.addEventListener('click', ()=>{
     state.chartConfig.series = state.chartConfig.series.filter(x=>x.id!==b.dataset.ccdel); commit();
+  }));
+  wrap.querySelectorAll('[data-cctype]').forEach(sel=> sel.addEventListener('change', ()=>{
+    const s = state.chartConfig.series.find(x=>x.id===sel.dataset.cctype); if(s){ s.type = sel.value; commit(); }
+  }));
+  wrap.querySelectorAll('[data-cceps]').forEach(inp=> inp.addEventListener('change', ()=>{
+    const s = state.chartConfig.series.find(x=>x.id===inp.dataset.cceps);
+    if(s){ s.epaisseur = Math.max(1, Math.min(6, Math.round(num(inp.value)) || 2)); commit(); }
+  }));
+  wrap.querySelectorAll('[data-ccpick]').forEach(b=> b.addEventListener('click', ()=>{
+    _ccPickOpen = (_ccPickOpen === b.dataset.ccpick) ? null : b.dataset.ccpick;
+    renderChartCfg();
+  }));
+  wrap.querySelectorAll('[data-ccsetcol]').forEach(b=> b.addEventListener('click', ()=>{
+    const [id, color] = b.dataset.ccsetcol.split('|');
+    const s = state.chartConfig.series.find(x=>x.id===id);
+    if(s){ s.color = color; _ccPickOpen = null; commit(); }
   }));
   const sel = wrap.querySelector('#ccAddSel');
   if(sel) sel.addEventListener('change', ()=>{
@@ -4456,8 +4482,10 @@ const CHART_COLORS = ['#3F56A5','#B8860B','#0891B2','#C1367C','#759542','#7C3AED
 const CHART_DEFAUT = ['prixVenteHT','coutRevient','primeCEE','resteACharge','margeCommerciale'];
 function ccInit(){
   if(!state.chartConfig || !Array.isArray(state.chartConfig.series) || !state.chartConfig.series.length){
-    state.chartConfig = { version:1, series: CHART_DEFAUT.map((id,i)=>({ id, visible:true, color:CHART_COLORS[i] })) };
+    state.chartConfig = { version:1, series: CHART_DEFAUT.map((id,i)=>({ id, visible:true, color:CHART_COLORS[i], type:'bar', epaisseur:2 })) };
   }
+  // Migration : les configs enregistrées avant l'option barres/courbe n'ont ni type ni épaisseur.
+  state.chartConfig.series.forEach(s=>{ if(!s.type) s.type = 'bar'; if(!s.epaisseur) s.epaisseur = 2; });
   return state.chartConfig;
 }
 function ccFreeColor(){ const used = ccInit().series.map(s=>s.color); return CHART_COLORS.find(c=>!used.includes(c)) || null; }
@@ -4473,7 +4501,7 @@ function renderProjetChart(blocks, tot){
   const defsProj = {}; wcList('proj', true).forEach(d=> defsProj[d.id] = d);
   // Séries = config Paramètres → Histogramme, widgets supprimés filtrés sans erreur.
   const SERIES = ccInit().series.filter(s=> s.visible && defsHab[s.id])
-    .map(s=> ({ id:s.id, color:s.color, label: defsHab[s.id].label }));
+    .map(s=> ({ id:s.id, color:s.color, label: defsHab[s.id].label, type:s.type||'bar', epaisseur:s.epaisseur||2 }));
   if(!SERIES.length) return '';
   const ctxProj = { blocks, tot };
   // Valeurs par habitation via le MOTEUR DE WIDGETS : les formules configurées
@@ -4499,7 +4527,13 @@ function renderProjetChart(blocks, tot){
   const fmtAxe = v => Math.abs(vMax - vMin) >= 20000 ? (Math.round(v/1000)).toLocaleString('fr-FR')+' k€' : Math.round(v).toLocaleString('fr-FR')+' €';
   const T = 64, B = 30, L = 74, R = 14, plotH = 240;
   const barW = 20, barGap = 3, groupGap = 34;
-  const groupW = SERIES.length*barW + (SERIES.length-1)*barGap;
+  // Les COURBES ne réservent pas de largeur de barre : le groupe se dimensionne
+  // sur les seules séries en barres (au moins un emplacement pour la géométrie).
+  const barIdx = [];
+  let nBars = 0;
+  SERIES.forEach((s, si)=>{ barIdx[si] = (s.type === 'ligne') ? -1 : nBars++; });
+  const nSlots = Math.max(1, nBars);
+  const groupW = nSlots*barW + (nSlots-1)*barGap;
   const W = L + R + groups.length*groupW + (groups.length-1)*groupGap;
   const H = T + plotH + B;
   const y = v => T + (vMax - v)/(vMax - vMin)*plotH;
@@ -4508,7 +4542,12 @@ function renderProjetChart(blocks, tot){
   parts.push(`<text x="${L}" y="20" font-size="15" font-weight="700" fill="#1B3F8B" font-family="Montserrat,Arial,sans-serif">${esc(state.nomDossier||'Projet')} — synthèse par habitation</text>`);
   let lx = L;
   SERIES.forEach(s=>{
-    parts.push(`<rect x="${lx}" y="34" width="11" height="11" rx="2" fill="${s.color}"/>`);
+    if(s.type === 'ligne'){
+      parts.push(`<line x1="${lx}" y1="39.5" x2="${lx+12}" y2="39.5" stroke="${s.color}" stroke-width="${Math.min(4, s.epaisseur)}" stroke-linecap="round"/>`);
+      parts.push(`<circle cx="${lx+6}" cy="39.5" r="3" fill="${s.color}" stroke="#fff" stroke-width="1.5"/>`);
+    } else {
+      parts.push(`<rect x="${lx}" y="34" width="11" height="11" rx="2" fill="${s.color}"/>`);
+    }
     parts.push(`<text x="${lx+15}" y="44" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${esc(s.label)}</text>`);
     lx += 15 + s.label.length*6.2 + 18;
   });
@@ -4521,7 +4560,8 @@ function renderProjetChart(blocks, tot){
     const gx = L + gi*(groupW + groupGap);
     g.vals.forEach((v, si)=>{
       const s = SERIES[si];
-      const x = gx + si*(barW + barGap);
+      if(barIdx[si] < 0) return;   // série en courbe : tracée après les barres
+      const x = gx + barIdx[si]*(barW + barGap);
       const y0 = y(0), y1 = y(v);
       const top = Math.min(y0, y1), h = Math.max(1, Math.abs(y1 - y0));
       const r = Math.min(3, h/2);
@@ -4533,6 +4573,14 @@ function renderProjetChart(blocks, tot){
     });
     const label = g.label.length > 16 ? g.label.slice(0,15)+'…' : g.label;
     parts.push(`<text x="${gx + groupW/2}" y="${T + plotH + 18}" font-size="11.5" font-weight="${gi===0?'700':'400'}" fill="#41495a" text-anchor="middle" font-family="Arial,sans-serif">${esc(label)}</text>`);
+  });
+  // COURBES par-dessus les barres : une polyline par série « ligne », passant par le
+  // centre de chaque groupe, points marqués (cercle cerclé blanc) avec infobulle.
+  SERIES.forEach((s, si)=>{
+    if(s.type !== 'ligne') return;
+    const pts = groups.map((g, gi)=>({ x: L + gi*(groupW + groupGap) + groupW/2, yv: y(g.vals[si]), g, v: g.vals[si] }));
+    parts.push(`<polyline points="${pts.map(p=>p.x+','+p.yv).join(' ')}" fill="none" stroke="${s.color}" stroke-width="${s.epaisseur}" stroke-linecap="round" stroke-linejoin="round"/>`);
+    pts.forEach(p=> parts.push(`<circle cx="${p.x}" cy="${p.yv}" r="4.5" fill="${s.color}" stroke="#fff" stroke-width="2"><title>${esc(p.g.label)} — ${esc(s.label)} : ${eur(p.v)}${p.g.sums && p.g.sums[si] ? ' (Σ des habitations — pas de widget Projet homonyme)' : ''}</title></circle>`));
   });
   return `<div class="card" id="projChart" style="margin-top:14px">
     <div class="flex" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
