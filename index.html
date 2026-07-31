@@ -798,6 +798,16 @@ main{position:relative;z-index:1}
         </div>
       </details>
 
+      <details class="pset" id="psetChart">
+        <summary>📊 Histogramme</summary>
+        <div class="pset-b">
+          <p class="hint">Choisis les séries de l'histogramme de l'étape 4 et leur ordre.
+            Le catalogue = tes <strong>widgets Habitations</strong> (personnalisés compris) :
+            masque, réordonne, ou ajoute une série depuis un widget. Chaque série garde sa couleur.</p>
+          <div id="chartCfg"></div>
+        </div>
+      </details>
+
       <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
       <div class="guide-box">
         <div class="gb-ico">📖</div>
@@ -863,7 +873,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -903,6 +913,7 @@ const state = {
   general: { pollueur:'' },
   overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
   widgetConfig: null,       // configuration des widgets de l'étape 4 (Paramètres → 🧩 Widgets) — matérialisée par wcInit(), GLOBALE (pas par dossier), versionnée
+  chartConfig: null,        // séries de l'histogramme (Paramètres → 📊 Histogramme) : [{id widget hab, visible, color}] — GLOBALE, matérialisée par ccInit()
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
     // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
     // valeur par défaut (loadLS fait un Object.assign) : aucune migration nécessaire.
@@ -1117,6 +1128,7 @@ function saveLS(){
       chargesTable: state.chargesTable,
       elementsTable: state.elementsTable,
       widgetConfig: state.widgetConfig,
+      chartConfig: state.chartConfig,
       history: state.history
     }, dossier)));
   }catch(e){ console.warn('Persistance impossible', e.message); }
@@ -1129,6 +1141,7 @@ function loadLS(){
     // Config widgets : restaurée telle quelle ; wcInit() (appelé au premier usage) comble
     // les widgets usine absents et migre les anciennes versions. Absente = config usine.
     if(d.widgetConfig) state.widgetConfig = d.widgetConfig;
+    if(d.chartConfig) state.chartConfig = d.chartConfig;
     // Le template de valorisation vient UNIQUEMENT de son stockage dédié (loadValoTemplate).
     // On NE restaure PLUS valoTable/pollueurs depuis ce blob : les anciennes sauvegardes
     // (< 2026-07-16) le contenaient dans un format normalisé à 2 valeurs CEE (Classique /
@@ -1174,7 +1187,7 @@ function showView(id){
   // ne réécrit que si le dossier a réellement changé.
   if(id==='step4'){ renderStep4(); autoArchiveFromStep4(); }
   // Paramètres : re-render du barème pour refléter un prix édité depuis la fiche calcul.
-  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); renderWidgetsCfg(); }
+  if(id==='params'){ renderChargesEditor(); renderElementsBareme(); renderMargeCible(); renderWidgetsCfg(); renderChartCfg(); }
   if(id==='step7') renderStep7();
   if(id==='history') renderHistory();
   applyBackground(id);
@@ -4308,6 +4321,59 @@ function openWcEditor(niveau, id){
   });
 }
 
+/* ── UI Paramètres → 📊 Histogramme : séries pilotées par les widgets ── */
+function renderChartCfg(){
+  const wrap = $('#chartCfg'); if(!wrap) return;
+  ccInit(); wcInit();
+  const defsHab = {}; wcList('hab', true).forEach(d=> defsHab[d.id] = d);
+  const series = state.chartConfig.series.filter(s=> defsHab[s.id]);   // orphelines purgées de l'affichage
+  const eligible = ccEligible();
+  const freeColor = ccFreeColor();
+  wrap.innerHTML = `
+    ${series.map((s,i)=>`
+      <div class="wc-row ${s.visible?'':'off'}">
+        <button class="btn small ghost" data-ccup="${s.id}" title="Monter" ${i===0?'disabled':''}>↑</button>
+        <button class="btn small ghost" data-ccdown="${s.id}" title="Descendre" ${i===series.length-1?'disabled':''}>↓</button>
+        <button class="btn small ghost" data-cceye="${s.id}" title="${s.visible?'Masquer cette série':'Afficher cette série'}">${s.visible?'👁':'🚫'}</button>
+        <span style="width:14px;height:14px;border-radius:3px;background:${s.color};display:inline-block"></span>
+        <span class="wc-name">${esc(defsHab[s.id].label)}${defsHab[s.id].custom?' <span class="pill">perso</span>':''}</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="btn danger small" data-ccdel="${s.id}" title="Retirer de l'histogramme (le widget n'est pas touché)">🗑</button>
+      </div>`).join('')}
+    <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+      ${eligible.length ? (freeColor
+        ? `<select id="ccAddSel" style="width:auto"><option value="">＋ Ajouter une série depuis un widget…</option>${eligible.map(d=>`<option value="${d.id}">${esc(d.label)}${d.custom?' (perso)':''}</option>`).join('')}</select>`
+        : `<small style="color:var(--text-muted)">Maximum ${CHART_COLORS.length} séries (limite de lisibilité de la palette) — retire une série pour en ajouter une autre.</small>`) : ''}
+      <button class="btn small ghost" id="ccReset" title="Revenir aux 5 séries d'origine">⟳ Réinitialiser</button>
+    </div>`;
+  const commit = ()=>{ saveLS(); renderChartCfg(); };
+  const move = (id, delta)=>{
+    const arr = state.chartConfig.series;
+    const i = arr.findIndex(s=>s.id===id);
+    const j = i + delta;
+    if(i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    commit();
+  };
+  wrap.querySelectorAll('[data-ccup]').forEach(b=> b.addEventListener('click', ()=> move(b.dataset.ccup, -1)));
+  wrap.querySelectorAll('[data-ccdown]').forEach(b=> b.addEventListener('click', ()=> move(b.dataset.ccdown, +1)));
+  wrap.querySelectorAll('[data-cceye]').forEach(b=> b.addEventListener('click', ()=>{
+    const s = state.chartConfig.series.find(x=>x.id===b.dataset.cceye); if(s){ s.visible = !s.visible; commit(); }
+  }));
+  wrap.querySelectorAll('[data-ccdel]').forEach(b=> b.addEventListener('click', ()=>{
+    state.chartConfig.series = state.chartConfig.series.filter(x=>x.id!==b.dataset.ccdel); commit();
+  }));
+  const sel = wrap.querySelector('#ccAddSel');
+  if(sel) sel.addEventListener('change', ()=>{
+    if(!sel.value) return;
+    const color = ccFreeColor();
+    if(color){ state.chartConfig.series.push({ id: sel.value, visible: true, color }); commit(); }
+  });
+  wrap.querySelector('#ccReset').addEventListener('click', ()=>{
+    if(confirm('Revenir aux 5 séries d\'origine de l\'histogramme ?')){ state.chartConfig = null; ccInit(); commit(); }
+  });
+}
+
 function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, display, rawVal, cls, formula, edited, locked, fmod}
   const id = o.scope + '|' + encodeURIComponent(o.key||'') + '|' + o.field + '|' + o.type;
   // locked = jamais éditable (ex. Prime CEE : issue du barème, aucune saisie manuelle).
@@ -4381,18 +4447,49 @@ function openPriceEditor(td){
    soit autoporteur. Rendu par renderStep4 → recalculé à CHAQUE modification
    (effet domino garanti par construction). Le graphe LIT calcGlobal, n'écrit rien.
    Palette validée (5 checks daltonisme/contraste) sur les couleurs OT. */
-const CHART_SERIES = [
-  { id:'venteTravaux', label:'Prix de vente HT',  color:'#3F56A5' },
-  { id:'coutRevient',  label:'Coût de revient',   color:'#B8860B' },
-  { id:'prime',        label:'Prime CEE',         color:'#0891B2' },
-  { id:'reste',        label:'Reste à charge',    color:'#C1367C' },
-  { id:'marge',        label:'Marge Commerciale', color:'#759542' },
-];
+/* Les SÉRIES de l'histogramme sont pilotées par Paramètres → 📊 Histogramme :
+   le catalogue = les WIDGETS Habitations (personnalisés compris, Décision exclue —
+   pas un montant). Chaque série garde SA couleur (slot mémorisé par widget, jamais
+   par rang — un masquage ne repeint pas les survivantes). Palette de 8 slots
+   validée (daltonisme + contraste). Défaut = les 5 indicateurs historiques. */
+const CHART_COLORS = ['#3F56A5','#B8860B','#0891B2','#C1367C','#759542','#7C3AED','#A34A2E','#0E8A6D'];
+const CHART_DEFAUT = ['prixVenteHT','coutRevient','primeCEE','resteACharge','margeCommerciale'];
+function ccInit(){
+  if(!state.chartConfig || !Array.isArray(state.chartConfig.series) || !state.chartConfig.series.length){
+    state.chartConfig = { version:1, series: CHART_DEFAUT.map((id,i)=>({ id, visible:true, color:CHART_COLORS[i] })) };
+  }
+  return state.chartConfig;
+}
+function ccFreeColor(){ const used = ccInit().series.map(s=>s.color); return CHART_COLORS.find(c=>!used.includes(c)) || null; }
+function ccEligible(){
+  const inCfg = ccInit().series.map(s=>s.id);
+  return wcList('hab', true).filter(d=> d.special !== 'decision' && !inCfg.includes(d.id));
+}
 function renderProjetChart(blocks, tot){
   const habs = blocks.filter(b=> b.vt.role==='habitation' && !b.res.distributed);
   if(!habs.length) return '';
-  const groups = [{ label:'Total '+(state.cas===3?'immeuble':'projet'), vals:CHART_SERIES.map(s=>num(tot[s.id])) }]
-    .concat(habs.map(b=>({ label:b.vt.label, vals:CHART_SERIES.map(s=>num(b.res[s.id])) })));
+  wcInit();
+  const defsHab = {}; wcList('hab', true).forEach(d=> defsHab[d.id] = d);
+  const defsProj = {}; wcList('proj', true).forEach(d=> defsProj[d.id] = d);
+  // Séries = config Paramètres → Histogramme, widgets supprimés filtrés sans erreur.
+  const SERIES = ccInit().series.filter(s=> s.visible && defsHab[s.id])
+    .map(s=> ({ id:s.id, color:s.color, label: defsHab[s.id].label }));
+  if(!SERIES.length) return '';
+  const ctxProj = { blocks, tot };
+  // Valeurs par habitation via le MOTEUR DE WIDGETS : les formules configurées
+  // (widgets personnalisés compris) se retrouvent telles quelles en barres.
+  const habVals = habs.map(b=>{
+    const cache = {};
+    return { label: b.vt.label, vals: SERIES.map(s=> num(wgValue('hab', defsHab[s.id], {vt:b.vt, res:b.res}, cache)) ) };
+  });
+  // Barre « Total » : widget PROJET homonyme s'il existe, sinon Σ des habitations (signalé).
+  const totInfo = SERIES.map((s, si)=>{
+    const dp = defsProj[s.id];
+    if(dp) return { v: num(wgValue('proj', dp, ctxProj)), sum:false };
+    return { v: round2(habVals.reduce((a,h)=> a + h.vals[si], 0)), sum:true };
+  });
+  const groups = [{ label:'Total '+(state.cas===3?'immeuble':'projet'), vals: totInfo.map(x=>x.v), sums: totInfo.map(x=>x.sum) }]
+    .concat(habVals);
   const allVals = groups.flatMap(g=>g.vals);
   let vMax = Math.max(0, ...allVals), vMin = Math.min(0, ...allVals);
   if(vMax === 0 && vMin === 0) return '';
@@ -4402,7 +4499,7 @@ function renderProjetChart(blocks, tot){
   const fmtAxe = v => Math.abs(vMax - vMin) >= 20000 ? (Math.round(v/1000)).toLocaleString('fr-FR')+' k€' : Math.round(v).toLocaleString('fr-FR')+' €';
   const T = 64, B = 30, L = 74, R = 14, plotH = 240;
   const barW = 20, barGap = 3, groupGap = 34;
-  const groupW = CHART_SERIES.length*barW + (CHART_SERIES.length-1)*barGap;
+  const groupW = SERIES.length*barW + (SERIES.length-1)*barGap;
   const W = L + R + groups.length*groupW + (groups.length-1)*groupGap;
   const H = T + plotH + B;
   const y = v => T + (vMax - v)/(vMax - vMin)*plotH;
@@ -4410,9 +4507,9 @@ function renderProjetChart(blocks, tot){
   // Titre (nom du dossier) + légende — DANS le SVG : le PNG téléchargé est autoporteur.
   parts.push(`<text x="${L}" y="20" font-size="15" font-weight="700" fill="#1B3F8B" font-family="Montserrat,Arial,sans-serif">${esc(state.nomDossier||'Projet')} — synthèse par habitation</text>`);
   let lx = L;
-  CHART_SERIES.forEach(s=>{
+  SERIES.forEach(s=>{
     parts.push(`<rect x="${lx}" y="34" width="11" height="11" rx="2" fill="${s.color}"/>`);
-    parts.push(`<text x="${lx+15}" y="44" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${s.label}</text>`);
+    parts.push(`<text x="${lx+15}" y="44" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${esc(s.label)}</text>`);
     lx += 15 + s.label.length*6.2 + 18;
   });
   // Grille récessive + axe des € (encre discrète, jamais la couleur des séries)
@@ -4423,7 +4520,7 @@ function renderProjetChart(blocks, tot){
   groups.forEach((g, gi)=>{
     const gx = L + gi*(groupW + groupGap);
     g.vals.forEach((v, si)=>{
-      const s = CHART_SERIES[si];
+      const s = SERIES[si];
       const x = gx + si*(barW + barGap);
       const y0 = y(0), y1 = y(v);
       const top = Math.min(y0, y1), h = Math.max(1, Math.abs(y1 - y0));
@@ -4432,7 +4529,7 @@ function renderProjetChart(blocks, tot){
       const d = v >= 0
         ? `M${x},${top+h} V${top+r} Q${x},${top} ${x+r},${top} H${x+barW-r} Q${x+barW},${top} ${x+barW},${top+r} V${top+h} Z`
         : `M${x},${top} V${top+h-r} Q${x},${top+h} ${x+r},${top+h} H${x+barW-r} Q${x+barW},${top+h} ${x+barW},${top+h-r} V${top} Z`;
-      parts.push(`<path d="${d}" fill="${s.color}"><title>${esc(g.label)} — ${s.label} : ${eur(v)}</title></path>`);
+      parts.push(`<path d="${d}" fill="${s.color}"><title>${esc(g.label)} — ${esc(s.label)} : ${eur(v)}${g.sums && g.sums[si] ? ' (Σ des habitations — pas de widget Projet homonyme)' : ''}</title></path>`);
     });
     const label = g.label.length > 16 ? g.label.slice(0,15)+'…' : g.label;
     parts.push(`<text x="${gx + groupW/2}" y="${T + plotH + 18}" font-size="11.5" font-weight="${gi===0?'700':'400'}" fill="#41495a" text-anchor="middle" font-family="Arial,sans-serif">${esc(label)}</text>`);
