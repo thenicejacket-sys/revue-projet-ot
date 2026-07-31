@@ -580,7 +580,7 @@ main{position:relative;z-index:1}
       <h2>⚙️ Paramètres</h2>
 
       <details class="pset">
-        <summary>🤖 Modèle IA (OpenRouter)</summary>
+        <summary>🤖 Modèle IA</summary>
         <div class="pset-b">
       <div class="alert warn">
         🔒 <strong>Sécurité :</strong> la clé OpenRouter est stockée <strong>en clair</strong> dans le <code>localStorage</code> de ce navigateur.
@@ -613,7 +613,7 @@ main{position:relative;z-index:1}
       </details>
 
       <details class="pset">
-        <summary>📄 Template de valorisation (.xlsx)</summary>
+        <summary>📄 Template de valorisation</summary>
         <div class="pset-b">
       <p class="hint">Charge le fichier VALORISATION_TEMPLATE, vérifie l'aperçu, puis « Enregistrer le template » pour qu'il soit gardé en mémoire et repris à la prochaine ouverture. « Supprimer » l'efface définitivement.</p>
       <div class="row">
@@ -633,7 +633,7 @@ main{position:relative;z-index:1}
       </details>
 
       <details class="pset">
-        <summary>💶 Barème de prix (achat / vente HT, €/m²)</summary>
+        <summary>💶 Barème de prix au m²</summary>
         <div class="pset-b">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <button class="btn small ghost" id="alignVenteAchat" style="padding:3px 10px">⇄ <span id="alignLabel">Vente = Achat</span></button>
@@ -647,7 +647,7 @@ main{position:relative;z-index:1}
       </details>
 
       <details class="pset">
-        <summary>🧩 Barème des éléments (achat / vente HT, € / pièce)</summary>
+        <summary>🧩 Barème des éléments à la pièce</summary>
         <div class="pset-b">
       <p class="hint">Éléments additionnels ajoutés par habitation (onglet Valorisation) : radiateur, VMC, ballon, PAC… Un élément utilisé <strong>sans prix d'achat ou de vente</strong> bloque le calcul. « ＋ » ajoute une ligne personnalisée ; « Enregistrer » garde tout en mémoire.</p>
       <table id="elementsTableUI"><thead><tr><th>Élément</th><th class="num">Px achat HT</th><th class="num">Prix vente HT</th><th></th></tr></thead>
@@ -713,7 +713,7 @@ main{position:relative;z-index:1}
       </details>
 
       <details class="pset">
-        <summary>🏢 Informations société (devis &amp; factures)</summary>
+        <summary>🏢 Informations société</summary>
         <div class="pset-b">
       <!-- Ici, UNIQUEMENT l'identité de l'émetteur : le « papier à en-tête ». Elle est
            identique sur tous les devis. Tout ce qui varie d'un dossier à l'autre
@@ -846,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.9';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.10';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
