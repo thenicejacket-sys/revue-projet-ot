@@ -863,7 +863,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-07-31.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -4374,6 +4374,81 @@ function openPriceEditor(td){
   inp.addEventListener('blur', ()=> finish(true));
 }
 
+/* ── HISTOGRAMME PROJET / HABITATIONS (sous le Total, étape 4) ─────────────────
+   Barres groupées : Total projet + chaque habitation incluse, 5 indicateurs €.
+   SVG inline natif (zéro dépendance) : infobulle navigateur sur chaque barre
+   (<title>), légende et nom du dossier DANS le SVG pour que le PNG téléchargé
+   soit autoporteur. Rendu par renderStep4 → recalculé à CHAQUE modification
+   (effet domino garanti par construction). Le graphe LIT calcGlobal, n'écrit rien.
+   Palette validée (5 checks daltonisme/contraste) sur les couleurs OT. */
+const CHART_SERIES = [
+  { id:'venteTravaux', label:'Prix de vente HT',  color:'#3F56A5' },
+  { id:'coutRevient',  label:'Coût de revient',   color:'#B8860B' },
+  { id:'prime',        label:'Prime CEE',         color:'#0891B2' },
+  { id:'reste',        label:'Reste à charge',    color:'#C1367C' },
+  { id:'marge',        label:'Marge Commerciale', color:'#759542' },
+];
+function renderProjetChart(blocks, tot){
+  const habs = blocks.filter(b=> b.vt.role==='habitation' && !b.res.distributed);
+  if(!habs.length) return '';
+  const groups = [{ label:'Total '+(state.cas===3?'immeuble':'projet'), vals:CHART_SERIES.map(s=>num(tot[s.id])) }]
+    .concat(habs.map(b=>({ label:b.vt.label, vals:CHART_SERIES.map(s=>num(b.res[s.id])) })));
+  const allVals = groups.flatMap(g=>g.vals);
+  let vMax = Math.max(0, ...allVals), vMin = Math.min(0, ...allVals);
+  if(vMax === 0 && vMin === 0) return '';
+  const niceStep = x => { const p = Math.pow(10, Math.floor(Math.log10(x||1))); const n = x/p; return (n<=1?1:n<=2?2:n<=5?5:10)*p; };
+  const step = niceStep((vMax - vMin) / 4);
+  vMax = Math.ceil(vMax/step)*step; vMin = Math.floor(vMin/step)*step;
+  const fmtAxe = v => Math.abs(vMax - vMin) >= 20000 ? (Math.round(v/1000)).toLocaleString('fr-FR')+' k€' : Math.round(v).toLocaleString('fr-FR')+' €';
+  const T = 64, B = 30, L = 74, R = 14, plotH = 240;
+  const barW = 20, barGap = 3, groupGap = 34;
+  const groupW = CHART_SERIES.length*barW + (CHART_SERIES.length-1)*barGap;
+  const W = L + R + groups.length*groupW + (groups.length-1)*groupGap;
+  const H = T + plotH + B;
+  const y = v => T + (vMax - v)/(vMax - vMin)*plotH;
+  const parts = [];
+  // Titre (nom du dossier) + légende — DANS le SVG : le PNG téléchargé est autoporteur.
+  parts.push(`<text x="${L}" y="20" font-size="15" font-weight="700" fill="#1B3F8B" font-family="Montserrat,Arial,sans-serif">${esc(state.nomDossier||'Projet')} — synthèse par habitation</text>`);
+  let lx = L;
+  CHART_SERIES.forEach(s=>{
+    parts.push(`<rect x="${lx}" y="34" width="11" height="11" rx="2" fill="${s.color}"/>`);
+    parts.push(`<text x="${lx+15}" y="44" font-size="11" fill="#41495a" font-family="Arial,sans-serif">${s.label}</text>`);
+    lx += 15 + s.label.length*6.2 + 18;
+  });
+  // Grille récessive + axe des € (encre discrète, jamais la couleur des séries)
+  for(let v = vMin; v <= vMax + 0.001; v += step){
+    parts.push(`<line x1="${L-4}" y1="${y(v)}" x2="${W-R}" y2="${y(v)}" stroke="${v===0?'#9aa3b5':'#e4e9f4'}" stroke-width="1"/>`);
+    parts.push(`<text x="${L-8}" y="${y(v)+4}" font-size="10.5" fill="#6b7280" text-anchor="end" font-family="Arial,sans-serif">${fmtAxe(v)}</text>`);
+  }
+  groups.forEach((g, gi)=>{
+    const gx = L + gi*(groupW + groupGap);
+    g.vals.forEach((v, si)=>{
+      const s = CHART_SERIES[si];
+      const x = gx + si*(barW + barGap);
+      const y0 = y(0), y1 = y(v);
+      const top = Math.min(y0, y1), h = Math.max(1, Math.abs(y1 - y0));
+      const r = Math.min(3, h/2);
+      // Coins arrondis côté « bout » de la barre (haut si positif, bas si négatif)
+      const d = v >= 0
+        ? `M${x},${top+h} V${top+r} Q${x},${top} ${x+r},${top} H${x+barW-r} Q${x+barW},${top} ${x+barW},${top+r} V${top+h} Z`
+        : `M${x},${top} V${top+h-r} Q${x},${top+h} ${x+r},${top+h} H${x+barW-r} Q${x+barW},${top+h} ${x+barW},${top+h-r} V${top} Z`;
+      parts.push(`<path d="${d}" fill="${s.color}"><title>${esc(g.label)} — ${s.label} : ${eur(v)}</title></path>`);
+    });
+    const label = g.label.length > 16 ? g.label.slice(0,15)+'…' : g.label;
+    parts.push(`<text x="${gx + groupW/2}" y="${T + plotH + 18}" font-size="11.5" font-weight="${gi===0?'700':'400'}" fill="#41495a" text-anchor="middle" font-family="Arial,sans-serif">${esc(label)}</text>`);
+  });
+  return `<div class="card" id="projChart" style="margin-top:14px">
+    <div class="flex" style="justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">📊 Histogramme projet / habitations</h3>
+      <button class="btn small" id="chartDl" title="Télécharge l'histogramme en image PNG, nommée avec le nom du dossier">⬇️ Télécharger l'image</button>
+    </div>
+    <small style="color:var(--text-muted)">Survole une barre pour la valeur exacte. Se met à jour à chaque modification (prix, sélections, exclusions, paramètres…).</small>
+    <div style="overflow-x:auto;margin-top:6px">
+      <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;background:#fff">${parts.join('')}</svg>
+    </div>
+  </div>`;
+}
+
 function renderStep4(){
   saveLS();   // persiste le dossier (dont corrections de widgets) à chaque interaction
   const area = $('#calcArea');
@@ -4476,7 +4551,35 @@ function renderStep4(){
     </tbody></table>
   </div>`;
 
+  // Histogramme projet / habitations — sous le Total, recalculé à chaque rendu.
+  html += renderProjetChart(blocks, tot);
+
   area.innerHTML = html;
+
+  // Téléchargement de l'histogramme : SVG → canvas (×2 pour la netteté) → PNG
+  // nommé avec le nom du dossier.
+  const btnChart = area.querySelector('#chartDl');
+  if(btnChart) btnChart.addEventListener('click', ()=>{
+    const svg = area.querySelector('#projChart svg'); if(!svg) return;
+    const xml = new XMLSerializer().serializeToString(svg);
+    const img = new Image();
+    img.onload = ()=>{
+      const c = document.createElement('canvas');
+      const scale = 2;
+      c.width = svg.viewBox.baseVal.width * scale; c.height = svg.viewBox.baseVal.height * scale;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b=>{
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = 'graphique-' + (state.nomDossier || 'projet').replace(/[^\wà-ÿ -]+/gi, '').trim().replace(/\s+/g, '-') + '.png';
+        a.click();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+      }, 'image/png');
+    };
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml);
+  });
 
   // Ajustement automatique vers le GO
   const btnFix = area.querySelector('#goFixApply');
