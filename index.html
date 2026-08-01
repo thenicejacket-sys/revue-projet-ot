@@ -846,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -3827,42 +3827,40 @@ const WIDGETS_USINE = [
 // Catalogue des VARIABLES utilisables dans une formule — les grandeurs RÉELLES du moteur.
 // fam : famille affichée dans la palette. Chaque variable : libellé métier, unité, infobulle.
 const WIDGET_VARS = [
-  // 💶 ARGENT — les 10 montants du calcul. Ce sont les mêmes noms à l'habitation et
-  // au projet : au projet ils valent la somme du dossier.
-  { id:'chargesTravaux',   fam:'💶 Argent', label:'Charges travaux',   unit:'€', tip:'Coût d’achat des travaux (lignes cochées × prix d’achat)' },
-  { id:'prixVenteHT',      fam:'💶 Argent', label:'Prix de vente HT',  unit:'€', tip:'Lignes cochées × prix de vente du barème' },
-  { id:'auditVT',          fam:'💶 Argent', label:'Audit VT',          unit:'€', tip:'Nombre d’audits × montant Audit VT' },
-  { id:'fraisVtIte',       fam:'💶 Argent', label:'Frais VT ITE',      unit:'€', tip:'Frais de VT ITE (montant fixe, ou part répartie)' },
-  { id:'regieCommerciale', fam:'💶 Argent', label:'Régie commerciale', unit:'€', tip:'Charges travaux × % de régie' },
-  { id:'coutRevient',      fam:'💶 Argent', label:'Coût de revient',   unit:'€', tip:'Charges + audit + VT ITE + régie' },
-  { id:'primeCEE',         fam:'💶 Argent', label:'Prime CEE',         unit:'€', tip:'Prime issue du barème de valorisation' },
-  { id:'margeBrute',       fam:'💶 Argent', label:'Marge Brute',       unit:'€', tip:'Prime CEE − tous les coûts d’achat' },
-  { id:'resteACharge',     fam:'💶 Argent', label:'Reste à charge',    unit:'€', tip:'Prix de vente HT − Prime CEE : ce que paie le client' },
-  { id:'margeCommerciale', fam:'💶 Argent', label:'Marge Commerciale', unit:'€', tip:'Prix de vente HT − coût de revient' },
-  // 📐 SURFACES & QUANTITÉS — de quoi construire un ratio (€/m², prime par audit…).
-  { id:'surfaceIsolee',fam:'📐 Surfaces & quantités', label:'Surface isolée totale', unit:'m²', tip:'Somme des surfaces cochées des 5 catégories — évite de les additionner à la main' },
-  { id:'surfIte',      fam:'📐 Surfaces & quantités', label:'Surface ITE',      unit:'m²', tip:'Surface nette cochée en ITE' },
-  { id:'surfIti',      fam:'📐 Surfaces & quantités', label:'Surface ITI',      unit:'m²', tip:'Surface nette cochée en ITI' },
-  { id:'surfCombles',  fam:'📐 Surfaces & quantités', label:'Surface Combles',  unit:'m²', tip:'Surface nette cochée en Combles' },
-  { id:'surfPlancher', fam:'📐 Surfaces & quantités', label:'Surface Plancher', unit:'m²', tip:'Surface nette cochée en Plancher bas' },
-  { id:'surfFenetres', fam:'📐 Surfaces & quantités', label:'Surface Fenêtres', unit:'m²', tip:'Surface nette cochée en Menuiseries' },
-  { id:'shab',         fam:'📐 Surfaces & quantités', label:'Surface habitable', unit:'m²', tip:'Shab — à l’habitation la sienne, au projet la somme des habitations incluses. Sert aux ratios : prime au m², coût au m²' },
-  { id:'nbAudits',     fam:'📐 Surfaces & quantités', label:'Nombre d’audits',  unit:'',   tip:'À l’habitation le sien, au projet le total du dossier' },
-  { id:'nbHabitations',fam:'📐 Surfaces & quantités', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le calcul (les exclues ne comptent pas)', proj:true },
-  { id:'sautsClasse',  fam:'📐 Surfaces & quantités', label:'Sauts de classe',  unit:'',   tip:'Sauts de classe énergétique de cette habitation (étape Valorisation)', hab:true },
-  // ⚙️ PARAMÈTRES — les réglages de l'onglet Paramètres, identiques partout.
-  { id:'montantAuditVT', fam:'⚙️ Paramètres', label:'Montant Audit VT',  unit:'€', tip:'Paramètres → montant d’un audit VT' },
-  { id:'montantVtIte',   fam:'⚙️ Paramètres', label:'Montant VT ITE',    unit:'€', tip:'Paramètres → montant de la VT ITE dédiée' },
-  { id:'tauxRegie',      fam:'⚙️ Paramètres', label:'% Régie',           unit:'%', tip:'Paramètres → pourcentage de régie commerciale' },
-  { id:'seuilMarge',     fam:'⚙️ Paramètres', label:'Objectif de marge', unit:'€', tip:'À l’habitation, sa part de l’objectif projet (au prorata du coût de revient) ; au projet, l’objectif entier' },
-  // Σ TOTAUX DU PROJET — disponibles DANS une formule d'habitation, pour situer un
-  // logement dans son dossier : poids, écart à la moyenne, part de la prime…
-  { id:'sigmaCoutRevient', fam:'Σ Totaux du projet', label:'Σ Coût de revient projet', unit:'€', tip:'Coût de revient de TOUT le dossier — pour un poids : coutRevient ÷ sigmaCoutRevient × 100', hab:true },
+  /* CATALOGUE — audit de cohérence du 2026-08-01. Règle retenue : une variable n'est
+     proposée QUE si elle permet un calcul métier qu'on ne peut pas déjà faire.
+     Ont été retirées :
+       · montantAuditVT / montantVtIte / % Régie — redondants : « Audit VT », « Frais VT ITE »
+         et « Régie commerciale » donnent déjà le montant calculé (nbAudits × montant, etc.).
+       · Surfaces par catégorie (ITE, ITI, Combles, Plancher, Fenêtres) — sans le MONTANT
+         de la catégorie, une surface seule ne produit aucun ratio économique.
+       · Sauts de classe, Nombre d'audits — n'entrent dans aucun ratio de pilotage.
+       · Σ Shab — remplacé par « Quote-part », qui fait directement le rapport. */
+  // 💶 ARGENT — les montants du calcul. Mêmes noms à l'habitation et au projet ;
+  // au projet ils valent la somme du dossier.
+  { id:'chargesTravaux',   fam:'💶 Montants', label:'Charges travaux',   unit:'€', tip:'Coût d’achat des travaux (lignes cochées × prix d’achat)' },
+  { id:'prixVenteHT',      fam:'💶 Montants', label:'Prix de vente HT',  unit:'€', tip:'Lignes cochées × prix de vente du barème' },
+  { id:'auditVT',          fam:'💶 Montants', label:'Audit VT',          unit:'€', tip:'Coût total des audits (nombre × montant du paramètre)' },
+  { id:'fraisVtIte',       fam:'💶 Montants', label:'Frais VT ITE',      unit:'€', tip:'Frais de VT ITE (montant fixe, ou part répartie)' },
+  { id:'regieCommerciale', fam:'💶 Montants', label:'Régie commerciale', unit:'€', tip:'Charges travaux × % de régie' },
+  { id:'coutRevient',      fam:'💶 Montants', label:'Coût de revient',   unit:'€', tip:'Charges + audit + VT ITE + régie' },
+  { id:'primeCEE',         fam:'💶 Montants', label:'Prime CEE',         unit:'€', tip:'Prime issue du barème de valorisation' },
+  { id:'margeBrute',       fam:'💶 Montants', label:'Marge Brute',       unit:'€', tip:'Prime CEE − tous les coûts d’achat' },
+  { id:'resteACharge',     fam:'💶 Montants', label:'Reste à charge',    unit:'€', tip:'Prix de vente HT − Prime CEE : ce que paie le client' },
+  { id:'margeCommerciale', fam:'💶 Montants', label:'Marge Commerciale', unit:'€', tip:'Prix de vente HT − coût de revient' },
+  { id:'seuilMarge',       fam:'💶 Montants', label:'Objectif de marge', unit:'€', tip:'La cible à atteindre : à l’habitation sa part de l’objectif projet, au projet l’objectif entier. Pour l’écart : margeCommerciale − seuilMarge' },
+  // 📐 SURFACES & RÉPARTITION — les DÉNOMINATEURS. Elles ne servent qu'à rapporter un
+  // montant à quelque chose : au m², au logement, ou en part du projet.
+  { id:'shab',          fam:'📐 Surfaces & répartition', label:'Surface habitable', unit:'m²', tip:'À l’habitation la sienne, au projet la somme des habitations incluses. Pour un coût au m² : coutRevient ÷ shab' },
+  { id:'surfaceIsolee', fam:'📐 Surfaces & répartition', label:'Surface isolée',    unit:'m²', tip:'Total des surfaces cochées, toutes catégories. Pour un prix de travaux au m² : prixVenteHT ÷ surfaceIsolee' },
+  { id:'quotePart',     fam:'📐 Surfaces & répartition', label:'Quote-part',        unit:'%', tip:'Poids de cette habitation dans le projet, au prorata de la surface habitable (100 % au niveau projet). C’est la clé de répartition utilisée pour l’ITE' },
+  { id:'nbHabitations', fam:'📐 Surfaces & répartition', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le dossier (les exclues ne comptent pas). Pour une moyenne par logement : sigmaMarge ÷ nbHabitations' },
+  // Σ TOTAUX DU PROJET — utilisables DANS une formule d'habitation, pour situer un
+  // logement dans son dossier (poids économique, écart à la moyenne).
+  { id:'sigmaCoutRevient', fam:'Σ Totaux du projet', label:'Σ Coût de revient projet', unit:'€', tip:'Coût de revient de TOUT le dossier — poids économique : coutRevient ÷ sigmaCoutRevient × 100', hab:true },
   { id:'sigmaPrixVenteHT', fam:'Σ Totaux du projet', label:'Σ Prix de vente projet',   unit:'€', tip:'Prix de vente HT de tout le dossier', hab:true },
   { id:'sigmaPrimeCEE',    fam:'Σ Totaux du projet', label:'Σ Prime CEE projet',       unit:'€', tip:'Somme des primes CEE du dossier', hab:true },
   { id:'sigmaMarge',       fam:'Σ Totaux du projet', label:'Σ Marge projet',           unit:'€', tip:'Marge commerciale de tout le dossier', hab:true },
-  { id:'sigmaShab',        fam:'Σ Totaux du projet', label:'Σ Surface habitable projet', unit:'m²', tip:'Somme des Shab des habitations incluses', hab:true },
-  { id:'sigmaNbHabitations', fam:'Σ Totaux du projet', label:'Σ Nombre d’habitations', unit:'', tip:'Nombre d’habitations incluses dans le dossier', hab:true },
 ];
 function wgVarsFor(niveau){ return WIDGET_VARS.filter(v => niveau==='hab' ? !v.proj : !v.hab); }
 function wcUsine(niveau, id){ return WIDGETS_USINE.find(w => w.niveau===niveau && w.id===id) || null; }
@@ -4078,11 +4076,11 @@ function wgBaseVars(niveau, ctx){
       chargesTravaux:res.chargesTravaux, prixVenteHT:res.venteTravaux, auditVT:res.audit,
       fraisVtIte:res.vtIte, regieCommerciale:res.regie, coutRevient:res.coutRevient,
       primeCEE:res.prime, margeBrute:res.margeBrute, resteACharge:res.reste, margeCommerciale:res.marge,
-      surfIte:sumChecked(vt,'ITE'), surfIti:sumChecked(vt,'ITI'), surfCombles:sumChecked(vt,'Combles'),
-      surfPlancher:sumChecked(vt,'Plancher'), surfFenetres:sumChecked(vt,'Fenetres'),
-      shab:num(vt.shab), nbAudits:vtAudits(vt), sautsClasse:num(vt.sauts),
-      montantAuditVT:num(state.settings.auditVT), montantVtIte:num(state.settings.vtIte),
-      tauxRegie:num(state.settings.regiePct), seuilMarge:num(res.seuil),   // part du seuil PROJET revenant à cette habitation
+      shab:num(vt.shab),
+      // Quote-part surfacique : la clé de répartition du dossier (celle utilisée pour l'ITE).
+      quotePart: sig.shab > 0 ? round2(num(vt.shab) / sig.shab * 100) : (sig.nbHab ? round2(100/sig.nbHab) : 100),
+      nbHabitations: sig.nbHab,
+      seuilMarge:num(res.seuil),   // part du seuil PROJET revenant a cette habitation
     };
   }
   const { blocks, tot } = ctx;
@@ -4096,12 +4094,9 @@ function wgBaseVars(niveau, ctx){
     chargesTravaux:tot.chargesTravaux, prixVenteHT:tot.venteTravaux, auditVT:tot.audit,
     fraisVtIte:tot.vtIte, regieCommerciale:tot.regie, coutRevient:tot.coutRevient,
     primeCEE:tot.prime, margeBrute:tot.margeBrute, resteACharge:tot.reste, margeCommerciale:tot.marge,
-    surfIte:sum(b=>sumChecked(b.vt,'ITE')), surfIti:sum(b=>sumChecked(b.vt,'ITI')),
-    surfCombles:sum(b=>sumChecked(b.vt,'Combles')), surfPlancher:sum(b=>sumChecked(b.vt,'Plancher')),
-    surfFenetres:sum(b=>sumChecked(b.vt,'Fenetres')),
-    nbAudits:totalAudits(), nbHabitations:habitations().length,
-    montantAuditVT:num(state.settings.auditVT), montantVtIte:num(state.settings.vtIte),
-    tauxRegie:num(state.settings.regiePct), seuilMarge:seuilMargePour(tot.coutRevient),
+    nbHabitations:habitations().length,
+    quotePart:100,          // le projet = 100 % de la surface : la quote-part y vaut le tout
+    seuilMarge:seuilMargePour(tot.coutRevient),
   };
 }
 // Résolution d'un identifiant : widget du même niveau D'ABORD (cascade des dépendants),
@@ -4240,11 +4235,11 @@ function wgShieldChecks(){
    formule ; l'autocomplétion propose les variables du catalogue et les widgets du niveau. */
 let _wcTab = 'hab';
 const WC_EXEMPLE_HAB = [
-  { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, surfIte:85, surfIti:40, surfCombles:30, surfPlancher:20, surfFenetres:8, shab:95, nbAudits:1, sautsClasse:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
-  { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, surfIte:60, surfIti:25, surfCombles:22, surfPlancher:15, surfFenetres:5, shab:68, nbAudits:1, sautsClasse:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
+  { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, shab:95, surfaceIsolee:163, quotePart:58.3, nbHabitations:2, seuilMarge:3000, sigmaCoutRevient:27990, sigmaPrixVenteHT:43800, sigmaPrimeCEE:35200, sigmaMarge:15810 } },
+  { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, shab:68, surfaceIsolee:127, quotePart:41.7, nbHabitations:2, seuilMarge:3000, sigmaCoutRevient:27990, sigmaPrixVenteHT:43800, sigmaPrimeCEE:35200, sigmaMarge:15810 } },
 ];
 const WC_EXEMPLE_PROJ = [
-  { label:'Total projet (exemple)', vars:{ chargesTravaux:23500, prixVenteHT:43800, auditVT:1600, fraisVtIte:70, regieCommerciale:2820, coutRevient:27990, primeCEE:35200, margeBrute:7210, resteACharge:8600, margeCommerciale:15810, surfIte:145, surfIti:65, surfCombles:52, surfPlancher:35, surfFenetres:13, nbAudits:2, nbHabitations:2, montantAuditVT:800, montantVtIte:70, tauxRegie:12, seuilMarge:3000 } },
+  { label:'Total projet (exemple)', vars:{ chargesTravaux:23500, prixVenteHT:43800, auditVT:1600, fraisVtIte:70, regieCommerciale:2820, coutRevient:27990, primeCEE:35200, margeBrute:7210, resteACharge:8600, margeCommerciale:15810, shab:163, surfaceIsolee:290, quotePart:100, nbHabitations:2, seuilMarge:3000 } },
 ];
 // Évalue une formule candidate sur un jeu de variables (cascade sur les widgets du niveau).
 function wcPreviewEval(formule, niveau, vars, selfId){

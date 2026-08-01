@@ -63,8 +63,11 @@ t('Taux de marge : vente 0 → null (« — »)', evalStr(tm.formule, { margeCom
 const v1 = wfValidate('foo + 1', 'hab', '∅');
 t('variable inconnue rejetée', v1.ok === false && /Variable inconnue/.test(v1.error), v1.error);
 t('formule usine margeBrute validée', wfValidate('primeCEE - (chargesTravaux + auditVT + fraisVtIte + regieCommerciale)', 'hab', 'margeBrute').ok === true);
-t('nbHabitations refusée au niveau hab', wfValidate('nbHabitations + 1', 'hab', '∅').ok === false);
+// nbHabitations est volontairement disponible AUX DEUX niveaux depuis 2026-08-01
+// (moyenne par logement calculable partout) ; les Σ restent réservés à l'habitation.
+t('nbHabitations acceptée au niveau hab', wfValidate('nbHabitations + 1', 'hab', '∅').ok === true);
 t('nbHabitations acceptée au niveau proj', wfValidate('nbHabitations + 1', 'proj', '∅').ok === true);
+t('Σ refusé au niveau projet', wfValidate('sigmaMarge + 1', 'proj', '∅').ok === false);
 
 // ── E3 : cycles refusés avec chaîne, auto-référence moteur autorisée ──
 state.widgetConfig = null; wcInit();
@@ -172,7 +175,18 @@ const orphelinesH = wgVarsFor('hab').filter(v => VH[v.id] === undefined).map(v =
 const orphelinesP = wgVarsFor('proj').filter(v => VP[v.id] === undefined).map(v => v.id);
 t('catalogue : toute variable Habitations est calculée', orphelinesH.length === 0, orphelinesH.join(', '));
 t('catalogue : toute variable Projet est calculée', orphelinesP.length === 0, orphelinesP.join(', '));
-t('catalogue : 4 familles au maximum', [...new Set(WIDGET_VARS.map(v => v.fam))].length <= 4, [...new Set(WIDGET_VARS.map(v => v.fam))].join(' | '));
+t('catalogue : 3 familles au maximum', [...new Set(WIDGET_VARS.map(v => v.fam))].length <= 3, [...new Set(WIDGET_VARS.map(v => v.fam))].join(' | '));
+// Audit de pertinence (2026-08-01) : aucune variable qui recalcule un montant déjà exposé,
+// aucune surface par catégorie (inutilisable sans son montant), aucune donnée hors ratio.
+const RETIREES = ['montantAuditVT','montantVtIte','tauxRegie','surfIte','surfIti','surfCombles','surfPlancher','surfFenetres','nbAudits','sautsClasse','sigmaShab','sigmaNbHabitations'];
+const encore = RETIREES.filter(id => WIDGET_VARS.some(v => v.id === id));
+t('catalogue : variables redondantes ou inutilisables retirées', encore.length === 0, encore.join(', '));
+t('aucune formule usine ne référence une variable retirée',
+  WIDGETS_USINE.filter(w => !w.special).every(w => !RETIREES.some(id => new RegExp('\b' + id + '\b').test(w.formule))));
+t('quote-part habitation = Shab ÷ Σ Shab × 100', Math.abs(VH.quotePart - 95 / 163 * 100) < 0.01, VH.quotePart);
+t('quote-part vaut 100 % au niveau projet', VP.quotePart === 100, VP.quotePart);
+t('nombre d’habitations disponible aux deux niveaux', VH.nbHabitations === 2 && VP.nbHabitations === 2);
+t('objectif de marge disponible pour l’écart à la cible', VH.seuilMarge === 437 && VP.seuilMarge !== undefined);
 t('catalogue : chaque variable a libellé et infobulle', WIDGET_VARS.every(v => v.label && v.tip));
 // Formules d'usine : toutes valides avec le catalogue de leur niveau
 state.widgetConfig = null; wcInit();
