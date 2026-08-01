@@ -321,11 +321,12 @@ tr.row-off input::placeholder{color:#5d6675}
 .wc-row .wc-frm{flex:1;color:var(--text-muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wc-badge-f{background:#fff3cd;color:#8a6d00;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
 .kpi .lab .kpi-fmod{color:#8a6d00;font-weight:800;margin-left:3px;cursor:help}
-/* Raccourci « modifier la formule » : discret, révélé au survol du widget. */
-.kpi .lab .kpi-frm{border:0;background:transparent;color:var(--text-muted);font-weight:800;font-style:italic;
-  cursor:pointer;padding:0 3px;margin-left:2px;opacity:0;transition:opacity .12s;font-size:13px}
-.kpi:hover .lab .kpi-frm{opacity:.75}
-.kpi .lab .kpi-frm:hover{opacity:1;color:var(--primary)}
+/* Bouton « modifier la formule » : TOUJOURS visible — c'est une action de premier plan,
+   pas un secret révélé au survol. Discret au repos, franc au survol. */
+.kpi .lab .kpi-frm{border:1px solid var(--border);background:#fff;color:var(--primary);font-weight:800;font-style:italic;
+  cursor:pointer;padding:0 5px;margin-left:5px;border-radius:5px;opacity:.7;transition:.12s;font-size:12px;line-height:16px}
+.kpi:hover .lab .kpi-frm{opacity:1}
+.kpi .lab .kpi-frm:hover{background:var(--blue-bg);border-color:var(--primary);transform:scale(1.08)}
 #wcModal{display:none;position:fixed;inset:0;z-index:9997;background:rgba(20,28,48,.6);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px}
 #wcModal.on{display:flex}
 #wcModal .box{background:#fff;border-radius:14px;max-width:860px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -851,7 +852,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -4680,10 +4681,13 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
   const ro = !!FROZEN || !!o.locked;
   const tip = o.formula
     + (o.edited ? ' — ✎ valeur modifiée manuellement' : '')
-    + (o.locked ? ' — 🔒 valeur non éditable : ce widget est en lecture seule (Paramètres → 🧩 Widgets)' : (ro ? '' : ' (cliquer pour modifier)'));
+    + (o.locked ? ' — 🔒 valeur non éditable : ce widget est en lecture seule (Paramètres → 🧩 Widgets)' : (ro ? '' : ' — clic : forcer la valeur'))
+    // Deux gestes distincts, annoncés : la VALEUR se force au clic, la FORMULE se
+    // modifie au double-clic (ou par le bouton ƒ). Sans ça, personne ne devine le second.
+    + (o.wid && !FROZEN ? ' · double-clic : modifier la formule' : '');
   return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
     ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
-    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}${o.wid?`<button class="kpi-frm" data-kpifrm="${o.niveau}|${o.wid}" title="Modifier la formule de ce widget">ƒ</button>`:''}</div><div class="val">${o.display}</div>
+    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}${o.wid?`<button class="kpi-frm" data-kpifrm="${o.niveau}|${o.wid}" title="Modifier la FORMULE de ce widget — ce qui compose la valeur (raccourci : double-clic sur le widget)">ƒ</button>`:''}</div><div class="val">${o.display}</div>
   </div>`;
 }
 function openKpiEditor(kpi){
@@ -5057,20 +5061,38 @@ function renderStep4(){
     if(zone) zone.innerHTML = '<div class="alert info">↺ Prix de vente d\'origine restaurés.</div>';
   });
 
-  // Raccourci « ƒ » : ouvre l'éditeur de formule du widget sans passer par les Paramètres.
+  /* Édition de la FORMULE, sans passer par les Paramètres : bouton ƒ ou double-clic sur
+     le widget. Vaut aussi pour les widgets verrouillés en valeur (Prime CEE, Décision) :
+     on n'y change pas la formule, mais bien l'intitulé, le format ou la visibilité. */
+  const ouvrirFormule = cle => { const [niveau, id] = cle.split('|'); openWcEditor(niveau, id); };
   area.querySelectorAll('[data-kpifrm]').forEach(b=> b.addEventListener('click', e=>{
     e.stopPropagation();
-    const [niveau, id] = b.dataset.kpifrm.split('|');
-    openWcEditor(niveau, id);
+    ouvrirFormule(b.dataset.kpifrm);
   }));
-
-  // Widgets éditables : clic = éditer, ↺ = retour au calcul automatique
-  area.querySelectorAll('.kpi.editable').forEach(kpi=>{
-    kpi.addEventListener('click', e=>{
-      if(e.target.closest('.ov-reset')) return;
+  area.querySelectorAll('.kpi').forEach(kpi=>{
+    const btn = kpi.querySelector('.kpi-frm');
+    if(!btn) return;
+    kpi.addEventListener('dblclick', e=>{
+      e.preventDefault(); e.stopPropagation();
       if(kpi.querySelector('input,select')) return;
-      openKpiEditor(kpi);
+      ouvrirFormule(btn.dataset.kpifrm);
     });
+  });
+
+  /* Deux gestes sur un widget :
+       clic simple  → forcer la VALEUR (override, ventilation des prix le cas échéant) ;
+       double-clic  → modifier la FORMULE qui compose cette valeur.
+     Le clic simple est différé de 220 ms : sans ça, le premier clic d'un double-clic
+     ouvrirait le champ de saisie derrière la fenêtre de formule. */
+  area.querySelectorAll('.kpi.editable').forEach(kpi=>{
+    let clicTimer = null;
+    kpi.addEventListener('click', e=>{
+      if(e.target.closest('.ov-reset') || e.target.closest('.kpi-frm')) return;
+      if(kpi.querySelector('input,select')) return;
+      clearTimeout(clicTimer);
+      clicTimer = setTimeout(()=> openKpiEditor(kpi), 220);
+    });
+    kpi.addEventListener('dblclick', ()=> clearTimeout(clicTimer));   // le double-clic annule l'édition de valeur
     const rst = kpi.querySelector('.ov-reset');
     if(rst) rst.addEventListener('click', e=>{
       e.stopPropagation();
