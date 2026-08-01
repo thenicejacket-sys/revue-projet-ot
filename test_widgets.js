@@ -111,6 +111,29 @@ WIDGETS_USINE.filter(w => !w.special && w.champ).forEach(w => {
   t('formule usine ≡ moteur : ' + w.niveau + '/' + w.id, Math.abs(got - attendu) < 1e-9, got + ' ≠ ' + attendu);
 });
 
+// ── Éditable / lecture seule par widget (2026-08-01) ──
+state.widgetConfig = null; wcInit();
+t('usine : Prime CEE en lecture seule (hab)', wcEditable(wcUsine('hab', 'primeCEE')) === false);
+t('usine : Prime CEE en lecture seule (proj)', wcEditable(wcUsine('proj', 'primeCEE')) === false);
+t('usine : Marge Commerciale éditable', wcEditable(wcUsine('hab', 'margeCommerciale')) === true);
+t('usine : tous les autres widgets éditables',
+  WIDGETS_USINE.filter(w => w.id !== 'primeCEE').every(w => wcEditable(w)),
+  WIDGETS_USINE.filter(w => w.id !== 'primeCEE' && !wcEditable(w)).map(w => w.id).join(','));
+t('un widget rendu non éditable est bien verrouillé',
+  (() => { const d = state.widgetConfig.defs['hab:resteACharge']; d.editable = false; return wcEditable(d) === false; })());
+state.widgetConfig.defs['hab:resteACharge'].editable = true;
+// Migration : une config SANS le champ reprend la valeur d'usine (comportement d'avant)
+state.widgetConfig = { version: 1, defs: {
+  'hab:primeCEE':        { id:'primeCEE', niveau:'hab', label:'Prime CEE', formule:'', special:'bareme', champ:'prime', visible:true, ordre:10 },
+  'hab:margeCommerciale':{ id:'margeCommerciale', niveau:'hab', label:'Marge Commerciale', formule:'prixVenteHT - coutRevient', champ:'marge', visible:true, ordre:40 },
+  'hab:perso1':          { id:'perso1', niveau:'hab', label:'Perso', formule:'shab * 2', custom:true, visible:true, ordre:900 },
+} };
+wcInit();
+t('migration : Prime CEE sans champ → lecture seule (comme avant)', wcEditable(state.widgetConfig.defs['hab:primeCEE']) === false);
+t('migration : Marge Commerciale sans champ → éditable (comme avant)', wcEditable(state.widgetConfig.defs['hab:margeCommerciale']) === true);
+t('migration : widget personnalisé → éditable par défaut', wcEditable(state.widgetConfig.defs['hab:perso1']) === true);
+state.widgetConfig = null; wcInit();
+
 // ── ƒ modifiée détectée, retour usine individuel ──
 state.widgetConfig.defs['hab:margeBrute'].formule = 'primeCEE - coutRevient';
 t('ƒ modifiée détectée', wcIsFmod(state.widgetConfig.defs['hab:margeBrute']) === true);

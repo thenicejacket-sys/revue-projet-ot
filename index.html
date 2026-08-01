@@ -846,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-07-31.10';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -3727,7 +3727,7 @@ const WIDGETS_VERSION = 1;
 // clsRule : 'go' = vert/rouge selon la décision du bloc ; 'signe' = selon le signe de la valeur.
 const WIDGETS_USINE = [
   // ── Niveau HABITATION (un bloc par VT) — les 5 visibles actuels, dans l'ordre actuel ──
-  { id:'primeCEE',        niveau:'hab', label:'Prime CEE',        formule:'', special:'bareme', champ:'prime',      format:'eur', dec:2, ordre:10, visible:true,
+  { id:'primeCEE',        niveau:'hab', label:'Prime CEE',        formule:'', special:'bareme', editable:false, champ:'prime',      format:'eur', dec:2, ordre:10, visible:true,
     desc:'Prime CEE = lookup barème (pollueur · revenus · CDP · sauts de classe · tranche Shab)' },
   { id:'margeBrute',      niveau:'hab', label:'Marge Brute',      formule:'primeCEE - (chargesTravaux + auditVT + fraisVtIte + regieCommerciale)', champ:'margeBrute', clsRule:'signe', format:'eur', dec:2, ordre:20, visible:true,
     desc:'Prime CEE moins tous les coûts d’achat (travaux, audit, VT ITE, régie)' },
@@ -3760,7 +3760,7 @@ const WIDGETS_USINE = [
     desc:'Somme sur toutes les VT : charges travaux + Audit VT + frais VT ITE + régie' },
   { id:'prixVenteHT',     niveau:'proj', label:'Prix de vente HT', formule:'prixVenteHT', champ:'venteTravaux', format:'eur', dec:2, ordre:20, visible:true,
     desc:'Σ (surfaces cochées × prix de vente du barème)' },
-  { id:'primeCEE',        niveau:'proj', label:'Prime CEE totale', formule:'', special:'bareme', champ:'prime', format:'eur', dec:2, ordre:30, visible:true,
+  { id:'primeCEE',        niveau:'proj', label:'Prime CEE totale', formule:'', special:'bareme', editable:false, champ:'prime', format:'eur', dec:2, ordre:30, visible:true,
     desc:'Somme des primes CEE des habitations' },
   { id:'margeBrute',      niveau:'proj', label:'Marge Brute totale', formule:'primeCEE - (chargesTravaux + auditVT + fraisVtIte + regieCommerciale)', champ:'margeBrute', clsRule:'signe', format:'eur', dec:2, ordre:40, visible:true,
     desc:'Prime CEE totale moins tous les coûts d’achat' },
@@ -3821,7 +3821,26 @@ function wcInit(){
     const k = u.niveau + ':' + u.id;
     if(!cfg.defs[k]) cfg.defs[k] = JSON.parse(JSON.stringify(u));
   });
+  // Migration « éditable » (2026-08-01) : les configs antérieures n'ont pas le champ.
+  // On reprend la valeur d'usine du widget (Prime CEE non éditable, le reste éditable),
+  // et « éditable » par défaut pour un widget personnalisé — comportement d'avant, à l'identique.
+  Object.values(cfg.defs).forEach(d=>{
+    if(d.deleted || d.editable !== undefined) return;
+    const u = wcUsine(d.niveau, d.id);
+    d.editable = u ? (u.editable !== false) : true;
+  });
   return cfg;
+}
+// Un widget est éditable (✎ à l'étape 4) si sa case l'autorise. Le champ remplace
+// l'ancien verrouillage codé en dur sur la Prime CEE : il est désormais configurable.
+function wcEditable(d){ return d && d.editable !== false; }
+/* Passage en lecture seule : les valeurs déjà forcées (✎) sur ce widget sont retirées
+   du dossier courant, sinon elles resteraient actives sans bouton ↺ pour les annuler. */
+function wcPurgeOverrides(d){
+  const f = wgOvField(d);
+  if(!f || !state.overrides) return;
+  if(d.niveau === 'proj'){ if(state.overrides.global) delete state.overrides.global[f]; }
+  else Object.values(state.overrides.vt || {}).forEach(bag=>{ if(bag) delete bag[f]; });
 }
 function wcKey(d){ return d.niveau + ':' + d.id; }
 function wcList(niveau, includeHidden){
@@ -4063,14 +4082,14 @@ function wgKpiGridHtml(niveau, ctx){
       const vars = cache.__vars || (cache.__vars = wgBaseVars(niveau, ctx));
       const lbl = niveau==='proj' ? def.label+' (seuil '+eur(vars.seuilMarge)+')' : def.label;
       return kpiCell({scope, key, field:'decision', type:'dec', label:lbl, display:go?'✅ GO':'⛔ NO-GO',
-        rawVal:ov.decision||'auto', cls:go?'go':'nogo', edited:!!ov.decision,
+        rawVal:ov.decision||'auto', cls:go?'go':'nogo', edited:!!ov.decision, locked:!wcEditable(def),
         formula:'Décision = GO si Marge Commerciale ≥ Seuil ('+eur(vars.seuilMarge)+')'+(def.desc?' — '+def.desc:'')});
     }
     const v = wgValue(niveau, def, ctx, cache);
     const goHere = def.special!=='bareme' && def.clsRule ? (def.clsRule==='signe' ? (v!==null && v>=0) : wgDecision(niveau, ctx, cache)) : null;
     return kpiCell({scope, key, field:wgOvField(def), type:'num', label:def.label,
       display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
-      edited:ov[wgOvField(def)] != null, locked:def.special==='bareme', fmod,
+      edited:ov[wgOvField(def)] != null, locked:!wcEditable(def), fmod,
       formula:(def.special==='bareme'
         ? def.desc
         // La formule est affichée au survol PAR DÉFAUT ; décocher « Afficher la formule »
@@ -4164,7 +4183,8 @@ function renderWidgetsCfg(){
         <button class="btn small ghost" data-wcup="${d.id}" title="Monter" ${i===0?'disabled':''}>↑</button>
         <button class="btn small ghost" data-wcdown="${d.id}" title="Descendre" ${i===list.length-1?'disabled':''}>↓</button>
         <button class="btn small ghost" data-wceye="${d.id}" title="${d.visible?'Masquer à l\'étape 4 (sans rien perdre)':'Afficher à l\'étape 4'}">${d.visible?'👁':'🚫'}</button>
-        <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}${d.special==='bareme'?' 🔒':''}</span>
+        <button class="btn small ghost" data-wclock="${d.id}" title="${wcEditable(d)?'Widget ÉDITABLE : sa valeur peut être forcée à la main (✎) à l\'étape Charges & marges. Cliquer pour le verrouiller.':'Widget EN LECTURE SEULE : sa valeur ne peut pas être forcée (🔒). Cliquer pour le rendre éditable.'}">${wcEditable(d)?'✎':'🔒'}</button>
+        <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}</span>
         ${wcIsFmod(d)?'<span class="wc-badge-f" title="Formule différente de l\'usine">ƒ modifiée</span>':''}
         <span class="wc-frm">${esc(d.special==='bareme'?'lookup barème (non exprimable en formule)':(d.special==='decision'?'Marge Commerciale ≥ seuil (objectif de marge des Paramètres)':d.formule))}</span>
         <button class="btn small" data-wcedit="${d.id}">✎ Éditer</button>
@@ -4202,6 +4222,14 @@ function renderWidgetsCfg(){
   });
   wrap.querySelectorAll('[data-wceye]').forEach(b=> b.addEventListener('click', ()=>{
     const d = cfg.defs[_wcTab+':'+b.dataset.wceye]; if(d){ d.visible = !d.visible; commit(); }
+  }));
+  // Éditable / lecture seule. En passant en lecture seule, on PURGE la valeur forcée
+  // éventuelle : sinon un override resterait actif sans que personne puisse le retirer.
+  wrap.querySelectorAll('[data-wclock]').forEach(b=> b.addEventListener('click', ()=>{
+    const d = cfg.defs[_wcTab+':'+b.dataset.wclock]; if(!d) return;
+    d.editable = !wcEditable(d);
+    if(!d.editable) wcPurgeOverrides(d);
+    commit();
   }));
   wrap.querySelectorAll('[data-wcresetone]').forEach(b=> b.addEventListener('click', ()=>{ wcResetOne(_wcTab, b.dataset.wcresetone); renderWidgetsCfg(); }));
   wrap.querySelectorAll('[data-wcdel]').forEach(b=> b.addEventListener('click', ()=>{
@@ -4298,6 +4326,10 @@ function openWcEditor(niveau, id){
       <input type="checkbox" id="wcShowFrm" ${d.showFormule === false ? '' : 'checked'}>
       <small>Afficher aussi la formule dans l'infobulle <span style="color:var(--text-muted)">(décoche pour ne garder que ta description)</span></small>
     </label>
+    <label class="flex" style="gap:6px;margin:4px 0 0;align-items:center;cursor:pointer">
+      <input type="checkbox" id="wcEditable" ${d.editable === false ? '' : 'checked'}>
+      <small>Valeur éditable à l'étape Charges &amp; marges <span style="color:var(--text-muted)">(décoche pour verrouiller le widget en lecture seule 🔒, comme la Prime CEE)</span></small>
+    </label>
     <div class="wc-prev" id="wcPrev" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:12px">
       <button class="btn ghost" id="wcCancel">Annuler</button>
@@ -4379,6 +4411,8 @@ function openWcEditor(niveau, id){
     if(d.special !== 'decision'){ d.format = $m('#wcFormat').value; d.dec = Math.max(0, Math.min(6, Math.round(num($m('#wcDec').value)))); }
     d.desc = $m('#wcDesc').value.trim();
     d.showFormule = !!$m('#wcShowFrm').checked;
+    d.editable = !!$m('#wcEditable').checked;
+    if(!d.editable) wcPurgeOverrides(d);
     if(isNew) d.id = wcSlugify(label);
     cfg.defs[niveau+':'+d.id] = d;
     saveLS(); close(); renderWidgetsCfg();
@@ -4470,7 +4504,7 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
   const ro = !!FROZEN || !!o.locked;
   const tip = o.formula
     + (o.edited ? ' — ✎ valeur modifiée manuellement' : '')
-    + (o.locked ? ' — 🔒 non éditable (calculée automatiquement depuis le barème)' : (ro ? '' : ' (cliquer pour modifier)'));
+    + (o.locked ? ' — 🔒 valeur non éditable : ce widget est en lecture seule (Paramètres → 🧩 Widgets)' : (ro ? '' : ' (cliquer pour modifier)'));
   return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
     ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
     <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}</div><div class="val">${o.display}</div>
