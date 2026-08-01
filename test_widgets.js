@@ -71,8 +71,8 @@ t('une formule Σ est désormais refusée partout', wfValidate('sigmaMarge + 1',
 
 // ── E3 : cycles refusés avec chaîne, auto-référence moteur autorisée ──
 state.widgetConfig = null; wcInit();
-state.widgetConfig.defs['hab:wa'] = { id: 'wa', niveau: 'hab', label: 'A', formule: 'wb + 1', custom: true, visible: true, ordre: 500 };
-state.widgetConfig.defs['hab:wb'] = { id: 'wb', niveau: 'hab', label: 'B', formule: 'wa + 1', custom: true, visible: true, ordre: 510 };
+state.widgetConfig.defs['hab:wa'] = { id: 'wa', niveau: 'hab', label: 'A', formule: 'wb + 1', custom: true, brique: true, visible: true, ordre: 500 };
+state.widgetConfig.defs['hab:wb'] = { id: 'wb', niveau: 'hab', label: 'B', formule: 'wa + 1', custom: true, brique: true, visible: true, ordre: 510 };
 const vc = wfValidate('wb + 1', 'hab', 'wa');
 t('cycle wa→wb→wa refusé', vc.ok === false && /circulaire/.test(vc.error), vc.error);
 t('chaîne du cycle affichée (→)', vc.ok === false && /→/.test(vc.error), vc.error);
@@ -145,7 +145,7 @@ state.widgetConfig.defs['hab:resteACharge'].editable = true;
 state.widgetConfig = { version: 1, defs: {
   'hab:primeCEE':        { id:'primeCEE', niveau:'hab', label:'Prime CEE', formule:'', special:'bareme', champ:'prime', visible:true, ordre:10 },
   'hab:margeCommerciale':{ id:'margeCommerciale', niveau:'hab', label:'Marge Commerciale', formule:'prixVenteHT - coutRevient', champ:'marge', visible:true, ordre:40 },
-  'hab:perso1':          { id:'perso1', niveau:'hab', label:'Perso', formule:'shab * 2', custom:true, visible:true, ordre:900 },
+  'hab:perso1':          { id:'perso1', niveau:'hab', label:'Perso', formule:'shab * 2', custom:true, brique:true, visible:true, ordre:900 },
 } };
 wcInit();
 t('migration : Prime CEE sans champ → lecture seule (comme avant)', wcEditable(state.widgetConfig.defs['hab:primeCEE']) === false);
@@ -245,12 +245,41 @@ t('un widget NON impacté reste au calcul moteur', wcIsFmodDeep(state.widgetConf
 t('la détection profonde distingue modifié et impacté',
   wcIsFmod(state.widgetConfig.defs['hab:margeCommerciale']) === false && wcIsFmodDeep(state.widgetConfig.defs['hab:margeCommerciale'], 'hab') === true);
 // Robustesse : une référence circulaire ne doit pas faire boucler la détection
-state.widgetConfig.defs['hab:cyc1'] = { id:'cyc1', niveau:'hab', label:'C1', formule:'cyc2 + 1', custom:true, visible:false, ordre:800 };
-state.widgetConfig.defs['hab:cyc2'] = { id:'cyc2', niveau:'hab', label:'C2', formule:'cyc1 + 1', custom:true, visible:false, ordre:810 };
+state.widgetConfig.defs['hab:cyc1'] = { id:'cyc1', niveau:'hab', label:'C1', formule:'cyc2 + 1', custom:true, brique:true, visible:false, ordre:800 };
+state.widgetConfig.defs['hab:cyc2'] = { id:'cyc2', niveau:'hab', label:'C2', formule:'cyc1 + 1', custom:true, brique:true, visible:false, ordre:810 };
 t('cycle : la détection profonde termine sans boucler', wcIsFmodDeep(state.widgetConfig.defs['hab:cyc1'], 'hab') === false);
 delete state.widgetConfig.defs['hab:cyc1']; delete state.widgetConfig.defs['hab:cyc2'];
 state.widgetConfig = null; wcInit();
 t('retour usine : marge commerciale de nouveau au moteur (250)', valC('margeCommerciale') === 250, valC('margeCommerciale'));
+
+/* ── « DANS LES MONTANTS » : quels widgets servent de brique de formule ─────────
+   Un widget marqué 💶 est utilisable comme variable dans les autres formules du même
+   niveau. Par défaut, ceux qui portent le nom d'une grandeur du catalogue. */
+state.widgetConfig = null; wcInit();
+t('par défaut : Coût de revient est dans les Montants', wcEstBrique(state.widgetConfig.defs['hab:coutRevient']) === true);
+t('par défaut : Prime CEE est dans les Montants', wcEstBrique(state.widgetConfig.defs['hab:primeCEE']) === true);
+t('par défaut : Taux de marge n’y est PAS (ce n’est pas un montant du catalogue)',
+  wcEstBrique(state.widgetConfig.defs['hab:tauxMarge']) === false);
+t('par défaut : un ratio livré masqué n’y est pas', wcEstBrique(state.widgetConfig.defs['hab:coutM2']) === false);
+t('les 11 Montants du catalogue ont tous leur widget marqué',
+  WIDGET_VARS.filter(v => v.fam === '💶 Montants' && state.widgetConfig.defs['hab:' + v.id])
+    .every(v => wcEstBrique(state.widgetConfig.defs['hab:' + v.id])));
+// Exposer un widget le rend utilisable dans une formule ; le retirer le rend invalide
+state.widgetConfig.defs['hab:perso9'] = { id:'perso9', niveau:'hab', label:'Perso 9', formule:'shab * 2', custom:true, visible:false, ordre:900 };
+t('widget hors Montants : refusé dans une formule', wfValidate('perso9 + 1', 'hab', '∅').ok === false);
+state.widgetConfig.defs['hab:perso9'].brique = true;
+t('widget mis dans les Montants : accepté dans une formule', wfValidate('perso9 + 1', 'hab', '∅').ok === true);
+state.widgetConfig.defs['hab:perso9'].brique = false;
+t('widget retiré des Montants : de nouveau refusé', wfValidate('perso9 + 1', 'hab', '∅').ok === false);
+// Recherche des dépendances : qui utilise quoi
+state.widgetConfig = null; wcInit();
+const usersCR = wcUtilisePar('hab', 'coutRevient');
+t('dépendances : Marge Commerciale utilise le Coût de revient',
+  usersCR.some(u => u.id === 'margeCommerciale'), usersCR.map(u=>u.id).join(','));
+t('dépendances : un widget ne se compte pas lui-même', !usersCR.some(u => u.id === 'coutRevient'));
+t('dépendances : Prime CEE (barème) n’est comptée dans aucune formule',
+  !wcUtilisePar('hab', 'primeCEE').some(u => u.special));
+t('dépendances : identifiant inutilisé → liste vide', wcUtilisePar('hab', 'perso9').length === 0);
 
 // ── A2 : aucun eval() ni new Function dans le module ──
 t('aucun eval() dans le module widgets', !/\beval\s*\(/.test(src));

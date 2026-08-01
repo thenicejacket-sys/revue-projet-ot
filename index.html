@@ -771,6 +771,8 @@ main{position:relative;z-index:1}
         <summary>🧩 Widgets</summary>
         <div class="pset-b">
           <p class="hint">Pilote les indicateurs de l'étape 4 : intitulés, formules, format, visibilité, ordre.
+            Sur chaque ligne : <strong>👁</strong> afficher ou masquer à l'étape 4 · <strong>✎ / 🔒</strong> valeur modifiable ou verrouillée ·
+            <strong>💶</strong> présent dans les Montants, donc utilisable comme variable dans les autres formules.
             Les modifications de formule sont signalées par « ƒ » sur le widget et dans le bouclier 🛡️.
             Chaque dossier archivé emporte la configuration en vigueur au moment de l'archivage.</p>
           <div id="widgetsCfg"></div>
@@ -852,7 +854,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.9';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -3903,6 +3905,25 @@ function wcInit(){
 // Un widget est éditable (✎ à l'étape 4) si sa case l'autorise. Le champ remplace
 // l'ancien verrouillage codé en dur sur la Prime CEE : il est désormais configurable.
 function wcEditable(d){ return d && d.editable !== false; }
+/* BRIQUE DE FORMULE — un widget « dans les Montants » est utilisable comme variable
+   dans les autres formules du même niveau. Par défaut : les widgets qui portent le nom
+   d'une grandeur du catalogue (Coût de revient, Prime CEE…) — ceux qu'on trouve déjà
+   dans la famille 💶 Montants. Un widget créé ou un ratio ne l'est pas d'office : on
+   l'ajoute d'un clic quand on veut s'en resservir ailleurs. */
+function wcEstBrique(d){
+  if(!d) return false;
+  if(d.brique !== undefined) return !!d.brique;
+  return WIDGET_VARS.some(v => v.id === d.id);      // défaut : présent dans les Montants
+}
+/* Qui utilise ce widget ? Retourne les widgets du même niveau dont la formule le cite.
+   Sert aux avertissements avant suppression ou retrait des Montants — on ne casse pas
+   une formule sans le dire, en la nommant. */
+function wcUtilisePar(niveau, id){
+  return wcList(niveau, true).filter(d=>{
+    if(d.id === id || d.special) return false;
+    try{ return wfIdents(wfParse(d.formule)).includes(id); }catch(_){ return false; }
+  });
+}
 /* Passage en lecture seule : les valeurs déjà forcées (✎) sur ce widget sont retirées
    du dossier courant, sinon elles resteraient actives sans bouton ↺ pour les annuler. */
 function wcPurgeOverrides(d){
@@ -4050,7 +4071,9 @@ function wfValidate(formule, niveau, selfId){
   let ast;
   try{ ast = wfParse(formule); }catch(e){ return { ok:false, error:e.message }; }
   const vars = wgVarsFor(niveau).map(v=>v.id);
-  const widgets = wcList(niveau, true).map(d=>d.id);
+  // Seuls les widgets « dans les Montants » (cf. wcEstBrique) sont acceptés comme
+  // identifiants : ce qui est proposé dans la palette est exactement ce qui est validé.
+  const widgets = wcList(niveau, true).filter(wcEstBrique).map(d=>d.id);
   const bad = wfIdents(ast).filter(id => !vars.includes(id) && !widgets.includes(id));
   if(bad.length) return { ok:false, error:'Variable inconnue : « '+bad[0]+' » — utilise la palette ci-dessous' };
   const cyc = wgFindCycle(niveau, selfId||'∅', formule);
@@ -4330,6 +4353,9 @@ function renderWidgetsCfg(){
         <button class="btn small ghost" data-wcdown="${d.id}" title="Descendre" ${i===list.length-1?'disabled':''}>↓</button>
         <button class="btn small ghost" data-wceye="${d.id}" title="${d.visible?'Masquer à l\'étape 4 (sans rien perdre)':'Afficher à l\'étape 4'}">${d.visible?'👁':'🚫'}</button>
         <button class="btn small ghost" data-wclock="${d.id}" title="${wcEditable(d)?'Widget ÉDITABLE : sa valeur peut être forcée à la main (✎) à l\'étape Charges & marges. Cliquer pour le verrouiller.':'Widget EN LECTURE SEULE : sa valeur ne peut pas être forcée (🔒). Cliquer pour le rendre éditable.'}">${wcEditable(d)?'✎':'🔒'}</button>
+        <button class="btn small ghost" data-wcbrique="${d.id}" style="${wcEstBrique(d)?'':'opacity:.3'}" title="${wcEstBrique(d)
+          ? 'DANS LES MONTANTS : ce widget est utilisable comme variable dans les autres formules. Cliquer pour l\'en retirer.'
+          : 'PAS dans les Montants : ce widget ne peut pas être utilisé dans une autre formule. Cliquer pour l\'y ajouter.'}">💶</button>
         <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}</span>
         ${wcIsFmod(d)?'<span class="wc-badge-f" title="Formule différente de l\'usine">ƒ modifiée</span>':''}
         <span class="wc-frm">${esc(d.special==='bareme'?'lookup barème (non exprimable en formule)':(d.special==='decision'?'Marge Commerciale ≥ seuil (objectif de marge des Paramètres)':d.formule))}</span>
@@ -4378,8 +4404,27 @@ function renderWidgetsCfg(){
     commit();
   }));
   wrap.querySelectorAll('[data-wcresetone]').forEach(b=> b.addEventListener('click', ()=>{ wcResetOne(_wcTab, b.dataset.wcresetone); renderWidgetsCfg(); }));
+  // « Dans les Montants » : rend le widget utilisable comme variable ailleurs.
+  // L'en retirer casserait les formules qui le citent : on prévient, en les nommant.
+  wrap.querySelectorAll('[data-wcbrique]').forEach(b=> b.addEventListener('click', ()=>{
+    const id = b.dataset.wcbrique, d = cfg.defs[_wcTab+':'+id]; if(!d) return;
+    const nouvelEtat = !wcEstBrique(d);
+    if(!nouvelEtat){
+      const users = wcUtilisePar(_wcTab, id);
+      if(users.length && !confirm('⚠️ « ' + d.label + ' » est utilisé dans ' + users.length + ' formule(s) :\n\n'
+          + users.map(u=>'• ' + u.label + ' = ' + u.formule).join('\n')
+          + '\n\nLe retirer des Montants rendra ces formules invalides. Continuer ?')) return;
+    }
+    d.brique = nouvelEtat;
+    commit();
+  }));
   wrap.querySelectorAll('[data-wcdel]').forEach(b=> b.addEventListener('click', ()=>{
     const id = b.dataset.wcdel, d = cfg.defs[_wcTab+':'+id]; if(!d) return;
+    // Avertissement NOMINATIF si d'autres formules en dépendent.
+    const users = wcUtilisePar(_wcTab, id);
+    if(users.length && !confirm('⚠️ « ' + d.label + ' » est utilisé dans ' + users.length + ' formule(s) :\n\n'
+        + users.map(u=>'• ' + u.label + ' = ' + u.formule).join('\n')
+        + '\n\nLe supprimer rendra ces formules invalides (le bouclier 🛡️ les signalera).\nSupprimer quand même ?')) return;
     const q = d.special==='decision'
       ? '⚠️ Supprimer le widget « '+d.label+' » ?\n\nLa décision GO/NO-GO, son bandeau d\'écart et « ⚖️ Ajuster les prix » disparaîtront de l\'étape 4 (niveau '+(_wcTab==='hab'?'habitation':'projet')+').\nRestaurable via « Restaurer un widget usine supprimé ».'
       : 'Supprimer le widget « '+d.label+' » ?'+(d.custom?'\n\n(Widget personnalisé : suppression définitive — pense à exporter le JSON avant si besoin.)':'\n\nRestaurable via « Restaurer un widget usine supprimé ».');
@@ -4436,7 +4481,10 @@ function openWcEditor(niveau, id){
   if(!box){ box = document.createElement('div'); box.id = 'wcModal'; document.body.appendChild(box); }
   const vars = wgVarsFor(niveau);
   const fams = [...new Set(vars.map(v=>v.fam))];
-  const widgetRefs = wcList(niveau, true).filter(w=>!w.special && w.id!==d.id);
+  // Widgets proposés en plus des variables du catalogue : ceux mis « dans les Montants »
+  // et qui n'y figurent pas déjà sous le même nom (sinon doublon dans la palette).
+  const widgetRefs = wcList(niveau, true).filter(w=>
+    !w.special && w.id!==d.id && wcEstBrique(w) && !WIDGET_VARS.some(v=>v.id===w.id));
   box.innerHTML = `<div class="box">
     <h3 style="margin-top:0">${isNew?'＋ Créer un widget':'✎ Éditer « '+esc(d.label)+' »'} <small>(${niveau==='hab'?'Habitations':'Projet'})</small></h3>
     <div class="row"><div class="col">
@@ -4475,6 +4523,10 @@ function openWcEditor(niveau, id){
     <label class="flex" style="gap:6px;margin:4px 0 0;align-items:center;cursor:pointer">
       <input type="checkbox" id="wcEditable" ${d.editable === false ? '' : 'checked'}>
       <small>Valeur éditable à l'étape Charges &amp; marges <span style="color:var(--text-muted)">(décoche pour verrouiller le widget en lecture seule 🔒, comme la Prime CEE)</span></small>
+    </label>
+    <label class="flex" style="gap:6px;margin:4px 0 0;align-items:center;cursor:pointer">
+      <input type="checkbox" id="wcBrique" ${wcEstBrique(d) ? 'checked' : ''}>
+      <small>💶 Dans les Montants <span style="color:var(--text-muted)">(le widget devient utilisable comme variable dans les autres formules)</span></small>
     </label>
     <div class="wc-prev" id="wcPrev" style="margin-top:8px"></div>
     <div class="actions" style="margin-top:12px">
@@ -4574,6 +4626,14 @@ function openWcEditor(niveau, id){
     d.desc = $m('#wcDesc').value.trim();
     d.editable = !!$m('#wcEditable').checked;
     if(!d.editable) wcPurgeOverrides(d);
+    const briqueAvant = wcEstBrique(d);
+    d.brique = !!$m('#wcBrique').checked;
+    if(briqueAvant && !d.brique){
+      const users = wcUtilisePar(niveau, d.id);
+      if(users.length && !confirm('⚠️ « ' + d.label + ' » est utilisé dans ' + users.length + ' formule(s) :\n\n'
+          + users.map(u=>'• ' + u.label + ' = ' + u.formule).join('\n')
+          + '\n\nLe retirer des Montants rendra ces formules invalides. Continuer ?')){ d.brique = true; return; }
+    }
     if(isNew) d.id = wcSlugify(label);
     cfg.defs[niveau+':'+d.id] = d;
     saveLS(); close(); renderWidgetsCfg();
