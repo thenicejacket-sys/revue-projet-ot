@@ -146,6 +146,61 @@ const shield = wgShieldChecks();
 t('bouclier : formule invalide signalée', shield.fails.length === 1 && /Marge Brute/.test(shield.fails[0]), shield.fails.join(' | '));
 wcResetOne('hab', 'margeBrute');
 
+/* ── CONTRÔLE DE COHÉRENCE DU CATALOGUE (2026-08-01) ──────────────────────────
+   Trois invariants qui doivent tenir en permanence :
+   1. toute variable proposée dans la palette est réellement calculée par le moteur ;
+   2. toute formule d'usine n'utilise que des variables existantes à son niveau ;
+   3. rien n'est proposé à un niveau où il ne serait pas calculable. */
+const grabFn = name => {
+  const i = html.indexOf('function ' + name + '(');
+  const o = html.indexOf('{', i);
+  let d = 0, j = o;
+  for (;;) { const c = html[j]; if (c === '{') d++; else if (c === '}') { d--; if (!d) break; } j++; }
+  return html.slice(i, j + 1);
+};
+const sumChecked = (vt, cat) => ({ ITE: 10, ITI: 20, Combles: 30, Plancher: 40, Fenetres: 5 })[cat] || 0;
+const vtAudits = () => 1, totalAudits = () => 3, habitations = () => [{ shab: 95 }, { shab: 68 }], seuilMargePour = c => c * 0.25;
+const m2 = v => round2(v) + ' m²';
+state.settings = { auditVT: 450, vtIte: 200, regiePct: 10 };
+eval(grabFn('_sigmaCache') + '\n' + grabFn('wgBaseVars'));
+globalThis._sigmaSeed = { coutRevient: 20000, venteTravaux: 30000, prime: 25000, marge: 10000, shab: 163, nbHab: 2 };
+const resM = { chargesTravaux: 1000, venteTravaux: 2000, audit: 450, vtIte: 200, regie: 100, coutRevient: 1750, prime: 1500, margeBrute: -250, reste: 500, marge: 250, seuil: 437 };
+const vtM = { shab: 95, sauts: 2, fileName: 'a.pdf' };
+const VH = wgBaseVars('hab', { vt: vtM, res: resM });
+const VP = wgBaseVars('proj', { blocks: [{ vt: vtM, res: resM }], tot: resM });
+const orphelinesH = wgVarsFor('hab').filter(v => VH[v.id] === undefined).map(v => v.id);
+const orphelinesP = wgVarsFor('proj').filter(v => VP[v.id] === undefined).map(v => v.id);
+t('catalogue : toute variable Habitations est calculée', orphelinesH.length === 0, orphelinesH.join(', '));
+t('catalogue : toute variable Projet est calculée', orphelinesP.length === 0, orphelinesP.join(', '));
+t('catalogue : 4 familles au maximum', [...new Set(WIDGET_VARS.map(v => v.fam))].length <= 4, [...new Set(WIDGET_VARS.map(v => v.fam))].join(' | '));
+t('catalogue : chaque variable a libellé et infobulle', WIDGET_VARS.every(v => v.label && v.tip));
+// Formules d'usine : toutes valides avec le catalogue de leur niveau
+state.widgetConfig = null; wcInit();
+const invalides = WIDGETS_USINE.filter(w => !w.special)
+  .map(w => ({ w, r: wfValidate(w.formule, w.niveau, w.id) })).filter(x => !x.r.ok);
+t('toutes les formules usine sont valides à leur niveau', invalides.length === 0,
+  invalides.map(x => x.w.niveau + '/' + x.w.id + ' : ' + x.r.error).join(' · '));
+// Nouveaux apports
+t('surface isolée = somme des 5 catégories (105 m²)', VH.surfaceIsolee === 105, VH.surfaceIsolee);
+t('Shab au niveau PROJET = somme des habitations (163)', VP.shab === 163, VP.shab);
+t('Σ coût de revient projet accessible depuis une habitation', VH.sigmaCoutRevient === 20000, VH.sigmaCoutRevient);
+t('Σ nombre d’habitations accessible depuis une habitation', VH.sigmaNbHabitations === 2, VH.sigmaNbHabitations);
+t('poids d’une habitation calculable : coutRevient ÷ sigmaCoutRevient × 100',
+  Math.abs(evalStr('coutRevient / sigmaCoutRevient * 100', VH) - 8.75) < 1e-9, evalStr('coutRevient / sigmaCoutRevient * 100', VH));
+t('Σ réservé au niveau habitation (absent au projet)', wgVarsFor('proj').every(v => !v.id.startsWith('sigma')));
+
+// ── Infobulle : la formule EST affichée, avec libellés puis valeurs ──
+const tipDef = { id: 'margeCommerciale', niveau: 'hab', label: 'Marge Commerciale', formule: 'prixVenteHT - coutRevient', champ: 'marge' };
+const astTip = wfParse(tipDef.formule);
+t('rendu formule en libellés métier',
+  wfRender(astTip, id => (WIDGET_VARS.find(v => v.id === id) || {}).label || id) === 'Prix de vente HT − Coût de revient',
+  wfRender(astTip, id => id));
+t('rendu formule en valeurs', wfRender(astTip, id => String(VH[id])) === '2000 − 1750');
+t('parenthèses réintroduites si nécessaire',
+  wfRender(wfParse('(a + b) * c'), id => id) === '(a + b) × c', wfRender(wfParse('(a + b) * c'), id => id));
+t('formule réduite à une seule grandeur = pas de formule affichée', wfEstSimple(wfParse('chargesTravaux')) === true);
+t('formule composée = formule affichée', wfEstSimple(astTip) === false);
+
 // ── A2 : aucun eval() ni new Function dans le module ──
 t('aucun eval() dans le module widgets', !/\beval\s*\(/.test(src));
 t('aucun new Function dans le module widgets', !/new\s+Function/.test(src));

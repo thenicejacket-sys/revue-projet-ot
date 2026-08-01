@@ -846,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2093,29 +2093,67 @@ function appliquerTauxMargeWidget(scope, key, taux){
   else { const b = g.blocks.find(x=> ovKey(x.vt) === key); if(!b) return; cout = num(b.res.coutRevient); }
   appliquerMargeWidget(scope, key, round2(cout * t / (100 - t)));
 }
-function appliquerMargeWidget(scope, key, cible){
+/* ── VENTE CIBLE : le chemin UNIQUE de toute valeur forcée qui dépend du prix de vente ──
+   Demande Aymeric 2026-08-01 : forcer n'importe quelle grandeur dérivée de la vente doit
+   se répercuter sur les PRIX, pas rester un chiffre d'affichage. Or toutes ces grandeurs
+   se ramènent à une seule inconnue — le prix de vente total :
+     Marge Commerciale = vente − coût      → vente = coût + marge
+     Taux de marge t   = marge / vente     → vente = coût × 100/(100−t)
+     Reste à charge    = vente − prime     → vente = reste + prime
+     Prix de vente HT                      → vente = la valeur saisie
+   On convertit donc chaque saisie en VENTE CIBLE, puis on ventile l'écart avec le moteur
+   commun (prime CEE disponible → déficit de marge → prorata des ventes).
+   NE SONT PAS concernés : Marge Brute et Coût de revient — ils dépendent des prix
+   d'ACHAT (coûts réels) ; les ventiler sur la vente serait faux. Ils restent des
+   valeurs forcées d'affichage, signalées par le bouclier. */
+function ovFieldsVente(){ return ['marge','venteTravaux','reste','w_tauxMarge']; }
+function appliquerVenteCible(scope, key, venteCible){
   const g = calcGlobal();
+  const purge = () => {
+    if(scope === 'g'){ if(state.overrides && state.overrides.global) ovFieldsVente().forEach(f=> delete state.overrides.global[f]); }
+    else if(state.overrides && state.overrides.vt && state.overrides.vt[key]) ovFieldsVente().forEach(f=> delete state.overrides.vt[key][f]);
+  };
   if(scope === 'g'){
-    const a = calcAjustementVersMarge(num(cible), { bidirectionnel: true });
-    if(a.aucunPoste){ applyOv('g', '', 'marge', num(cible)); return; }   // rien à ventiler : simple valeur forcée
+    // Viser une vente totale revient à viser la marge correspondante : marge = vente − coût.
+    const cibleMarge = round2(num(venteCible) - num(g.tot.coutRevient));
+    const a = calcAjustementVersMarge(cibleMarge, { bidirectionnel: true });
+    if(a.aucunPoste){ applyOv('g', '', 'venteTravaux', num(venteCible)); return; }
     appliquerVentilation(a, { exact: true });
-    if(state.overrides && state.overrides.global){ delete state.overrides.global.marge; delete state.overrides.global.w_tauxMarge; }
-    if(Math.abs(a.residuel) > 1) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % par habitation : il reste ' + eur(a.residuel) + ' d\'écart avec la marge demandée.');
+    purge();
+    if(Math.abs(a.residuel) > 1) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % par habitation : il reste ' + eur(a.residuel) + ' d\'écart avec la valeur demandée.');
   } else {
     const b = g.blocks.find(x=> ovKey(x.vt) === key);
     if(!b) return;
     const cats = b.res.lignes.filter(l=> !l.pc && !l.itePart && CHARGE_MAP[l.cat] && num(l.vente) > 0 && num(l.surf) > 0);
     const venteCat = cats.reduce((s,l)=> s + num(l.vR), 0);
-    if(venteCat <= 0){ applyOv('v', key, 'marge', num(cible)); return; } // aucune catégorie chiffrée : simple valeur forcée
-    const deficit = num(cible) - num(b.res.marge);
-    const k = Math.max(-GO_FIX_HAUSSE_MAX, Math.min(GO_FIX_HAUSSE_MAX, deficit / venteCat));
+    if(venteCat <= 0){ applyOv('v', key, 'venteTravaux', num(venteCible)); return; }
+    // L'écart porte sur les seules catégories ventilables : les éléments à la pièce et la
+    // part ITE ne bougent pas, on ne demande donc aux catégories que ce qu'elles doivent.
+    const ecart = num(venteCible) - num(b.res.venteTravaux);
+    const k = Math.max(-GO_FIX_HAUSSE_MAX, Math.min(GO_FIX_HAUSSE_MAX, ecart / venteCat));
     if(!state.prixVentil) state.prixVentil = {};
     state.prixVentil[key] = state.prixVentil[key] || {};
     cats.forEach(l=>{ state.prixVentil[key][l.cat] = round2(num(l.vente) * (1 + k)); });
-    if(state.overrides && state.overrides.vt && state.overrides.vt[key]){ delete state.overrides.vt[key].marge; delete state.overrides.vt[key].w_tauxMarge; }
-    if(Math.abs(deficit / venteCat) > GO_FIX_HAUSSE_MAX) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % : la marge demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
+    purge();
+    if(Math.abs(ecart / venteCat) > GO_FIX_HAUSSE_MAX) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % : la valeur demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
   }
   saveLS();
+}
+// Marge forcée → vente cible = coût de revient + marge voulue.
+function appliquerMargeWidget(scope, key, cible){
+  const g = calcGlobal();
+  const cout = scope === 'g' ? num(g.tot.coutRevient)
+             : num((g.blocks.find(x=> ovKey(x.vt) === key) || {res:{}}).res.coutRevient);
+  appliquerVenteCible(scope, key, round2(cout + num(cible)));
+}
+// Prix de vente HT forcé → c'est directement la vente cible.
+function appliquerVenteWidget(scope, key, cible){ appliquerVenteCible(scope, key, round2(num(cible))); }
+// Reste à charge forcé → vente cible = reste voulu + prime CEE (la prime ne bouge pas).
+function appliquerResteWidget(scope, key, cible){
+  const g = calcGlobal();
+  const prime = scope === 'g' ? num(g.tot.prime)
+              : num((g.blocks.find(x=> ovKey(x.vt) === key) || {res:{}}).res.prime);
+  appliquerVenteCible(scope, key, round2(num(cible) + prime));
 }
 
 function annulerAjustementGo(){
@@ -2493,6 +2531,11 @@ function calcGlobal(){
   tot.reste      = has('reste')      ? num(gov.reste)      : (has('venteTravaux')                 ? tot.venteTravaux - tot.prime        : tot.reste);
   tot.marge      = has('marge')      ? num(gov.marge)      : ((has('venteTravaux')||has('coutRevient')) ? tot.venteTravaux - tot.coutRevient : tot.marge);
   tot.margeBrute = has('margeBrute') ? num(gov.margeBrute) : tot.margeBrute;   // prime & charges non éditables -> pas de déclencheur
+  // Graine des totaux Σ, lisibles depuis les formules d'habitation (cf. _sigmaCache).
+  _sigmaSeed = { coutRevient:round2(tot.coutRevient), venteTravaux:round2(tot.venteTravaux),
+                 prime:round2(tot.prime), marge:round2(tot.marge),
+                 shab:round2(habitations().reduce((s,v)=> s + num(v.shab), 0)),
+                 nbHab:habitations().length };
   tot.seuil = seuilMargePour(tot.coutRevient);
   tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= tot.seuil);
   tot.ov = gov;
@@ -3784,29 +3827,42 @@ const WIDGETS_USINE = [
 // Catalogue des VARIABLES utilisables dans une formule — les grandeurs RÉELLES du moteur.
 // fam : famille affichée dans la palette. Chaque variable : libellé métier, unité, infobulle.
 const WIDGET_VARS = [
-  { id:'chargesTravaux',   fam:'Résultats du calcul', label:'Charges travaux',   unit:'€', tip:'Coût d’achat des travaux (lignes cochées × prix d’achat)' },
-  { id:'prixVenteHT',      fam:'Résultats du calcul', label:'Prix de vente HT',  unit:'€', tip:'Σ lignes cochées × prix de vente du barème' },
-  { id:'auditVT',          fam:'Résultats du calcul', label:'Audit VT',          unit:'€', tip:'Nb audits × montant Audit VT' },
-  { id:'fraisVtIte',       fam:'Résultats du calcul', label:'Frais VT ITE',      unit:'€', tip:'Frais VT ITE (fixe ou part répartie)' },
-  { id:'regieCommerciale', fam:'Résultats du calcul', label:'Régie commerciale', unit:'€', tip:'Charges travaux × % de régie' },
-  { id:'coutRevient',      fam:'Résultats du calcul', label:'Coût de revient',   unit:'€', tip:'Charges + audit + VT ITE + régie' },
-  { id:'primeCEE',         fam:'Résultats du calcul', label:'Prime CEE',         unit:'€', tip:'Prime issue du barème de valorisation' },
-  { id:'margeBrute',       fam:'Résultats du calcul', label:'Marge Brute',       unit:'€', tip:'Prime CEE − coûts d’achat' },
-  { id:'resteACharge',     fam:'Résultats du calcul', label:'Reste à charge',    unit:'€', tip:'Prix de vente HT − Prime CEE' },
-  { id:'margeCommerciale', fam:'Résultats du calcul', label:'Marge Commerciale', unit:'€', tip:'Prix de vente HT − coût de revient' },
-  { id:'surfIte',      fam:'Surfaces cochées', label:'Surface ITE',      unit:'m²', tip:'Surface nette cochée en ITE' },
-  { id:'surfIti',      fam:'Surfaces cochées', label:'Surface ITI',      unit:'m²', tip:'Surface nette cochée en ITI' },
-  { id:'surfCombles',  fam:'Surfaces cochées', label:'Surface Combles',  unit:'m²', tip:'Surface nette cochée en Combles' },
-  { id:'surfPlancher', fam:'Surfaces cochées', label:'Surface Plancher', unit:'m²', tip:'Surface nette cochée en Plancher bas' },
-  { id:'surfFenetres', fam:'Surfaces cochées', label:'Surface Fenêtres', unit:'m²', tip:'Surface nette cochée en Menuiseries' },
-  { id:'shab',        fam:'Habitation', label:'Surface habitable (Shab)', unit:'m²', tip:'Shab de l’habitation (étape Extraction)', hab:true },
-  { id:'nbAudits',    fam:'Habitation', label:'Nombre d’audits',     unit:'',   tip:'Champ « Audit » de l’étape Extraction' },
-  { id:'sautsClasse', fam:'Habitation', label:'Sauts de classe',          unit:'',   tip:'Sauts de classe énergétique (étape Valorisation)', hab:true },
-  { id:'nbHabitations', fam:'Projet', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le calcul (les exclues ne comptent pas)', proj:true },
-  { id:'montantAuditVT', fam:'Paramètres', label:'Montant Audit VT',  unit:'€', tip:'Paramètres → montant d’un audit VT' },
-  { id:'montantVtIte',   fam:'Paramètres', label:'Montant VT ITE',    unit:'€', tip:'Paramètres → montant de la VT ITE dédiée' },
-  { id:'tauxRegie',      fam:'Paramètres', label:'% Régie',           unit:'%', tip:'Paramètres → pourcentage de régie commerciale' },
-  { id:'seuilMarge',     fam:'Paramètres', label:'Seuil de marge',    unit:'€', tip:'Objectif de marge (montant fixe, ou % du prix de vente évalué sur ce bloc)' },
+  // 💶 ARGENT — les 10 montants du calcul. Ce sont les mêmes noms à l'habitation et
+  // au projet : au projet ils valent la somme du dossier.
+  { id:'chargesTravaux',   fam:'💶 Argent', label:'Charges travaux',   unit:'€', tip:'Coût d’achat des travaux (lignes cochées × prix d’achat)' },
+  { id:'prixVenteHT',      fam:'💶 Argent', label:'Prix de vente HT',  unit:'€', tip:'Lignes cochées × prix de vente du barème' },
+  { id:'auditVT',          fam:'💶 Argent', label:'Audit VT',          unit:'€', tip:'Nombre d’audits × montant Audit VT' },
+  { id:'fraisVtIte',       fam:'💶 Argent', label:'Frais VT ITE',      unit:'€', tip:'Frais de VT ITE (montant fixe, ou part répartie)' },
+  { id:'regieCommerciale', fam:'💶 Argent', label:'Régie commerciale', unit:'€', tip:'Charges travaux × % de régie' },
+  { id:'coutRevient',      fam:'💶 Argent', label:'Coût de revient',   unit:'€', tip:'Charges + audit + VT ITE + régie' },
+  { id:'primeCEE',         fam:'💶 Argent', label:'Prime CEE',         unit:'€', tip:'Prime issue du barème de valorisation' },
+  { id:'margeBrute',       fam:'💶 Argent', label:'Marge Brute',       unit:'€', tip:'Prime CEE − tous les coûts d’achat' },
+  { id:'resteACharge',     fam:'💶 Argent', label:'Reste à charge',    unit:'€', tip:'Prix de vente HT − Prime CEE : ce que paie le client' },
+  { id:'margeCommerciale', fam:'💶 Argent', label:'Marge Commerciale', unit:'€', tip:'Prix de vente HT − coût de revient' },
+  // 📐 SURFACES & QUANTITÉS — de quoi construire un ratio (€/m², prime par audit…).
+  { id:'surfaceIsolee',fam:'📐 Surfaces & quantités', label:'Surface isolée totale', unit:'m²', tip:'Somme des surfaces cochées des 5 catégories — évite de les additionner à la main' },
+  { id:'surfIte',      fam:'📐 Surfaces & quantités', label:'Surface ITE',      unit:'m²', tip:'Surface nette cochée en ITE' },
+  { id:'surfIti',      fam:'📐 Surfaces & quantités', label:'Surface ITI',      unit:'m²', tip:'Surface nette cochée en ITI' },
+  { id:'surfCombles',  fam:'📐 Surfaces & quantités', label:'Surface Combles',  unit:'m²', tip:'Surface nette cochée en Combles' },
+  { id:'surfPlancher', fam:'📐 Surfaces & quantités', label:'Surface Plancher', unit:'m²', tip:'Surface nette cochée en Plancher bas' },
+  { id:'surfFenetres', fam:'📐 Surfaces & quantités', label:'Surface Fenêtres', unit:'m²', tip:'Surface nette cochée en Menuiseries' },
+  { id:'shab',         fam:'📐 Surfaces & quantités', label:'Surface habitable', unit:'m²', tip:'Shab — à l’habitation la sienne, au projet la somme des habitations incluses. Sert aux ratios : prime au m², coût au m²' },
+  { id:'nbAudits',     fam:'📐 Surfaces & quantités', label:'Nombre d’audits',  unit:'',   tip:'À l’habitation le sien, au projet le total du dossier' },
+  { id:'nbHabitations',fam:'📐 Surfaces & quantités', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le calcul (les exclues ne comptent pas)', proj:true },
+  { id:'sautsClasse',  fam:'📐 Surfaces & quantités', label:'Sauts de classe',  unit:'',   tip:'Sauts de classe énergétique de cette habitation (étape Valorisation)', hab:true },
+  // ⚙️ PARAMÈTRES — les réglages de l'onglet Paramètres, identiques partout.
+  { id:'montantAuditVT', fam:'⚙️ Paramètres', label:'Montant Audit VT',  unit:'€', tip:'Paramètres → montant d’un audit VT' },
+  { id:'montantVtIte',   fam:'⚙️ Paramètres', label:'Montant VT ITE',    unit:'€', tip:'Paramètres → montant de la VT ITE dédiée' },
+  { id:'tauxRegie',      fam:'⚙️ Paramètres', label:'% Régie',           unit:'%', tip:'Paramètres → pourcentage de régie commerciale' },
+  { id:'seuilMarge',     fam:'⚙️ Paramètres', label:'Objectif de marge', unit:'€', tip:'À l’habitation, sa part de l’objectif projet (au prorata du coût de revient) ; au projet, l’objectif entier' },
+  // Σ TOTAUX DU PROJET — disponibles DANS une formule d'habitation, pour situer un
+  // logement dans son dossier : poids, écart à la moyenne, part de la prime…
+  { id:'sigmaCoutRevient', fam:'Σ Totaux du projet', label:'Σ Coût de revient projet', unit:'€', tip:'Coût de revient de TOUT le dossier — pour un poids : coutRevient ÷ sigmaCoutRevient × 100', hab:true },
+  { id:'sigmaPrixVenteHT', fam:'Σ Totaux du projet', label:'Σ Prix de vente projet',   unit:'€', tip:'Prix de vente HT de tout le dossier', hab:true },
+  { id:'sigmaPrimeCEE',    fam:'Σ Totaux du projet', label:'Σ Prime CEE projet',       unit:'€', tip:'Somme des primes CEE du dossier', hab:true },
+  { id:'sigmaMarge',       fam:'Σ Totaux du projet', label:'Σ Marge projet',           unit:'€', tip:'Marge commerciale de tout le dossier', hab:true },
+  { id:'sigmaShab',        fam:'Σ Totaux du projet', label:'Σ Surface habitable projet', unit:'m²', tip:'Somme des Shab des habitations incluses', hab:true },
+  { id:'sigmaNbHabitations', fam:'Σ Totaux du projet', label:'Σ Nombre d’habitations', unit:'', tip:'Nombre d’habitations incluses dans le dossier', hab:true },
 ];
 function wgVarsFor(niveau){ return WIDGET_VARS.filter(v => niveau==='hab' ? !v.proj : !v.hab); }
 function wcUsine(niveau, id){ return WIDGETS_USINE.find(w => w.niveau===niveau && w.id===id) || null; }
@@ -3913,6 +3969,27 @@ function wfParse(src){
   if(p < toks.length) throw { message:'Symbole en trop après la formule : « '+(toks[p].v!==undefined?toks[p].v:toks[p].t)+' »' };
   return ast;
 }
+/* Rendu LISIBLE d'une formule : on reparcourt l'AST en remplaçant chaque identifiant
+   par ce que `resolve` renvoie — le libellé métier, ou la valeur chiffrée. Sert à
+   l'infobulle des widgets : « Marge = Prix de vente HT − Coût de revient = 26 000 € − 16 515 € ».
+   Les parenthèses ne sont réintroduites que là où elles sont nécessaires. */
+function wfRender(ast, resolve){
+  if(!ast) return '';
+  switch(ast.k){
+    case 'n': return String(ast.v).replace('.', ',');
+    case 'v': return resolve(ast.id);
+    case 'neg': return '−' + wfRender(ast.a, resolve);
+    default: {
+      const op = { '+':' + ', '-':' − ', '*':' × ', '/':' ÷ ' }[ast.k];
+      const par = n => ((n.k==='+' || n.k==='-') && (ast.k==='*' || ast.k==='/'))
+        ? '(' + wfRender(n, resolve) + ')' : wfRender(n, resolve);
+      return par(ast.a) + op + par(ast.b);
+    }
+  }
+}
+// Une formule qui n'est qu'une seule grandeur (ex. « chargesTravaux ») n'apprend rien :
+// pas de formule affichée dans l'infobulle, juste la description éventuelle.
+function wfEstSimple(ast){ return !!ast && ast.k === 'v'; }
 function wfIdents(ast, out){
   out = out || [];
   if(!ast) return out;
@@ -3977,10 +4054,27 @@ function wgFindCycle(niveau, startId, startFormule){
    ctx proj : { blocks, tot }        (calcGlobal())
    Un widget natif à formule d'usine lit res[champ]/tot[champ] DIRECTEMENT :
    identité stricte avec l'existant, y compris overrides ✎ et propagation. */
+/* Totaux Σ du dossier pour les formules d'habitation. calcGlobal() appelle wgValue()
+   pour chaque widget de chaque bloc : recalculer le global à l'intérieur provoquerait
+   une récursion infinie. On mémorise donc les totaux le temps d'UN rendu — _sigmaSeed
+   est posé par calcGlobal() juste après avoir calculé tot. */
+let _sigmaSeed = null;
+function _sigmaCache(){
+  return _sigmaSeed || { coutRevient:0, venteTravaux:0, prime:0, marge:0, shab:0, nbHab:0 };
+}
 function wgBaseVars(niveau, ctx){
   if(niveau==='hab'){
     const { vt, res } = ctx;
+    // Totaux Σ du projet, disponibles dans une formule d'habitation (poids, parts…).
+    // Calculés une seule fois et mémorisés : calcGlobal() est trop coûteux pour être
+    // rappelé à chaque widget de chaque bloc.
+    const sig = _sigmaCache();
+    const surfH = ['ITE','ITI','Combles','Plancher','Fenetres'].reduce((s,c)=> s + sumChecked(vt,c), 0);
     return {
+      surfaceIsolee: round2(surfH),
+      sigmaCoutRevient: sig.coutRevient, sigmaPrixVenteHT: sig.venteTravaux,
+      sigmaPrimeCEE: sig.prime, sigmaMarge: sig.marge,
+      sigmaShab: sig.shab, sigmaNbHabitations: sig.nbHab,
       chargesTravaux:res.chargesTravaux, prixVenteHT:res.venteTravaux, auditVT:res.audit,
       fraisVtIte:res.vtIte, regieCommerciale:res.regie, coutRevient:res.coutRevient,
       primeCEE:res.prime, margeBrute:res.margeBrute, resteACharge:res.reste, margeCommerciale:res.marge,
@@ -3993,7 +4087,12 @@ function wgBaseVars(niveau, ctx){
   }
   const { blocks, tot } = ctx;
   const sum = f => blocks.reduce((a,b)=> a + f(b), 0);
+  const surfP = ['ITE','ITI','Combles','Plancher','Fenetres'].reduce((s,c)=> s + sum(b=>sumChecked(b.vt,c)), 0);
   return {
+    surfaceIsolee: round2(surfP),
+    // Au projet, la Surface habitable est la somme des habitations incluses : c'est ce
+    // qui permet un ratio au m² sur le dossier entier (prime/m², coût/m²).
+    shab: round2(habitations().reduce((s,v)=> s + num(v.shab), 0)),
     chargesTravaux:tot.chargesTravaux, prixVenteHT:tot.venteTravaux, auditVT:tot.audit,
     fraisVtIte:tot.vtIte, regieCommerciale:tot.regie, coutRevient:tot.coutRevient,
     primeCEE:tot.prime, margeBrute:tot.margeBrute, resteACharge:tot.reste, margeCommerciale:tot.marge,
@@ -4068,6 +4167,31 @@ function wgFmt(def, v){
     return num(v).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec }) + ' %';
   return num(v).toLocaleString('fr-FR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 }
+/* INFOBULLE d'un widget — TOUJOURS la formule qui a produit le résultat, en clair :
+   « Marge Commerciale = Prix de vente HT − Coût de revient = 26 000,00 € − 16 515,00 € ».
+   Deux rendus du même AST : les LIBELLÉS métier, puis les VALEURS du bloc courant.
+   Une formule réduite à une seule grandeur n'affiche rien (elle n'apprendrait rien) ;
+   la description métier vient compléter quand elle existe. */
+function wgFormulaTip(niveau, def, ctx, cache, fmod){
+  if(def.special === 'bareme' || def.special === 'decision') return def.desc || '';
+  let ast = null;
+  try{ ast = wfParse(def.formule); }catch(_){ return def.desc || ''; }
+  if(wfEstSimple(ast)) return def.desc || '';
+  const vars = cache.__vars || (cache.__vars = wgBaseVars(niveau, ctx));
+  const defs = {}; wcList(niveau, true).forEach(d=> defs[d.id] = d);
+  const libelle = id => (defs[id] && id !== def.id ? defs[id].label : ((WIDGET_VARS.find(v=>v.id===id)||{}).label || id));
+  const valeur  = id => {
+    const v = (id !== def.id && defs[id] && !defs[id].special)
+      ? wgValue(niveau, defs[id], ctx, cache)
+      : (vars[id] !== undefined ? vars[id] : null);
+    if(v === null || v === undefined) return '—';
+    const u = (WIDGET_VARS.find(x=>x.id===id)||{}).unit;
+    return u === '€' || defs[id] ? eur(v) : (u === 'm²' ? m2(v) : String(round2(v)).replace('.', ','));
+  };
+  return def.label + ' = ' + wfRender(ast, libelle) + ' = ' + wfRender(ast, valeur)
+    + (fmod ? ' — ƒ formule modifiée (usine : ' + (wcUsine(def.niveau, def.id)||{}).formule + ')' : '')
+    + (def.desc ? ' — ' + def.desc : '');
+}
 // La grille de widgets d'un bloc (habitation ou total projet), depuis la CONFIG :
 // ordre, visibilité, libellés, formats — et badge « ƒ » sur toute formule modifiée.
 function wgKpiGridHtml(niveau, ctx){
@@ -4090,13 +4214,7 @@ function wgKpiGridHtml(niveau, ctx){
     return kpiCell({scope, key, field:wgOvField(def), type:'num', label:def.label,
       display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
       edited:ov[wgOvField(def)] != null, locked:!wcEditable(def), fmod,
-      formula:(def.special==='bareme'
-        ? def.desc
-        // La formule est affichée au survol PAR DÉFAUT ; décocher « Afficher la formule »
-        // dans l'éditeur ne laisse que la description métier (ou rien).
-        : ((def.showFormule === false ? '' : def.label+' = '+def.formule)
-           + (fmod ? ' — ƒ formule modifiée (usine : '+(wcUsine(def.niveau,def.id)||{}).formule+')' : '')
-           + (def.desc ? (def.showFormule === false ? '' : ' — ')+def.desc : '')))});
+      formula: wgFormulaTip(niveau, def, ctx, cache, fmod)});
   });
   return '<div class="kpi-grid">' + cells.join('') + '</div>';
 }
@@ -4316,16 +4434,16 @@ function openWcEditor(niveau, id){
            <input type="text" id="wcFormule" value="${esc(d.formule)}" placeholder="ex. primeCEE / shab" autocomplete="off" spellcheck="false">
          </div>
          <div class="wc-err" id="wcErr"></div>
-         ${fams.map(f=>`<div class="wc-fam">${esc(f)}</div><div class="wc-pal">${vars.filter(v=>v.fam===f).map(v=>`<span class="chip" data-ins="${v.id}" title="${esc(v.tip)}${v.unit?' ('+v.unit+')':''}">${esc(v.label)}</span>`).join('')}</div>`).join('')}
-         ${widgetRefs.length?`<div class="wc-fam">Widgets (${niveau==='hab'?'Habitations':'Projet'})</div><div class="wc-pal">${widgetRefs.map(w=>`<span class="chip" data-ins="${w.id}" title="Valeur du widget « ${esc(w.label)} »">🧩 ${esc(w.label)}</span>`).join('')}</div>`:''}
+         <input type="text" id="wcSearch" placeholder="🔎 Filtrer les variables (ex. prime, surface, marge…)" autocomplete="off" style="margin:8px 0 2px">
+         <div id="wcPalette">
+         ${fams.map(f=>`<div class="wc-fam" data-fam="${esc(f)}">${esc(f)}</div><div class="wc-pal" data-fam="${esc(f)}">${vars.filter(v=>v.fam===f).map(v=>`<span class="chip" data-ins="${v.id}" data-search="${esc((v.label+' '+v.id+' '+v.tip).toLowerCase())}" title="${esc(v.tip)}">${esc(v.label)}${v.unit?` <b style="color:var(--text-muted);font-weight:600">${v.unit}</b>`:''}</span>`).join('')}</div>`).join('')}
+         ${widgetRefs.length?`<div class="wc-fam" data-fam="w">🧩 Autres widgets (${niveau==='hab'?'Habitations':'Projet'})</div><div class="wc-pal" data-fam="w">${widgetRefs.map(w=>`<span class="chip" data-ins="${w.id}" data-search="${esc((w.label+' '+w.id).toLowerCase())}" title="Valeur du widget « ${esc(w.label)} »">🧩 ${esc(w.label)}</span>`).join('')}</div>`:''}
+         </div>
          <div class="wc-fam">Opérateurs</div>
          <div class="wc-pal">${['+','−','×','÷','(',')'].map(op=>`<span class="chip op" data-ins=" ${op} ">${op}</span>`).join('')}</div>`}
     <label class="fld">Description (infobulle au survol du widget)</label>
     <input type="text" id="wcDesc" value="${esc(d.desc||'')}" placeholder="Explication métier affichée au survol">
-    <label class="flex" style="gap:6px;margin:6px 0 0;align-items:center;cursor:pointer">
-      <input type="checkbox" id="wcShowFrm" ${d.showFormule === false ? '' : 'checked'}>
-      <small>Afficher aussi la formule dans l'infobulle <span style="color:var(--text-muted)">(décoche pour ne garder que ta description)</span></small>
-    </label>
+    
     <label class="flex" style="gap:6px;margin:4px 0 0;align-items:center;cursor:pointer">
       <input type="checkbox" id="wcEditable" ${d.editable === false ? '' : 'checked'}>
       <small>Valeur éditable à l'étape Charges &amp; marges <span style="color:var(--text-muted)">(décoche pour verrouiller le widget en lecture seule 🔒, comme la Prime CEE)</span></small>
@@ -4361,6 +4479,22 @@ function openWcEditor(niveau, id){
       + '</tbody></table>';
   };
   if(!frmLocked){
+    // Filtre de la palette : masque les pastilles ET les familles devenues vides.
+    const search = $m('#wcSearch');
+    if(search) search.addEventListener('input', ()=>{
+      const q = search.value.trim().toLowerCase();
+      box.querySelectorAll('#wcPalette .wc-pal').forEach(pal=>{
+        let visibles = 0;
+        pal.querySelectorAll('.chip').forEach(c=>{
+          const ok = !q || (c.dataset.search || '').includes(q);
+          c.style.display = ok ? '' : 'none';
+          if(ok) visibles++;
+        });
+        pal.style.display = visibles ? '' : 'none';
+        const titre = box.querySelector('#wcPalette .wc-fam[data-fam="' + pal.dataset.fam + '"]');
+        if(titre) titre.style.display = visibles ? '' : 'none';
+      });
+    });
     // Palette -> insertion au curseur, champ et palette écrivent la MÊME formule.
     box.querySelectorAll('[data-ins]').forEach(ch=> ch.addEventListener('click', ()=>{
       const ins = ch.dataset.ins;
@@ -4410,7 +4544,6 @@ function openWcEditor(niveau, id){
     d.label = label;
     if(d.special !== 'decision'){ d.format = $m('#wcFormat').value; d.dec = Math.max(0, Math.min(6, Math.round(num($m('#wcDec').value)))); }
     d.desc = $m('#wcDesc').value.trim();
-    d.showFormule = !!$m('#wcShowFrm').checked;
     d.editable = !!$m('#wcEditable').checked;
     if(!d.editable) wcPurgeOverrides(d);
     if(isNew) d.id = wcSlugify(label);
@@ -4518,9 +4651,14 @@ function openKpiEditor(kpi){
   // ça VENTILE les prix de vente pour l'atteindre (habitation seule, ou projet
   // pondéré par la prime CEE). Cf. appliquerMargeWidget. Les autres widgets
   // gardent l'override classique (✎/↺).
+  // Toute grandeur qui DÉPEND du prix de vente est rétro-propagée dans les prix
+  // (cf. appliquerVenteCible) ; les autres restent des valeurs forcées d'affichage.
   const commit = v => {
-    if(field === 'marge' && v !== null && v !== '') appliquerMargeWidget(scope, key, num(v));
-    else if(field === 'w_tauxMarge' && v !== null && v !== '') appliquerTauxMargeWidget(scope, key, num(v));
+    const saisie = (v !== null && v !== '');
+    if(saisie && field === 'marge')             appliquerMargeWidget(scope, key, num(v));
+    else if(saisie && field === 'w_tauxMarge')  appliquerTauxMargeWidget(scope, key, num(v));
+    else if(saisie && field === 'venteTravaux') appliquerVenteWidget(scope, key, num(v));
+    else if(saisie && field === 'reste')        appliquerResteWidget(scope, key, num(v));
     else applyOv(scope, key, field, v);
     renderStep4();
   };
