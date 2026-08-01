@@ -67,7 +67,7 @@ t('formule usine margeBrute validée', wfValidate('primeCEE - (chargesTravaux + 
 // (moyenne par logement calculable partout) ; les Σ restent réservés à l'habitation.
 t('nbHabitations acceptée au niveau hab', wfValidate('nbHabitations + 1', 'hab', '∅').ok === true);
 t('nbHabitations acceptée au niveau proj', wfValidate('nbHabitations + 1', 'proj', '∅').ok === true);
-t('Σ refusé au niveau projet', wfValidate('sigmaMarge + 1', 'proj', '∅').ok === false);
+t('une formule Σ est désormais refusée partout', wfValidate('sigmaMarge + 1', 'hab', '∅').ok === false && wfValidate('sigmaMarge + 1', 'proj', '∅').ok === false);
 
 // ── E3 : cycles refusés avec chaîne, auto-référence moteur autorisée ──
 state.widgetConfig = null; wcInit();
@@ -83,15 +83,15 @@ t('auto-référence = grandeur moteur (pas un cycle)', wfValidate('chargesTravau
 // ── M1 / R2 : l'usine reproduit les 12 widgets actuels, et chaque formule usine
 //    ÉQUIVAUT au champ moteur correspondant (préuve d'identité en config par défaut) ──
 state.widgetConfig = null; wcInit();
-t('usine : 16 widgets Habitations (12 + 4 ratios masqués)', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 16);
+t('usine : 15 widgets Habitations (12 + 3 ratios masqués)', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 15);
 t('usine : 16 widgets Projet (12 + 4 ratios masqués)', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 16);
 t('usine : 6 visibles Habitations (5 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'hab' && w.visible).length === 6);
 t('usine : 8 visibles Projet (7 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'proj' && w.visible).length === 8);
 // ── Widgets SUPPLÉMENTAIRES livrés masqués (ratios prêts à l'emploi) ──
 // Aucun marqueur « exemple » : une fois activés, ce sont des widgets comme les autres.
-const supp = ['coutM2','primeM2','poidsProjet','ecartObjectif','margeParLogement'];
+const supp = ['coutM2','primeM2','ecartObjectif','margeParLogement'];
 const suppUsine = WIDGETS_USINE.filter(w => supp.includes(w.id));
-t('8 widgets supplémentaires livrés (4 par niveau)', suppUsine.length === 8, suppUsine.length);
+t('7 widgets supplémentaires livrés', suppUsine.length === 7, suppUsine.length);
 t('tous MASQUÉS par défaut', suppUsine.every(w => w.visible === false),
   suppUsine.filter(w => w.visible).map(w => w.id).join(','));
 t('aucune mention « exemple » dans leurs libellés ou descriptions',
@@ -101,8 +101,6 @@ t('aucun badge « exemple » dans l’interface des Paramètres', !/>exemple<\/s
 const suppInvalides = suppUsine.map(w => ({ w, r: wfValidate(w.formule, w.niveau, w.id) })).filter(x => !x.r.ok);
 t('toutes leurs formules sont valides à leur niveau', suppInvalides.length === 0,
   suppInvalides.map(x => x.w.niveau + '/' + x.w.id + ' : ' + x.r.error).join(' · '));
-t('le poids projet reste réservé au niveau habitation',
-  !!wcUsine('hab', 'poidsProjet') && !wcUsine('proj', 'poidsProjet'));
 t('calculable : coût au m² = 1750 ÷ 95', Math.abs(evalStr('coutRevient / shab', { coutRevient: 1750, shab: 95 }) - 18.42) < 0.01);
 t('calculable : écart à l’objectif = marge − seuil', evalStr('margeCommerciale - seuilMarge', { margeCommerciale: 250, seuilMarge: 437 }) === -187);
 // Taux de marge placé juste après la Marge Commerciale, avant la Décision
@@ -183,8 +181,8 @@ const sumChecked = (vt, cat) => ({ ITE: 10, ITI: 20, Combles: 30, Plancher: 40, 
 const vtAudits = () => 1, totalAudits = () => 3, habitations = () => [{ shab: 95 }, { shab: 68 }], seuilMargePour = c => c * 0.25;
 const m2 = v => round2(v) + ' m²';
 state.settings = { auditVT: 450, vtIte: 200, regiePct: 10 };
-eval(grabFn('_sigmaCache') + '\n' + grabFn('wgBaseVars'));
-globalThis._sigmaSeed = { coutRevient: 20000, venteTravaux: 30000, prime: 25000, marge: 10000, shab: 163, nbHab: 2 };
+eval(grabFn('_repartCache') + '\n' + grabFn('wgBaseVars'));
+globalThis._repartSeed = { shab: 163, nbHab: 2 };   // base de répartition du dossier
 const resM = { chargesTravaux: 1000, venteTravaux: 2000, audit: 450, vtIte: 200, regie: 100, coutRevient: 1750, prime: 1500, margeBrute: -250, reste: 500, marge: 250, seuil: 437 };
 const vtM = { shab: 95, sauts: 2, fileName: 'a.pdf' };
 const VH = wgBaseVars('hab', { vt: vtM, res: resM });
@@ -193,7 +191,6 @@ const orphelinesH = wgVarsFor('hab').filter(v => VH[v.id] === undefined).map(v =
 const orphelinesP = wgVarsFor('proj').filter(v => VP[v.id] === undefined).map(v => v.id);
 t('catalogue : toute variable Habitations est calculée', orphelinesH.length === 0, orphelinesH.join(', '));
 t('catalogue : toute variable Projet est calculée', orphelinesP.length === 0, orphelinesP.join(', '));
-t('catalogue : 3 familles au maximum', [...new Set(WIDGET_VARS.map(v => v.fam))].length <= 3, [...new Set(WIDGET_VARS.map(v => v.fam))].join(' | '));
 // Audit de pertinence (2026-08-01) : aucune variable qui recalcule un montant déjà exposé,
 // aucune surface par catégorie (inutilisable sans son montant), aucune donnée hors ratio.
 const RETIREES = ['montantAuditVT','montantVtIte','tauxRegie','surfIte','surfIti','surfCombles','surfPlancher','surfFenetres','nbAudits','sautsClasse','sigmaShab','sigmaNbHabitations'];
@@ -215,11 +212,6 @@ t('toutes les formules usine sont valides à leur niveau', invalides.length === 
 // Nouveaux apports
 t('surface isolée = somme des 5 catégories (105 m²)', VH.surfaceIsolee === 105, VH.surfaceIsolee);
 t('Shab au niveau PROJET = somme des habitations (163)', VP.shab === 163, VP.shab);
-t('Σ coût de revient projet accessible depuis une habitation', VH.sigmaCoutRevient === 20000, VH.sigmaCoutRevient);
-t('Σ nombre d’habitations accessible depuis une habitation', VH.sigmaNbHabitations === 2, VH.sigmaNbHabitations);
-t('poids d’une habitation calculable : coutRevient ÷ sigmaCoutRevient × 100',
-  Math.abs(evalStr('coutRevient / sigmaCoutRevient * 100', VH) - 8.75) < 1e-9, evalStr('coutRevient / sigmaCoutRevient * 100', VH));
-t('Σ réservé au niveau habitation (absent au projet)', wgVarsFor('proj').every(v => !v.id.startsWith('sigma')));
 
 // ── Infobulle : la formule EST affichée, avec libellés puis valeurs ──
 const tipDef = { id: 'margeCommerciale', niveau: 'hab', label: 'Marge Commerciale', formule: 'prixVenteHT - coutRevient', champ: 'marge' };

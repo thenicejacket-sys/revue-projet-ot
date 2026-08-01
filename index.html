@@ -852,7 +852,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2537,11 +2537,9 @@ function calcGlobal(){
   tot.reste      = has('reste')      ? num(gov.reste)      : (has('venteTravaux')                 ? tot.venteTravaux - tot.prime        : tot.reste);
   tot.marge      = has('marge')      ? num(gov.marge)      : ((has('venteTravaux')||has('coutRevient')) ? tot.venteTravaux - tot.coutRevient : tot.marge);
   tot.margeBrute = has('margeBrute') ? num(gov.margeBrute) : tot.margeBrute;   // prime & charges non éditables -> pas de déclencheur
-  // Graine des totaux Σ, lisibles depuis les formules d'habitation (cf. _sigmaCache).
-  _sigmaSeed = { coutRevient:round2(tot.coutRevient), venteTravaux:round2(tot.venteTravaux),
-                 prime:round2(tot.prime), marge:round2(tot.marge),
-                 shab:round2(habitations().reduce((s,v)=> s + num(v.shab), 0)),
-                 nbHab:habitations().length };
+  // Base de répartition du dossier, lue par la quote-part (cf. _repartCache).
+  _repartSeed = { shab:round2(habitations().reduce((s,v)=> s + num(v.shab), 0)),
+                  nbHab:habitations().length };
   tot.seuil = seuilMargePour(tot.coutRevient);
   tot.go = gov.decision === 'go' ? true : gov.decision === 'nogo' ? false : (tot.marge >= tot.seuil);
   tot.ov = gov;
@@ -3809,8 +3807,6 @@ const WIDGETS_USINE = [
     desc:'coût de revient rapporté à la surface habitable : repère le logement qui dérape' },
   { id:'primeM2',      niveau:'hab', label:'Prime au m²',       formule:'primeCEE / surfaceIsolee', format:'eur', dec:0, ordre:210, visible:false,
     desc:'prime CEE rapportée à la surface de travaux : mesure le rendement CEE du chantier' },
-  { id:'poidsProjet',  niveau:'hab', label:'Poids dans le projet', formule:'coutRevient / sigmaCoutRevient * 100', format:'pct', dec:1, ordre:220, visible:false,
-    desc:'part de ce logement dans le coût de revient du dossier (à comparer à sa quote-part de surface)' },
   { id:'ecartObjectif',niveau:'hab', label:'Écart à l’objectif', formule:'margeCommerciale - seuilMarge', format:'eur', dec:0, ordre:230, visible:false,
     desc:'ce qui manque (négatif) ou dépasse (positif) par rapport à la part d’objectif de ce logement' },
   { id:'tauxMarge',       niveau:'hab', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:45, visible:true,
@@ -3879,13 +3875,7 @@ const WIDGET_VARS = [
   { id:'shab',          fam:'📐 Surfaces & répartition', label:'Surface habitable', unit:'m²', tip:'À l’habitation la sienne, au projet la somme des habitations incluses. Pour un coût au m² : coutRevient ÷ shab' },
   { id:'surfaceIsolee', fam:'📐 Surfaces & répartition', label:'Surface isolée',    unit:'m²', tip:'Total des surfaces cochées, toutes catégories. Pour un prix de travaux au m² : prixVenteHT ÷ surfaceIsolee' },
   { id:'quotePart',     fam:'📐 Surfaces & répartition', label:'Quote-part',        unit:'%', tip:'Poids de cette habitation dans le projet, au prorata de la surface habitable (100 % au niveau projet). C’est la clé de répartition utilisée pour l’ITE' },
-  { id:'nbHabitations', fam:'📐 Surfaces & répartition', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le dossier (les exclues ne comptent pas). Pour une moyenne par logement : sigmaMarge ÷ nbHabitations' },
-  // Σ TOTAUX DU PROJET — utilisables DANS une formule d'habitation, pour situer un
-  // logement dans son dossier (poids économique, écart à la moyenne).
-  { id:'sigmaCoutRevient', fam:'Σ Totaux du projet', label:'Σ Coût de revient projet', unit:'€', tip:'Coût de revient de TOUT le dossier — poids économique : coutRevient ÷ sigmaCoutRevient × 100', hab:true },
-  { id:'sigmaPrixVenteHT', fam:'Σ Totaux du projet', label:'Σ Prix de vente projet',   unit:'€', tip:'Prix de vente HT de tout le dossier', hab:true },
-  { id:'sigmaPrimeCEE',    fam:'Σ Totaux du projet', label:'Σ Prime CEE projet',       unit:'€', tip:'Somme des primes CEE du dossier', hab:true },
-  { id:'sigmaMarge',       fam:'Σ Totaux du projet', label:'Σ Marge projet',           unit:'€', tip:'Marge commerciale de tout le dossier', hab:true },
+  { id:'nbHabitations', fam:'📐 Surfaces & répartition', label:'Nombre d’habitations', unit:'', tip:'Habitations incluses dans le dossier (les exclues ne comptent pas). Au niveau projet, pour une moyenne par logement : margeCommerciale ÷ nbHabitations' },
 ];
 function wgVarsFor(niveau){ return WIDGET_VARS.filter(v => niveau==='hab' ? !v.proj : !v.hab); }
 function wcUsine(niveau, id){ return WIDGETS_USINE.find(w => w.niveau===niveau && w.id===id) || null; }
@@ -4093,27 +4083,23 @@ function wgFindCycle(niveau, startId, startFormule){
    ctx proj : { blocks, tot }        (calcGlobal())
    Un widget natif à formule d'usine lit res[champ]/tot[champ] DIRECTEMENT :
    identité stricte avec l'existant, y compris overrides ✎ et propagation. */
-/* Totaux Σ du dossier pour les formules d'habitation. calcGlobal() appelle wgValue()
+/* Base de répartition du dossier — surface habitable totale et nombre d'habitations.
+   C'est ce qui permet la QUOTE-PART d'une habitation. calcGlobal() appelle wgValue()
    pour chaque widget de chaque bloc : recalculer le global à l'intérieur provoquerait
-   une récursion infinie. On mémorise donc les totaux le temps d'UN rendu — _sigmaSeed
-   est posé par calcGlobal() juste après avoir calculé tot. */
-let _sigmaSeed = null;
-function _sigmaCache(){
-  return _sigmaSeed || { coutRevient:0, venteTravaux:0, prime:0, marge:0, shab:0, nbHab:0 };
-}
+   une récursion infinie. On mémorise donc ces deux totaux le temps d'UN rendu —
+   _repartSeed est posé par calcGlobal() juste après avoir calculé tot. */
+let _repartSeed = null;
+function _repartCache(){ return _repartSeed || { shab:0, nbHab:0 }; }
 function wgBaseVars(niveau, ctx){
   if(niveau==='hab'){
     const { vt, res } = ctx;
     // Totaux Σ du projet, disponibles dans une formule d'habitation (poids, parts…).
     // Calculés une seule fois et mémorisés : calcGlobal() est trop coûteux pour être
     // rappelé à chaque widget de chaque bloc.
-    const sig = _sigmaCache();
+    const sig = _repartCache();
     const surfH = ['ITE','ITI','Combles','Plancher','Fenetres'].reduce((s,c)=> s + sumChecked(vt,c), 0);
     return {
       surfaceIsolee: round2(surfH),
-      sigmaCoutRevient: sig.coutRevient, sigmaPrixVenteHT: sig.venteTravaux,
-      sigmaPrimeCEE: sig.prime, sigmaMarge: sig.marge,
-      sigmaShab: sig.shab, sigmaNbHabitations: sig.nbHab,
       chargesTravaux:res.chargesTravaux, prixVenteHT:res.venteTravaux, auditVT:res.audit,
       fraisVtIte:res.vtIte, regieCommerciale:res.regie, coutRevient:res.coutRevient,
       primeCEE:res.prime, margeBrute:res.margeBrute, resteACharge:res.reste, margeCommerciale:res.marge,
@@ -4282,8 +4268,8 @@ function wgShieldChecks(){
    formule ; l'autocomplétion propose les variables du catalogue et les widgets du niveau. */
 let _wcTab = 'hab';
 const WC_EXEMPLE_HAB = [
-  { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, shab:95, surfaceIsolee:163, quotePart:58.3, nbHabitations:2, seuilMarge:3000, sigmaCoutRevient:27990, sigmaPrixVenteHT:43800, sigmaPrimeCEE:35200, sigmaMarge:15810 } },
-  { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, shab:68, surfaceIsolee:127, quotePart:41.7, nbHabitations:2, seuilMarge:3000, sigmaCoutRevient:27990, sigmaPrixVenteHT:43800, sigmaPrimeCEE:35200, sigmaMarge:15810 } },
+  { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, shab:95, surfaceIsolee:163, quotePart:58.3, nbHabitations:2, seuilMarge:3000 } },
+  { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, shab:68, surfaceIsolee:127, quotePart:41.7, nbHabitations:2, seuilMarge:3000 } },
 ];
 const WC_EXEMPLE_PROJ = [
   { label:'Total projet (exemple)', vars:{ chargesTravaux:23500, prixVenteHT:43800, auditVT:1600, fraisVtIte:70, regieCommerciale:2820, coutRevient:27990, primeCEE:35200, margeBrute:7210, resteACharge:8600, margeCommerciale:15810, shab:163, surfaceIsolee:290, quotePart:100, nbHabitations:2, seuilMarge:3000 } },
