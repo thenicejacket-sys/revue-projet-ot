@@ -83,23 +83,28 @@ t('auto-référence = grandeur moteur (pas un cycle)', wfValidate('chargesTravau
 // ── M1 / R2 : l'usine reproduit les 12 widgets actuels, et chaque formule usine
 //    ÉQUIVAUT au champ moteur correspondant (préuve d'identité en config par défaut) ──
 state.widgetConfig = null; wcInit();
-t('usine : 16 widgets Habitations (12 + 4 exemples)', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 16);
-t('usine : 16 widgets Projet (12 + 4 exemples)', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 16);
+t('usine : 16 widgets Habitations (12 + 4 ratios masqués)', WIDGETS_USINE.filter(w => w.niveau === 'hab').length === 16);
+t('usine : 16 widgets Projet (12 + 4 ratios masqués)', WIDGETS_USINE.filter(w => w.niveau === 'proj').length === 16);
 t('usine : 6 visibles Habitations (5 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'hab' && w.visible).length === 6);
 t('usine : 8 visibles Projet (7 historiques + Taux de marge)', WIDGETS_USINE.filter(w => w.niveau === 'proj' && w.visible).length === 8);
-// ── Widgets d'EXEMPLE : présents dans la liste, jamais affichés tant qu'on ne les active pas
-const exemples = WIDGETS_USINE.filter(w => w.exemple);
-t('8 widgets d’exemple livrés (4 par niveau)', exemples.length === 8, exemples.length);
-t('tous les exemples sont MASQUÉS par défaut', exemples.every(w => w.visible === false),
-  exemples.filter(w => w.visible).map(w => w.id).join(','));
-t('tous les exemples portent une description explicite', exemples.every(w => /^Exemple —/.test(w.desc || '')));
-const exInvalides = exemples.map(w => ({ w, r: wfValidate(w.formule, w.niveau, w.id) })).filter(x => !x.r.ok);
-t('toutes les formules d’exemple sont valides à leur niveau', exInvalides.length === 0,
-  exInvalides.map(x => x.w.niveau + '/' + x.w.id + ' : ' + x.r.error).join(' · '));
+// ── Widgets SUPPLÉMENTAIRES livrés masqués (ratios prêts à l'emploi) ──
+// Aucun marqueur « exemple » : une fois activés, ce sont des widgets comme les autres.
+const supp = ['coutM2','primeM2','poidsProjet','ecartObjectif','margeParLogement'];
+const suppUsine = WIDGETS_USINE.filter(w => supp.includes(w.id));
+t('8 widgets supplémentaires livrés (4 par niveau)', suppUsine.length === 8, suppUsine.length);
+t('tous MASQUÉS par défaut', suppUsine.every(w => w.visible === false),
+  suppUsine.filter(w => w.visible).map(w => w.id).join(','));
+t('aucune mention « exemple » dans leurs libellés ou descriptions',
+  suppUsine.every(w => !/exemple/i.test(w.label + ' ' + (w.desc || ''))));
+t('aucun marqueur exemple dans le module', !/exemple\s*:\s*true/.test(src));
+t('aucun badge « exemple » dans l’interface des Paramètres', !/>exemple<\/span>/.test(src));
+const suppInvalides = suppUsine.map(w => ({ w, r: wfValidate(w.formule, w.niveau, w.id) })).filter(x => !x.r.ok);
+t('toutes leurs formules sont valides à leur niveau', suppInvalides.length === 0,
+  suppInvalides.map(x => x.w.niveau + '/' + x.w.id + ' : ' + x.r.error).join(' · '));
 t('le poids projet reste réservé au niveau habitation',
   !!wcUsine('hab', 'poidsProjet') && !wcUsine('proj', 'poidsProjet'));
-t('exemples calculables : coût au m² = 1750 ÷ 95', Math.abs(evalStr('coutRevient / shab', { coutRevient: 1750, shab: 95 }) - 18.42) < 0.01);
-t('exemples calculables : écart à l’objectif = marge − seuil', evalStr('margeCommerciale - seuilMarge', { margeCommerciale: 250, seuilMarge: 437 }) === -187);
+t('calculable : coût au m² = 1750 ÷ 95', Math.abs(evalStr('coutRevient / shab', { coutRevient: 1750, shab: 95 }) - 18.42) < 0.01);
+t('calculable : écart à l’objectif = marge − seuil', evalStr('margeCommerciale - seuilMarge', { margeCommerciale: 250, seuilMarge: 437 }) === -187);
 // Taux de marge placé juste après la Marge Commerciale, avant la Décision
 t('Taux de marge après Marge Commerciale (hab)', wcUsine('hab','tauxMarge').ordre > wcUsine('hab','margeCommerciale').ordre && wcUsine('hab','tauxMarge').ordre < wcUsine('hab','decision').ordre);
 t('Taux de marge après Marge Commerciale (proj)', wcUsine('proj','tauxMarge').ordre > wcUsine('proj','margeCommerciale').ordre && wcUsine('proj','tauxMarge').ordre < wcUsine('proj','decision').ordre);

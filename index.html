@@ -765,7 +765,6 @@ main{position:relative;z-index:1}
         <summary>🧩 Widgets</summary>
         <div class="pset-b">
           <p class="hint">Pilote les indicateurs de l'étape 4 : intitulés, formules, format, visibilité, ordre.
-            Les widgets marqués <span class="pill" style="background:#fff3cd;color:#8a6d00">exemple</span> sont livrés <strong>masqués</strong> — un clic sur 👁 les affiche.
             Les modifications de formule sont signalées par « ƒ » sur le widget et dans le bouclier 🛡️.
             Chaque dossier archivé emporte la configuration en vigueur au moment de l'archivage.</p>
           <div id="widgetsCfg"></div>
@@ -847,7 +846,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -3797,17 +3796,17 @@ const WIDGETS_USINE = [
     desc:'Somme de tous les coûts : travaux + audit + VT ITE + régie' },
   // Taux de marge en % du prix de vente (taux de marque) — le pendant en pourcentage de
   // la Marge Commerciale. Masqué par défaut : à activer dans Paramètres → 🧩 Widgets.
-  /* EXEMPLES — livrés MASQUÉS : ils montrent ce qu'on peut composer avec le catalogue.
-     Un clic sur 👁 dans Paramètres → 🧩 Widgets les affiche à l'étape 4 ; ils s'éditent
-     et se suppriment comme les autres. Retour usine par ⟳ usine. */
-  { id:'coutM2',       niveau:'hab', label:'Coût au m²',        formule:'coutRevient / shab', format:'eur', dec:0, ordre:200, visible:false, exemple:true,
-    desc:'Exemple — coût de revient rapporté à la surface habitable : repère le logement qui dérape' },
-  { id:'primeM2',      niveau:'hab', label:'Prime au m²',       formule:'primeCEE / surfaceIsolee', format:'eur', dec:0, ordre:210, visible:false, exemple:true,
-    desc:'Exemple — prime CEE rapportée à la surface de travaux : mesure le rendement CEE du chantier' },
-  { id:'poidsProjet',  niveau:'hab', label:'Poids dans le projet', formule:'coutRevient / sigmaCoutRevient * 100', format:'pct', dec:1, ordre:220, visible:false, exemple:true,
-    desc:'Exemple — part de ce logement dans le coût de revient du dossier (à comparer à sa quote-part de surface)' },
-  { id:'ecartObjectif',niveau:'hab', label:'Écart à l’objectif', formule:'margeCommerciale - seuilMarge', format:'eur', dec:0, ordre:230, visible:false, exemple:true,
-    desc:'Exemple — ce qui manque (négatif) ou dépasse (positif) par rapport à la part d’objectif de ce logement' },
+  /* RATIOS PRÊTS À L'EMPLOI — livrés MASQUÉS. Ce sont des widgets ordinaires :
+     un clic sur 👁 dans Paramètres → 🧩 Widgets les affiche à l'étape 4, et rien ne
+     signale ensuite qu'ils venaient d'usine. Éditables, supprimables, ⟳ usine. */
+  { id:'coutM2',       niveau:'hab', label:'Coût au m²',        formule:'coutRevient / shab', format:'eur', dec:0, ordre:200, visible:false,
+    desc:'coût de revient rapporté à la surface habitable : repère le logement qui dérape' },
+  { id:'primeM2',      niveau:'hab', label:'Prime au m²',       formule:'primeCEE / surfaceIsolee', format:'eur', dec:0, ordre:210, visible:false,
+    desc:'prime CEE rapportée à la surface de travaux : mesure le rendement CEE du chantier' },
+  { id:'poidsProjet',  niveau:'hab', label:'Poids dans le projet', formule:'coutRevient / sigmaCoutRevient * 100', format:'pct', dec:1, ordre:220, visible:false,
+    desc:'part de ce logement dans le coût de revient du dossier (à comparer à sa quote-part de surface)' },
+  { id:'ecartObjectif',niveau:'hab', label:'Écart à l’objectif', formule:'margeCommerciale - seuilMarge', format:'eur', dec:0, ordre:230, visible:false,
+    desc:'ce qui manque (négatif) ou dépasse (positif) par rapport à la part d’objectif de ce logement' },
   { id:'tauxMarge',       niveau:'hab', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:45, visible:true,
     desc:'Marge Commerciale en % du prix de vente HT (taux de marque) — éditable : forcer le taux ventile les prix de vente' },
   // ── Niveau PROJET (Total projet / immeuble) — les 7 visibles actuels, dans l'ordre actuel ──
@@ -3833,14 +3832,14 @@ const WIDGETS_USINE = [
     desc:'Total des frais de VT ITE' },
   { id:'regieCommerciale',niveau:'proj', label:'Régie commerciale',formule:'regieCommerciale', champ:'regie', format:'eur', dec:2, ordre:110, visible:false,
     desc:'Total de la régie commerciale' },
-  { id:'coutM2',       niveau:'proj', label:'Coût au m²',        formule:'coutRevient / shab', format:'eur', dec:0, ordre:200, visible:false, exemple:true,
-    desc:'Exemple — coût de revient du dossier rapporté à la surface habitable totale' },
-  { id:'primeM2',      niveau:'proj', label:'Prime au m²',       formule:'primeCEE / surfaceIsolee', format:'eur', dec:0, ordre:210, visible:false, exemple:true,
-    desc:'Exemple — prime CEE du dossier rapportée à la surface de travaux' },
-  { id:'margeParLogement', niveau:'proj', label:'Marge par logement', formule:'margeCommerciale / nbHabitations', format:'eur', dec:0, ordre:220, visible:false, exemple:true,
-    desc:'Exemple — marge commerciale moyenne par habitation incluse' },
-  { id:'ecartObjectif',niveau:'proj', label:'Écart à l’objectif', formule:'margeCommerciale - seuilMarge', format:'eur', dec:0, ordre:230, visible:false, exemple:true,
-    desc:'Exemple — ce qui manque ou dépasse par rapport à l’objectif de marge du projet' },
+  { id:'coutM2',       niveau:'proj', label:'Coût au m²',        formule:'coutRevient / shab', format:'eur', dec:0, ordre:200, visible:false,
+    desc:'coût de revient du dossier rapporté à la surface habitable totale' },
+  { id:'primeM2',      niveau:'proj', label:'Prime au m²',       formule:'primeCEE / surfaceIsolee', format:'eur', dec:0, ordre:210, visible:false,
+    desc:'prime CEE du dossier rapportée à la surface de travaux' },
+  { id:'margeParLogement', niveau:'proj', label:'Marge par logement', formule:'margeCommerciale / nbHabitations', format:'eur', dec:0, ordre:220, visible:false,
+    desc:'marge commerciale moyenne par habitation incluse' },
+  { id:'ecartObjectif',niveau:'proj', label:'Écart à l’objectif', formule:'margeCommerciale - seuilMarge', format:'eur', dec:0, ordre:230, visible:false,
+    desc:'ce qui manque ou dépasse par rapport à l’objectif de marge du projet' },
   { id:'tauxMarge',       niveau:'proj', label:'Taux de marge',    formule:'margeCommerciale / prixVenteHT * 100', format:'pct', dec:1, ordre:65, visible:true,
     desc:'Marge Commerciale globale en % du prix de vente HT — éditable : forcer le taux ventile les prix sur les habitations' },
 ];
@@ -4317,7 +4316,7 @@ function renderWidgetsCfg(){
         <button class="btn small ghost" data-wcdown="${d.id}" title="Descendre" ${i===list.length-1?'disabled':''}>↓</button>
         <button class="btn small ghost" data-wceye="${d.id}" title="${d.visible?'Masquer à l\'étape 4 (sans rien perdre)':'Afficher à l\'étape 4'}">${d.visible?'👁':'🚫'}</button>
         <button class="btn small ghost" data-wclock="${d.id}" title="${wcEditable(d)?'Widget ÉDITABLE : sa valeur peut être forcée à la main (✎) à l\'étape Charges & marges. Cliquer pour le verrouiller.':'Widget EN LECTURE SEULE : sa valeur ne peut pas être forcée (🔒). Cliquer pour le rendre éditable.'}">${wcEditable(d)?'✎':'🔒'}</button>
-        <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}${d.exemple?' <span class="pill" style="background:#fff3cd;color:#8a6d00" title="Widget d’exemple, livré masqué : clique 👁 pour l’afficher à l’étape 4">exemple</span>':''}</span>
+        <span class="wc-name">${esc(d.label)}${d.custom?' <span class="pill">perso</span>':''}</span>
         ${wcIsFmod(d)?'<span class="wc-badge-f" title="Formule différente de l\'usine">ƒ modifiée</span>':''}
         <span class="wc-frm">${esc(d.special==='bareme'?'lookup barème (non exprimable en formule)':(d.special==='decision'?'Marge Commerciale ≥ seuil (objectif de marge des Paramètres)':d.formule))}</span>
         <button class="btn small" data-wcedit="${d.id}">✎ Éditer</button>
