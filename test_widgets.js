@@ -233,6 +233,33 @@ t('parenthèses réintroduites si nécessaire',
 t('formule réduite à une seule grandeur = pas de formule affichée', wfEstSimple(wfParse('chargesTravaux')) === true);
 t('formule composée = formule affichée', wfEstSimple(astTip) === false);
 
+/* ── CASCADE DES FORMULES MODIFIÉES (bug corrigé le 2026-08-01) ────────────────
+   Modifier la formule d'un widget doit se répercuter sur tous ceux qui l'utilisent.
+   Avant le correctif, un widget natif non modifié lisait la valeur du MOTEUR et
+   ignorait la nouvelle formule de son amont : l'écran devenait incohérent. */
+state.widgetConfig = null; wcInit();
+const ctxC = { vt: { shab: 95, fileName: 'a.pdf' }, res: {
+  chargesTravaux: 1000, venteTravaux: 2000, audit: 450, vtIte: 200, regie: 100,
+  coutRevient: 1750, prime: 1500, margeBrute: -250, reste: 500, marge: 250, seuil: 437, ov: {} } };
+const valC = id => wgValue('hab', state.widgetConfig.defs['hab:' + id], ctxC, {});
+t('config usine : coût de revient = valeur moteur (1750)', valC('coutRevient') === 1750, valC('coutRevient'));
+t('config usine : marge commerciale = valeur moteur (250)', valC('margeCommerciale') === 250, valC('margeCommerciale'));
+// On retire la régie de la formule du coût de revient : 1750 → 1650
+state.widgetConfig.defs['hab:coutRevient'].formule = 'chargesTravaux + auditVT + fraisVtIte';
+t('formule modifiée : le coût de revient suit (1650)', valC('coutRevient') === 1650, valC('coutRevient'));
+t('CASCADE : la marge commerciale suit aussi (2000 − 1650 = 350)', valC('margeCommerciale') === 350, valC('margeCommerciale'));
+t('le widget impacté porte le marqueur ƒ', wcIsFmodDeep(state.widgetConfig.defs['hab:margeCommerciale'], 'hab') === true);
+t('un widget NON impacté reste au calcul moteur', wcIsFmodDeep(state.widgetConfig.defs['hab:resteACharge'], 'hab') === false);
+t('la détection profonde distingue modifié et impacté',
+  wcIsFmod(state.widgetConfig.defs['hab:margeCommerciale']) === false && wcIsFmodDeep(state.widgetConfig.defs['hab:margeCommerciale'], 'hab') === true);
+// Robustesse : une référence circulaire ne doit pas faire boucler la détection
+state.widgetConfig.defs['hab:cyc1'] = { id:'cyc1', niveau:'hab', label:'C1', formule:'cyc2 + 1', custom:true, visible:false, ordre:800 };
+state.widgetConfig.defs['hab:cyc2'] = { id:'cyc2', niveau:'hab', label:'C2', formule:'cyc1 + 1', custom:true, visible:false, ordre:810 };
+t('cycle : la détection profonde termine sans boucler', wcIsFmodDeep(state.widgetConfig.defs['hab:cyc1'], 'hab') === false);
+delete state.widgetConfig.defs['hab:cyc1']; delete state.widgetConfig.defs['hab:cyc2'];
+state.widgetConfig = null; wcInit();
+t('retour usine : marge commerciale de nouveau au moteur (250)', valC('margeCommerciale') === 250, valC('margeCommerciale'));
+
 // ── A2 : aucun eval() ni new Function dans le module ──
 t('aucun eval() dans le module widgets', !/\beval\s*\(/.test(src));
 t('aucun new Function dans le module widgets', !/new\s+Function/.test(src));

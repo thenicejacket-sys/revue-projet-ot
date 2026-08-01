@@ -321,6 +321,11 @@ tr.row-off input::placeholder{color:#5d6675}
 .wc-row .wc-frm{flex:1;color:var(--text-muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .wc-badge-f{background:#fff3cd;color:#8a6d00;border-radius:5px;padding:1px 6px;font-size:11px;font-weight:700}
 .kpi .lab .kpi-fmod{color:#8a6d00;font-weight:800;margin-left:3px;cursor:help}
+/* Raccourci « modifier la formule » : discret, révélé au survol du widget. */
+.kpi .lab .kpi-frm{border:0;background:transparent;color:var(--text-muted);font-weight:800;font-style:italic;
+  cursor:pointer;padding:0 3px;margin-left:2px;opacity:0;transition:opacity .12s;font-size:13px}
+.kpi:hover .lab .kpi-frm{opacity:.75}
+.kpi .lab .kpi-frm:hover{opacity:1;color:var(--primary)}
 #wcModal{display:none;position:fixed;inset:0;z-index:9997;background:rgba(20,28,48,.6);align-items:flex-start;justify-content:center;overflow:auto;padding:30px 12px}
 #wcModal.on{display:flex}
 #wcModal .box{background:#fff;border-radius:14px;max-width:860px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -846,7 +851,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -3923,6 +3928,22 @@ function wcList(niveau, includeHidden){
     .sort((a,b)=> (a.ordre||0) - (b.ordre||0));
 }
 function wcIsFmod(d){ const u = wcUsine(d.niveau, d.id); return !!(u && !d.special && !d.custom && String(d.formule) !== String(u.formule)); }
+/* MODIFICATION EN PROFONDEUR — un widget n'est plus « d'usine » dès qu'il dépend, même
+   indirectement, d'un widget dont la formule a été changée.
+   Sans ça (bug corrigé le 2026-08-01) : modifier la formule du Coût de revient changeait
+   son affichage, mais la Marge Commerciale continuait de lire la valeur du MOTEUR et
+   affichait un résultat incohérent avec ce qui était à l'écran. Le raccourci « valeur
+   moteur » n'est donc valable que si TOUTE la chaîne amont est intacte. */
+function wcIsFmodDeep(d, niveau, stack){
+  if(!d || d.special) return false;
+  if(wcIsFmod(d)) return true;
+  stack = stack || [];
+  if(stack.includes(d.id)) return false;            // cycle : on s'arrête, wfValidate le refuse déjà
+  let ids = [];
+  try{ ids = wfIdents(wfParse(d.formule)); }catch(_){ return false; }
+  const defs = {}; wcList(niveau, true).forEach(x=> defs[x.id] = x);
+  return ids.some(id => id !== d.id && defs[id] && wcIsFmodDeep(defs[id], niveau, stack.concat(d.id)));
+}
 function wcResetOne(niveau, id){ const cfg = wcInit(); const u = wcUsine(niveau, id); if(u) cfg.defs[niveau+':'+id] = JSON.parse(JSON.stringify(u)); saveLS(); }
 function wcResetAll(){ state.widgetConfig = { version: WIDGETS_VERSION, defs: {} }; wcInit(); saveLS(); }
 
@@ -4129,7 +4150,9 @@ function wgValue(niveau, def, ctx, cache, stack){
   let v;
   if(def.special === 'bareme'){ v = vars.primeCEE; }
   else if(def.special === 'decision'){ v = null; }   // géré par wgDecision
-  else if(!def.custom && !wcIsFmod(def) && def.champ !== undefined){
+  // Raccourci « valeur moteur » : réservé aux widgets dont TOUTE la chaîne amont est
+  // d'usine (cf. wcIsFmodDeep). Dès qu'un maillon change, on évalue vraiment la formule.
+  else if(!def.custom && !wcIsFmodDeep(def, niveau) && def.champ !== undefined){
     v = vars[{chargesTravaux:'chargesTravaux', venteTravaux:'prixVenteHT', audit:'auditVT', vtIte:'fraisVtIte',
               regie:'regieCommerciale', coutRevient:'coutRevient', prime:'primeCEE', margeBrute:'margeBrute',
               reste:'resteACharge', marge:'margeCommerciale'}[def.champ]];   // identité stricte : valeur moteur
@@ -4203,7 +4226,9 @@ function wgFormulaTip(niveau, def, ctx, cache, fmod){
     return u === '€' || defs[id] ? eur(v) : (u === 'm²' ? m2(v) : String(round2(v)).replace('.', ','));
   };
   return def.label + ' = ' + wfRender(ast, libelle) + ' = ' + wfRender(ast, valeur)
-    + (fmod ? ' — ƒ formule modifiée (usine : ' + (wcUsine(def.niveau, def.id)||{}).formule + ')' : '')
+    + (fmod ? (wcIsFmod(def)
+        ? ' — ƒ formule modifiée (usine : ' + (wcUsine(def.niveau, def.id)||{}).formule + ')'
+        : ' — ƒ dépend d’un widget dont la formule a été modifiée') : '')
     + (def.desc ? ' — ' + def.desc : '');
 }
 // La grille de widgets d'un bloc (habitation ou total projet), depuis la CONFIG :
@@ -4214,18 +4239,20 @@ function wgKpiGridHtml(niveau, ctx){
   const key = niveau==='hab' ? ovKey(ctx.vt) : '';
   const ov = niveau==='hab' ? (ctx.res.ov || {}) : (ctx.tot.ov || {});
   const cells = wcList(niveau, false).map(def=>{
-    const fmod = wcIsFmod(def);
+    // ƒ signalé aussi sur les widgets IMPACTÉS par une modification en amont :
+    // leur valeur ne correspond plus au calcul d'origine, il faut que ça se voie.
+    const fmod = wcIsFmodDeep(def, niveau);
     if(def.special === 'decision'){
       const go = wgDecision(niveau, ctx, cache);
       const vars = cache.__vars || (cache.__vars = wgBaseVars(niveau, ctx));
       const lbl = niveau==='proj' ? def.label+' (seuil '+eur(vars.seuilMarge)+')' : def.label;
-      return kpiCell({scope, key, field:'decision', type:'dec', label:lbl, display:go?'✅ GO':'⛔ NO-GO',
+      return kpiCell({scope, key, wid:def.id, niveau, field:'decision', type:'dec', label:lbl, display:go?'✅ GO':'⛔ NO-GO',
         rawVal:ov.decision||'auto', cls:go?'go':'nogo', edited:!!ov.decision, locked:!wcEditable(def),
         formula:'Décision = GO si Marge Commerciale ≥ Seuil ('+eur(vars.seuilMarge)+')'+(def.desc?' — '+def.desc:'')});
     }
     const v = wgValue(niveau, def, ctx, cache);
     const goHere = def.special!=='bareme' && def.clsRule ? (def.clsRule==='signe' ? (v!==null && v>=0) : wgDecision(niveau, ctx, cache)) : null;
-    return kpiCell({scope, key, field:wgOvField(def), type:'num', label:def.label,
+    return kpiCell({scope, key, wid:def.id, niveau, field:wgOvField(def), type:'num', label:def.label,
       display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
       edited:ov[wgOvField(def)] != null, locked:!wcEditable(def), fmod,
       formula: wgFormulaTip(niveau, def, ctx, cache, fmod)});
@@ -4563,6 +4590,8 @@ function openWcEditor(niveau, id){
     if(isNew) d.id = wcSlugify(label);
     cfg.defs[niveau+':'+d.id] = d;
     saveLS(); close(); renderWidgetsCfg();
+    // L'éditeur peut être ouvert depuis l'étape 4 (bouton ƒ) : on y répercute aussitôt.
+    if(document.getElementById('step4') && document.getElementById('step4').classList.contains('active')) renderStep4();
   });
 }
 
@@ -4654,7 +4683,7 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
     + (o.locked ? ' — 🔒 valeur non éditable : ce widget est en lecture seule (Paramètres → 🧩 Widgets)' : (ro ? '' : ' (cliquer pour modifier)'));
   return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
     ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
-    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}</div><div class="val">${o.display}</div>
+    <div class="lab">${o.label}${o.edited?' ✎':''}${o.locked?' 🔒':''}${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}${o.wid?`<button class="kpi-frm" data-kpifrm="${o.niveau}|${o.wid}" title="Modifier la formule de ce widget">ƒ</button>`:''}</div><div class="val">${o.display}</div>
   </div>`;
 }
 function openKpiEditor(kpi){
@@ -5027,6 +5056,13 @@ function renderStep4(){
     const zone = $('#scanIAResult');
     if(zone) zone.innerHTML = '<div class="alert info">↺ Prix de vente d\'origine restaurés.</div>';
   });
+
+  // Raccourci « ƒ » : ouvre l'éditeur de formule du widget sans passer par les Paramètres.
+  area.querySelectorAll('[data-kpifrm]').forEach(b=> b.addEventListener('click', e=>{
+    e.stopPropagation();
+    const [niveau, id] = b.dataset.kpifrm.split('|');
+    openWcEditor(niveau, id);
+  }));
 
   // Widgets éditables : clic = éditer, ↺ = retour au calcul automatique
   area.querySelectorAll('.kpi.editable').forEach(kpi=>{
