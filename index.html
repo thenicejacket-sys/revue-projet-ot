@@ -854,7 +854,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.9';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-01.10';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -4346,7 +4346,31 @@ function renderWidgetsCfg(){
       <button class="btn small" id="wcImport" title="Charger une configuration exportée">⬆ Importer (JSON)</button>
       <input type="file" id="wcImportFile" accept=".json,application/json" style="display:none">
     </div>
-    ${list.map((d,i)=>`
+    ${(()=>{
+      /* Deux sous-sections, séparées par la SEULE visibilité :
+           👁 Affichés  — les widgets présents à l'étape 4 ;
+           ƒ Formules   — ceux qui ne servent qu'aux calculs (masqués), dont les briques
+                          💶 réutilisables dans d'autres formules.
+         Un clic sur 👁 fait passer le widget d'une section à l'autre, dans le niveau
+         courant (Habitations ou Projet) : les deux listes sont bien distinctes par niveau. */
+      const affiches = list.filter(d=> d.visible);
+      const formules = list.filter(d=> !d.visible);
+      const section = (titre, aide, arr, vide) =>
+        `<div class="wc-fam" style="margin-top:12px">${titre} <span style="font-weight:400;text-transform:none;letter-spacing:0">— ${aide}</span></div>`
+        + (arr.length ? arr.map(ligne).join('') : `<div class="wc-row" style="opacity:.6"><small>${vide}</small></div>`);
+      return section('👁 Affichés à l’étape 4', 'visibles dans le bloc ' + (_wcTab==='hab'?'de chaque habitation':'Total projet'), affiches, 'Aucun widget affiché.')
+           + section('ƒ Formules', 'non affichés — servent aux calculs ; ceux marqués 💶 sont réutilisables dans d’autres formules', formules, 'Aucun widget masqué.');
+    })()}
+    <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn success small" id="wcCreate">＋ Créer un widget</button>
+      ${usineDeleted.length?`<select id="wcRestoreSel" style="width:auto"><option value="">＋ Restaurer un widget usine supprimé…</option>${usineDeleted.map(u=>`<option value="${u.id}">${esc(u.label)}</option>`).join('')}</select>`:''}
+    </div>`;
+
+  // Rendu d'UNE ligne. L'ordre ↑↓ opère sur la liste GLOBALE du niveau (toutes sections
+  // confondues) : c'est cet ordre qui pilote l'affichage à l'étape 4.
+  function ligne(d){
+    const i = list.indexOf(d);
+    return `
       <div class="wc-row ${d.visible?'':'off'}" draggable="true" data-wcrow="${d.id}">
         <span class="wc-grip" title="Glisser-déposer pour réordonner (ou ↑↓)">⠿</span>
         <button class="btn small ghost" data-wcup="${d.id}" title="Monter" ${i===0?'disabled':''}>↑</button>
@@ -4362,11 +4386,8 @@ function renderWidgetsCfg(){
         <button class="btn small" data-wcedit="${d.id}">✎ Éditer</button>
         ${(!d.custom && !d.special && wcIsFmod(d))?`<button class="btn small ghost" data-wcresetone="${d.id}" title="Revenir à la définition d'usine de ce widget">⟳ usine</button>`:''}
         <button class="btn danger small" data-wcdel="${d.id}" title="Supprimer (restaurable : usine via « Restaurer », perso définitivement)">🗑</button>
-      </div>`).join('')}
-    <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap">
-      <button class="btn success small" id="wcCreate">＋ Créer un widget</button>
-      ${usineDeleted.length?`<select id="wcRestoreSel" style="width:auto"><option value="">＋ Restaurer un widget usine supprimé…</option>${usineDeleted.map(u=>`<option value="${u.id}">${esc(u.label)}</option>`).join('')}</select>`:''}
-    </div>`;
+      </div>`;
+  }
 
   const commit = ()=>{ saveLS(); renderWidgetsCfg(); };
   wrap.querySelectorAll('[data-wctab]').forEach(b=> b.addEventListener('click', ()=>{ _wcTab = b.dataset.wctab; renderWidgetsCfg(); }));
