@@ -4294,9 +4294,11 @@ function wgShieldChecks(){
    formule ; l'autocomplétion propose les variables du catalogue et les widgets du niveau. */
 let _wcTab = 'hab';
 /* Pliage des deux sous-sections de la liste. Variable de module, comme _wcTab : elle survit
-   aux re-rendus déclenchés par les actions (œil, ordre, suppression…) et repart ouverte au
-   rechargement de la page — c'est un confort d'affichage, pas une donnée de dossier. */
-let _wcOpen = { aff:true, frm:true };
+   aux re-rendus déclenchés par les actions (œil, ordre, suppression…) et repart à ces valeurs
+   au rechargement de la page — c'est un confort d'affichage, pas une donnée de dossier.
+   ƒ Formules démarre REPLIÉE : c'est la section la plus longue et la moins consultée
+   (widgets de calcul, non affichés à l'étape 4). Son compteur reste visible. */
+let _wcOpen = { aff:true, frm:false };
 const WC_EXEMPLE_HAB = [
   { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, shab:95, surfaceIsolee:163, quotePart:58.3, nbHabitations:2, seuilMarge:3000 } },
   { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, shab:68, surfaceIsolee:127, quotePart:41.7, nbHabitations:2, seuilMarge:3000 } },
