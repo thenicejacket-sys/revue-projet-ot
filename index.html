@@ -333,6 +333,13 @@ tr.row-off input::placeholder{color:#5d6675}
 .wc-pal .chip:hover{background:var(--blue-bg);border-color:var(--primary)}
 .wc-pal .chip.op{font-weight:800;background:#eef}
 .wc-fam{font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:8px 0 2px}
+/* En-tête de sous-section repliable (👁 Affichés / ƒ Formules). Classe DISTINCTE de .wc-fam :
+   les .wc-fam de la palette et de l'aperçu doivent rester inertes. */
+.wc-fold{cursor:pointer;user-select:none;border-radius:6px;padding:3px 6px;margin-left:-6px}
+.wc-fold:hover{background:var(--blue-bg);color:var(--text)}
+.wc-fold:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+.wc-fold-ic{display:inline-block;width:1.1em;font-size:12px}
+.wc-count{display:inline-block;min-width:18px;text-align:center;background:var(--blue-bg);border:1px solid var(--border);border-radius:9px;padding:0 6px;font-size:10px;font-weight:700;margin-left:4px}
 #wcFormule{width:100%;font-family:ui-monospace,Consolas,monospace;font-size:14px}
 #wcSugg{position:relative}
 #wcSugg .sugg{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid var(--border);border-radius:0 0 8px 8px;box-shadow:0 6px 18px rgba(0,0,0,.15);max-height:180px;overflow:auto}
@@ -4286,6 +4293,10 @@ function wgShieldChecks(){
    sans dossier, sur un jeu d'exemple embarqué. Palette et champ texte écrivent la même
    formule ; l'autocomplétion propose les variables du catalogue et les widgets du niveau. */
 let _wcTab = 'hab';
+/* Pliage des deux sous-sections de la liste. Variable de module, comme _wcTab : elle survit
+   aux re-rendus déclenchés par les actions (œil, ordre, suppression…) et repart ouverte au
+   rechargement de la page — c'est un confort d'affichage, pas une donnée de dossier. */
+let _wcOpen = { aff:true, frm:true };
 const WC_EXEMPLE_HAB = [
   { label:'Habitation 2 (exemple)', vars:{ chargesTravaux:14000, prixVenteHT:26000, auditVT:800, fraisVtIte:35, regieCommerciale:1680, coutRevient:16515, primeCEE:21000, margeBrute:4485, resteACharge:5000, margeCommerciale:9485, shab:95, surfaceIsolee:163, quotePart:58.3, nbHabitations:2, seuilMarge:3000 } },
   { label:'Habitation 3 (exemple)', vars:{ chargesTravaux:9500, prixVenteHT:17800, auditVT:800, fraisVtIte:35, regieCommerciale:1140, coutRevient:11475, primeCEE:14200, margeBrute:2725, resteACharge:3600, margeCommerciale:6325, shab:68, surfaceIsolee:127, quotePart:41.7, nbHabitations:2, seuilMarge:3000 } },
@@ -4351,11 +4362,23 @@ function renderWidgetsCfg(){
          courant (Habitations ou Projet) : les deux listes sont bien distinctes par niveau. */
       const affiches = list.filter(d=> d.visible);
       const formules = list.filter(d=> !d.visible);
-      const section = (titre, aide, arr, vide) =>
-        `<div class="wc-fam" style="margin-top:12px">${titre} <span style="font-weight:400;text-transform:none;letter-spacing:0">— ${aide}</span></div>`
-        + (arr.length ? arr.map(ligne).join('') : `<div class="wc-row" style="opacity:.6"><small>${vide}</small></div>`);
-      return section('👁 Affichés à l’étape 4', 'visibles dans le bloc ' + (_wcTab==='hab'?'de chaque habitation':'Total projet'), affiches, 'Aucun widget affiché.')
-           + section('ƒ Formules', 'non affichés — servent aux calculs ; ceux marqués 💶 sont réutilisables dans d’autres formules', formules, 'Aucun widget masqué.');
+      /* Chaque en-tête plie sa propre section (➖ ouverte / ➕ repliée, comme les catégories
+         de l'étape 3). Repliée, la section ne rend AUCUNE ligne : c'est ce qui rend la place
+         à l'écran. Le compteur reste visible pour savoir ce qu'on a masqué. */
+      const section = (cle, titre, aide, arr, vide) => {
+        const ouvert = _wcOpen[cle];
+        return `<div class="wc-fam wc-fold" data-wcfold="${cle}" role="button" tabindex="0"`
+             + ` aria-expanded="${ouvert}" style="margin-top:12px"`
+             + ` title="${ouvert?'Replier':'Déplier'} cette section">`
+             + `<span class="wc-fold-ic">${ouvert?'➖':'➕'}</span>${titre}`
+             + `<span class="wc-count">${arr.length}</span>`
+             + ` <span style="font-weight:400;text-transform:none;letter-spacing:0">— ${aide}</span></div>`
+             + (ouvert
+                 ? (arr.length ? arr.map(ligne).join('') : `<div class="wc-row" style="opacity:.6"><small>${vide}</small></div>`)
+                 : '');
+      };
+      return section('aff', '👁 Affichés à l’étape 4', 'visibles dans le bloc ' + (_wcTab==='hab'?'de chaque habitation':'Total projet'), affiches, 'Aucun widget affiché.')
+           + section('frm', 'ƒ Formules', 'non affichés — servent aux calculs ; ceux marqués 💶 sont réutilisables dans d’autres formules', formules, 'Aucun widget masqué.');
     })()}
     <div class="flex" style="gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="btn success small" id="wcCreate">＋ Créer un widget</button>
@@ -4387,6 +4410,13 @@ function renderWidgetsCfg(){
 
   const commit = ()=>{ saveLS(); renderWidgetsCfg(); };
   wrap.querySelectorAll('[data-wctab]').forEach(b=> b.addEventListener('click', ()=>{ _wcTab = b.dataset.wctab; renderWidgetsCfg(); }));
+  // Pliage des sous-sections. Cible [data-wcfold] et non .wc-fam : les en-têtes de la palette
+  // et de l'aperçu (modal Éditeur) portent la même classe et doivent rester inertes.
+  wrap.querySelectorAll('[data-wcfold]').forEach(el=>{
+    const bascule = ()=>{ const k = el.dataset.wcfold; _wcOpen[k] = !_wcOpen[k]; renderWidgetsCfg(); };
+    el.addEventListener('click', bascule);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); bascule(); } });
+  });
   const reorder = (ids)=>{ ids.forEach((id,i)=>{ const d = cfg.defs[_wcTab+':'+id]; if(d) d.ordre = (i+1)*10; }); commit(); };
   const idsNow = ()=> wcList(_wcTab, true).map(d=>d.id);
   wrap.querySelectorAll('[data-wcup]').forEach(b=> b.addEventListener('click', ()=>{
