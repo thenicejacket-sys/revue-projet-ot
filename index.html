@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-27.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-27.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2421,22 +2421,21 @@ function catPct(vt, cat){
 // indicatif, n'entre PAS dans le calcul (le calcul suit les lignes cochées, cf. calcTravaux).
 function retainedSurface(vt, cat){ return sumActive(vt, cat) * catPct(vt, cat) / 100; }
 
-/* ---- INDICATIF ITE (2026-08-27) — AJOUT PUR, aucun calcul existant modifie ----
-   L'ITE porte sur l'enveloppe de tout le batiment : quand elle est mutualisee
-   (VT ITE dediee), elle se repartit sur les habitations participantes. La
-   quote-part d'UNE habitation est donc 1/N (4 appartements -> 1/4).
-   Sans mutualisation, l'ITE appartient deja a la seule habitation : part = 1. */
-function iteQuotePart(){
-  if(!iteDistributionActive()) return 1;              // ITE non mutualisee -> pas de division
-  const n = iteParticipants().length;
-  return n > 0 ? 1/n : 1;                             // garde-fou : jamais de division par zero
-}
-/* Valeur INDICATIVE d'aide a la decision : % indicatif applique a la quote-part
-   d'une habitation sur les faces ITE COCHEES. Purement informatif — n'entre dans
-   AUCUN calcul (ni charges, ni marges, ni proposition). Recalculee a chaque rendu :
-   cocher/decocher une face la fait bouger immediatement (jamais statique). */
+/* ---- INDICATIF ITE, porte par l'ITI (2026-08-27) — AJOUT PUR ----
+   L'ITE porte sur l'enveloppe de TOUT le batiment. Ce qu'une habitation en « recoit »,
+   c'est sa QUOTE-PART. La mention se lit donc habitation par habitation, dans la barre
+   ITI de chacune — pas sur le bloc ITE global, qui ne represente personne en particulier.
+   Quote-part = iteShare(vt).pct : prorata de la Shab, EXACTEMENT la cle qui repartit deja
+   les couts ITE a l'etape 4 (« Part ITE (x,x %) »). Pas de seconde verite dans l'app.
+   Base = faces ITE COCHEES (itePool -> sumChecked) : cocher/decocher une facade fait
+   bouger la valeur sur TOUTES les habitations, immediatement.
+   Purement informatif — n'entre dans AUCUN calcul.
+   Renvoie null quand la mention n'a pas de sens : aucune VT ITE dediee, ou habitation
+   marquee « ITE = non ». Mieux vaut rien qu'un chiffre faux. */
 function iteIndicatif(vt){
-  return sumChecked(vt, 'ITE') * iteQuotePart() * catPct(vt, 'ITE') / 100;
+  const share = iteShare(vt);
+  if(!share) return null;
+  return { pct: share.pct, surfEq: share.surfEq, valeur: share.surfEq * catPct(vt,'ITI') / 100 };
 }
 // État plié/déplié d'une catégorie (par VT), déplié par défaut
 function catCollapsed(vt, cat){ return !!(vt.collapsed && vt.collapsed[cat]); }
@@ -3175,13 +3174,12 @@ function renderStep3(){
         //  - GAUCHE : Total coché (vert) — les lignes cochées, SEUL total qui alimente le calcul.
         //  - DROITE : bloc Indicatif % + ≈ (bleu) puis Total initial (bleu, fixe).
         // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
-        // ITE — pastille INDICATIVE supplémentaire (2026-08-27). AJOUT PUR : elle ne modifie
-        // ni les totaux existants ni aucun calcul. Elle donne la quote-part d'UNE habitation
-        // sur les faces ITE COCHÉES, au % indicatif de la catégorie (25 % par défaut).
-        const _iteQP = (cat === 'ITE') ? iteQuotePart() : 1;
-        const _iteN  = _iteQP > 0 ? Math.round(1/_iteQP) : 1;
-        const indicIte = (cat === 'ITE')
-          ? `<span class="pill" style="background:var(--orange-bg);color:var(--orange-tx)" title="Purement indicatif — aide à la décision. N'entre dans AUCUN calcul.&#10;Formule : surface ITE COCHÉE (${m2(sumChecked(vt,cat))}) × quote-part 1/${_iteN} × ${catPct(vt,cat)} %.&#10;Se recalcule à chaque case cochée / décochée.">Indicatif ITE ${catPct(vt,cat)} % · part 1/${_iteN} : <strong>${m2(iteIndicatif(vt))}</strong></span>`
+        // ITI — pastille INDICATIVE supplémentaire (2026-08-27). AJOUT PUR : elle ne modifie
+        // ni les totaux existants ni aucun calcul. Elle traduit les faces ITE COCHÉES en
+        // quote-part de CETTE habitation, au % indicatif de sa ligne ITI (25 % par défaut).
+        const _ind = (cat === 'ITI') ? iteIndicatif(vt) : null;
+        const indicIte = _ind
+          ? `<span class="pill" style="background:var(--orange-bg);color:var(--orange-tx)" title="Purement indicatif — aide à la décision. N'entre dans AUCUN calcul.&#10;Formule : faces ITE COCHÉES × quote-part de cette habitation × ${catPct(vt,cat)} %.&#10;Quote-part ${(_ind.pct*100).toFixed(1).replace('.',',')} % = part ITE revenant à cette habitation (prorata Shab), soit ${m2(_ind.surfEq)} d'ITE équivalente.&#10;Se recalcule dès qu'une face ITE est cochée ou décochée.">Indicatif ITE ${catPct(vt,cat)} % · quote-part ${(_ind.pct*100).toFixed(1).replace('.',',')} % : <strong>${m2(_ind.valeur)}</strong></span>`
           : '';
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
             <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>${indicIte}
@@ -4270,6 +4268,20 @@ function wgFormulaTip(niveau, def, ctx, cache, fmod){
 }
 // La grille de widgets d'un bloc (habitation ou total projet), depuis la CONFIG :
 // ordre, visibilité, libellés, formats — et badge « ƒ » sur toute formule modifiée.
+/* AFFICHAGE du reste à charge — jamais de montant négatif (2026-08-27).
+   Un reste négatif signifie que la prime CEE dépasse le prix de vente : commercialement
+   ça se lit « 0 € à payer », pas « on rend de l'argent au client ».
+   HABILLAGE D'AFFICHAGE UNIQUEMENT. La valeur moteur (res.reste / tot.reste) reste
+   négative, et c'est ELLE — jamais le 0 — qui alimente :
+     · le Total immeuble (calcGlobal somme les restes RÉELS de chaque habitation),
+     · les formules des widgets qui dépendent de resteACharge,
+     · les exports Excel, le PDF et les archives.
+   Un total immeuble lui-même négatif est donc, lui aussi, affiché 0 — mais après avoir
+   été calculé sur les vraies valeurs. */
+function resteAffiche(def, v){
+  return (def.champ === 'reste' && typeof v === 'number' && isFinite(v) && v < 0) ? 0 : v;
+}
+
 function wgKpiGridHtml(niveau, ctx){
   const cache = {};
   const scope = niveau==='hab' ? 'v' : 'g';
@@ -4288,11 +4300,13 @@ function wgKpiGridHtml(niveau, ctx){
         formula:'Décision = GO si Marge Commerciale ≥ Seuil ('+eur(vars.seuilMarge)+')'+(def.desc?' — '+def.desc:'')});
     }
     const v = wgValue(niveau, def, ctx, cache);
+    const vAff = resteAffiche(def, v);   // AFFICHAGE seulement — v reste la valeur moteur
     const goHere = def.special!=='bareme' && def.clsRule ? (def.clsRule==='signe' ? (v!==null && v>=0) : wgDecision(niveau, ctx, cache)) : null;
     return kpiCell({scope, key, wid:def.id, niveau, field:wgOvField(def), type:'num', label:def.label,
-      display:wgFmt(def, v), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
+      display:wgFmt(def, vAff), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
       edited:ov[wgOvField(def)] != null, locked:!wcEditable(def), fmod,
-      formula: wgFormulaTip(niveau, def, ctx, cache, fmod)});
+      formula: wgFormulaTip(niveau, def, ctx, cache, fmod)
+        + (vAff !== v ? ' — Affiché 0 € : le reste calculé est négatif (' + eur(v) + '), la prime CEE dépasse le prix de vente. La valeur réelle est conservée dans le total et les exports.' : '')});
   });
   return '<div class="kpi-grid">' + cells.join('') + '</div>';
 }
@@ -5108,7 +5122,14 @@ function renderStep4(){
 
   // Total immeuble (cas 3) ou récap global
   html += `<div class="card" style="background:linear-gradient(135deg,#eef4ff,#fbfdff);border:2px solid var(--primary)">
-    <h3 style="color:var(--primary)">📊 Total ${state.cas===3?'immeuble':'projet'}</h3>
+    <h3 style="color:var(--primary)">📊 Total ${state.cas===3?'immeuble':'projet'}${(()=>{
+      // Nombre d'habitations du projet (2026-08-27) — AJOUT PUR : purement informatif,
+      // aucun total ni calcul modifie. Source = habitations() : la VT ITE dediee n'est PAS
+      // une habitation et n'est pas comptee, une habitation exclue non plus. Un pavillon
+      // (cas 1 et 2) affiche donc 1. Recalcule a chaque rendu de l'etape 4.
+      const nHab = habitations().length;
+      return ` <span class="pill" style="vertical-align:middle;margin-left:8px" title="Nombre d'habitations comptabilisees dans ce total. La VT ITE dediee n'en est pas une ; une habitation exclue du dossier n'est pas comptee.">${nHab} habitation${nHab>1?'s':''}</span>`;
+    })()}</h3>
     ${wgKpiGridHtml('proj', {blocks, tot})}
     ${(()=>{ const dd = wcInit().defs['proj:decision']; return (dd && !dd.deleted && dd.visible) ? goFixHtml() : ''; })()}
     <table style="margin-top:8px"><tbody>
