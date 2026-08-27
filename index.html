@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-01.12';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-27.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2420,6 +2420,24 @@ function catPct(vt, cat){
 // % indicatif appliqué au TOTAL GÉNÉRAL (lignes actives, cochées ou non) — purement
 // indicatif, n'entre PAS dans le calcul (le calcul suit les lignes cochées, cf. calcTravaux).
 function retainedSurface(vt, cat){ return sumActive(vt, cat) * catPct(vt, cat) / 100; }
+
+/* ---- INDICATIF ITE (2026-08-27) — AJOUT PUR, aucun calcul existant modifie ----
+   L'ITE porte sur l'enveloppe de tout le batiment : quand elle est mutualisee
+   (VT ITE dediee), elle se repartit sur les habitations participantes. La
+   quote-part d'UNE habitation est donc 1/N (4 appartements -> 1/4).
+   Sans mutualisation, l'ITE appartient deja a la seule habitation : part = 1. */
+function iteQuotePart(){
+  if(!iteDistributionActive()) return 1;              // ITE non mutualisee -> pas de division
+  const n = iteParticipants().length;
+  return n > 0 ? 1/n : 1;                             // garde-fou : jamais de division par zero
+}
+/* Valeur INDICATIVE d'aide a la decision : % indicatif applique a la quote-part
+   d'une habitation sur les faces ITE COCHEES. Purement informatif — n'entre dans
+   AUCUN calcul (ni charges, ni marges, ni proposition). Recalculee a chaque rendu :
+   cocher/decocher une face la fait bouger immediatement (jamais statique). */
+function iteIndicatif(vt){
+  return sumChecked(vt, 'ITE') * iteQuotePart() * catPct(vt, 'ITE') / 100;
+}
 // État plié/déplié d'une catégorie (par VT), déplié par défaut
 function catCollapsed(vt, cat){ return !!(vt.collapsed && vt.collapsed[cat]); }
 
@@ -3157,8 +3175,16 @@ function renderStep3(){
         //  - GAUCHE : Total coché (vert) — les lignes cochées, SEUL total qui alimente le calcul.
         //  - DROITE : bloc Indicatif % + ≈ (bleu) puis Total initial (bleu, fixe).
         // Reste visible même quand la catégorie est repliée (seul le détail est masqué).
+        // ITE — pastille INDICATIVE supplémentaire (2026-08-27). AJOUT PUR : elle ne modifie
+        // ni les totaux existants ni aucun calcul. Elle donne la quote-part d'UNE habitation
+        // sur les faces ITE COCHÉES, au % indicatif de la catégorie (25 % par défaut).
+        const _iteQP = (cat === 'ITE') ? iteQuotePart() : 1;
+        const _iteN  = _iteQP > 0 ? Math.round(1/_iteQP) : 1;
+        const indicIte = (cat === 'ITE')
+          ? `<span class="pill" style="background:var(--orange-bg);color:var(--orange-tx)" title="Purement indicatif — aide à la décision. N'entre dans AUCUN calcul.&#10;Formule : surface ITE COCHÉE (${m2(sumChecked(vt,cat))}) × quote-part 1/${_iteN} × ${catPct(vt,cat)} %.&#10;Se recalcule à chaque case cochée / décochée.">Indicatif ITE ${catPct(vt,cat)} % · part 1/${_iteN} : <strong>${m2(iteIndicatif(vt))}</strong></span>`
+          : '';
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
-            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>
+            <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>${indicIte}
             <span class="flex" style="gap:8px">
               <label class="flex" style="gap:6px;margin:0" title="Purement indicatif — % appliqué au total actif. N'entre PAS dans le calcul.">
                 <span style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">Indicatif %</span>
