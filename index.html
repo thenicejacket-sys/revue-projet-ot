@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-27.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-27.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -5520,19 +5520,43 @@ function buildDossierSnapshot(){
   };
 }
 
+/* ── FILET RÉSEAU (2026-08-27) ───────────────────────────────────────────────
+   La base partagée peut devenir injoignable : projet Supabase en pause ou supprimé
+   (DNS qui ne résout plus), VPN filtrant, coupure réseau. fetch() rejette alors AVANT
+   toute réponse HTTP, avec un TypeError (« NetworkError when attempting to fetch
+   resource » / « Failed to fetch »). Sans filet, l'historique se terminait en cul-de-sac
+   ROUGE, alors que des dossiers archivés en local restaient parfaitement lisibles.
+   On distingue donc « base injoignable » (→ repli local, DIT à l'utilisateur) de
+   « la base répond une erreur HTTP » (→ vraie erreur, remontée telle quelle). */
+let SUPA_DOWN = false;
+function isNetworkError(e){
+  return (e instanceof TypeError) || /NetworkError|Failed to fetch|Load failed|NetworkError when/i.test(String(e && e.message));
+}
+async function supaFetch(url, opts){
+  try{ const r = await fetch(url, opts); SUPA_DOWN = false; return r; }
+  catch(e){
+    if(!isNetworkError(e)) throw e;
+    SUPA_DOWN = true;
+    const err = new Error('Base partagée injoignable'); err.supaDown = true; throw err;
+  }
+}
+
 // Couche de stockage abstraite : Supabase (partagé, immuable) si configuré, sinon localStorage (ce navigateur).
+// Chaque méthode retombe sur le stockage local quand la base est injoignable (cf. supaFetch).
 const HistoryStore = {
   _lsKey: 'revueProjetOT.hist.v2',
   _lsAll(){ try{ return JSON.parse(localStorage.getItem(this._lsKey)||'[]'); }catch(_){ return []; } },
   async save(snap){
     const created_at = new Date().toISOString();
     if(SUPA_ON()){
-      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE, {
-        method:'POST', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON,
-          'Content-Type':'application/json', 'Prefer':'return=representation' },
-        body: JSON.stringify({ nom:snap.nom, resume:snap.resume, snapshot:snap, created_at }) });
-      if(!r.ok) throw new Error('Supabase '+r.status+' — '+(await r.text()).slice(0,120));
-      return (await r.json())[0];
+      try{
+        const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE, {
+          method:'POST', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON,
+            'Content-Type':'application/json', 'Prefer':'return=representation' },
+          body: JSON.stringify({ nom:snap.nom, resume:snap.resume, snapshot:snap, created_at }) });
+        if(!r.ok) throw new Error('Supabase '+r.status+' — '+(await r.text()).slice(0,120));
+        return (await r.json())[0];
+      }catch(e){ if(!e.supaDown) throw e; }   // injoignable -> on archive en LOCAL plutôt que de perdre le dossier
     }
     const row = { id:'loc-'+Date.now()+'-'+Math.floor(Math.random()*1e4), nom:snap.nom, resume:snap.resume, snapshot:snap, created_at };
     const all = this._lsAll(); all.unshift(row);
@@ -5541,30 +5565,39 @@ const HistoryStore = {
   },
   async list(){
     if(SUPA_ON()){
-      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?select=id,nom,resume,created_at&order=created_at.desc',
-        { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
-      if(!r.ok) throw new Error('Supabase '+r.status);
-      return await r.json();
+      try{
+        const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?select=id,nom,resume,created_at&order=created_at.desc',
+          { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
+        if(!r.ok) throw new Error('Supabase '+r.status);
+        return await r.json();
+      }catch(e){ if(!e.supaDown) throw e; }   // injoignable -> on affiche l'historique LOCAL
     }
     return this._lsAll().map(({id,nom,resume,created_at})=>({id,nom,resume,created_at}));
   },
   async get(id){
     if(SUPA_ON()){
-      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id)+'&select=snapshot',
-        { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
-      if(!r.ok) throw new Error('Supabase '+r.status);
-      const rows = await r.json(); return rows[0] && rows[0].snapshot;
+      try{
+        const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id)+'&select=snapshot',
+          { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
+        if(!r.ok) throw new Error('Supabase '+r.status);
+        const rows = await r.json(); return rows[0] && rows[0].snapshot;
+      }catch(e){ if(!e.supaDown) throw e; }   // injoignable -> on cherche dans le local
     }
     const row = this._lsAll().find(x=>x.id===id); return row && row.snapshot;
   },
   async remove(id){
     if(SUPA_ON()){
-      const r = await fetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id),
-        { method:'DELETE', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON, 'Prefer':'return=representation' } });
-      if(!r.ok) throw new Error('Supabase '+r.status);
-      const rows = await r.json();
-      if(!rows.length) throw new Error('Suppression non activée sur la base. Colle le SQL fourni (fichier « SUPABASE_activer_suppression.sql » sur le bureau) dans Supabase → SQL Editor, puis réessaie.');
-      return true;
+      let r; 
+      try{
+        r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id),
+          { method:'DELETE', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON, 'Prefer':'return=representation' } });
+      }catch(e){ if(!e.supaDown) throw e; }   // injoignable -> suppression sur le local
+      if(r){
+        if(!r.ok) throw new Error('Supabase '+r.status);
+        const rows = await r.json();
+        if(!rows.length) throw new Error('Suppression non activée sur la base. Colle le SQL fourni (fichier « SUPABASE_activer_suppression.sql » sur le bureau) dans Supabase → SQL Editor, puis réessaie.');
+        return true;
+      }
     }
     const all = this._lsAll().filter(x=>x.id!==id);
     localStorage.setItem(this._lsKey, JSON.stringify(all));
@@ -5636,7 +5669,9 @@ function renderAutoSave(){
   const problems = autoSaveBlockers();
   const integ = verifyIntegrity();
   const bloque = problems.length > 0 || !integ.ok;
-  const lieu = SUPA_ON() ? 'historique partagé' : 'historique local (ce navigateur)';
+  const lieu = (SUPA_ON() && !SUPA_DOWN) ? 'historique partagé'
+             : (SUPA_ON() ? 'historique local (ce navigateur) — base partagée injoignable'
+                          : 'historique local (ce navigateur)');
   if(bloque){
     area.innerHTML = '<div class="alert warn">⏸️ <strong>Pas encore archivé.</strong> '
       + (problems.length ? problems.map(esc).join('<br>') : '')
@@ -5681,11 +5716,16 @@ async function renderHistory(){
   wrap.innerHTML = '<div class="alert info"><span class="spinner"></span> Chargement de l\'historique…</div>';
   try{ _histRows = await HistoryStore.list(); }
   catch(e){ wrap.innerHTML = '<div class="alert err">Historique inaccessible : '+esc(e.message)+'</div>'; return; }
+  // Base partagee injoignable : on l'annonce, mais on affiche quand meme l'historique
+  // LOCAL de ce navigateur au lieu de laisser l'onglet en cul-de-sac (2026-08-27).
+  const downBanner = SUPA_DOWN
+    ? `<div class="alert warn">⚠️ <strong>Base partagée injoignable</strong> — le projet Supabase ne répond plus (en pause, supprimé, ou réseau/VPN qui bloque). Affichage de l'<strong>historique local de ce navigateur</strong>. Les dossiers archivés en ligne ne sont pas perdus : ils réapparaissent dès que la base répond.<br><small>Les nouveaux dossiers continuent de s'archiver <strong>en local</strong> en attendant — rien ne se perd.</small></div>`
+    : '';
   if(!_histRows.length){
-    wrap.innerHTML = '<div class="alert info">Aucun dossier archivé. Les dossiers s\'archivent <strong>automatiquement</strong> dès que l\'étape <strong>4 · Charges &amp; marges</strong> produit des calculs valides.</div>';
+    wrap.innerHTML = downBanner + '<div class="alert info">Aucun dossier archivé. Les dossiers s\'archivent <strong>automatiquement</strong> dès que l\'étape <strong>4 · Charges &amp; marges</strong> produit des calculs valides.</div>';
     return;
   }
-  wrap.innerHTML = `
+  wrap.innerHTML = downBanner + `
     <div class="hist-searchbar">
       <div class="hist-field name">${ICO.search}<input type="text" id="hfName" placeholder="Rechercher un dossier…" value="${esc(_hf.q)}"></div>
       <button class="hist-clear-btn" id="hfClear" title="Effacer la recherche">${ICO.trash}</button>
