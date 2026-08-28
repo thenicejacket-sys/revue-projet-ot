@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -1891,17 +1891,44 @@ function setPrixManuel(vt, cat, field, val){
 function ventilRepartition(parts, deficit, capMax){
   const D = num(deficit);
   const out = parts.map(p=>({ key:p.key, venteCat:num(p.venteCat), capacite:Math.max(0,num(p.capacite)),
-                              deficitMarge:Math.max(0,num(p.deficitMarge)), hausse:0 }));
+                              deficitMarge:Math.max(0,num(p.deficitMarge)),
+                              resteClient:Math.max(0,num(p.resteClient)), hausse:0 }));
   const vivants = out.filter(p=>p.venteCat > 0);
   const sumV = vivants.reduce((s,p)=>s+p.venteCat, 0);
   if(!vivants.length || sumV <= 0) return { alloc: out.map(p=>({key:p.key, hausse:0, k:0})), residuel: D };
   if(D <= 0){
-    // Baisse (marge cible bidirectionnelle) : uniforme au prorata des ventes.
-    // Borne −capMax, elle-même plafonnée à −100 % : un prix ne devient jamais négatif,
-    // y compris quand capMax est infini (hausse débridée, cf. GO_FIX_HAUSSE_MAX).
-    const k = Math.max(-Math.min(capMax, 1), D / sumV);
-    vivants.forEach(p=>{ p.hausse = p.venteCat * k; });
-    return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0})),
+    /* BAISSE — miroir exact de la hausse (2026-08-28, « option A »).
+       La hausse remplit d'abord les primes CEE encore disponibles ; la baisse soulage
+       d'abord ceux que la prime NE couvre PAS, au prorata de leur reste à charge.
+       Un logement dont la prime couvre déjà tout (reste 0) ne bouge pas : lui baisser
+       son prix détruirait de la marge sans soulager aucun client.
+       Solde éventuel — baisse supérieure au reste à charge total — : prorata des
+       ventes, neutre. Plancher par logement : un prix ne descend jamais sous 0,
+       l'excédent est redistribué sur les autres.
+       resteClient absent (appel historique, cf. test_ventilation.js) => 0 partout
+       => on retombe sur l'ancien prorata uniforme, à l'identique. */
+    const plancher = -Math.min(capMax, 1);
+    let aRetirer = -D;
+    const sumR = vivants.reduce((s,p)=>s+p.resteClient, 0);
+    if(sumR > 0){
+      const surR = Math.min(aRetirer, sumR);
+      vivants.forEach(p=>{ p.hausse -= surR * (p.resteClient / sumR); });
+      aRetirer -= surR;
+    }
+    if(aRetirer > 0) vivants.forEach(p=>{ p.hausse -= aRetirer * (p.venteCat / sumV); });
+    for(let pass = 0; pass < 2; pass++){
+      let exces = 0;
+      vivants.forEach(p=>{
+        const mini = p.venteCat * plancher;
+        if(p.hausse < mini){ exces += mini - p.hausse; p.hausse = mini; p.plancher = true; }
+      });
+      if(exces <= 0.005) break;
+      const libres = vivants.filter(p=>!p.plancher);
+      const sumL = libres.reduce((s,p)=>s+p.venteCat, 0);
+      if(!libres.length || sumL <= 0) break;
+      libres.forEach(p=>{ p.hausse -= exces * (p.venteCat / sumL); });
+    }
+    return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0, plancher:!!p.plancher})),
              residuel: round2(D - vivants.reduce((s,p)=>s+p.hausse,0)) };
   }
   // Étape 1 — au prorata de la CAPACITÉ prime (remplir la prime de chaque logement,
@@ -1982,6 +2009,11 @@ function calcAjustementVersMarge(margeCible, opts){
     if(venteCat <= 0) return;
     parts.push({ key: ovKey(vt), label: vt.label, venteCat,
                  prime: num(res.prime), capacite: Math.max(0, num(res.prime) - num(res.venteTravaux)),
+                 // Miroir de la capacité : ce que ce client paie DE SA POCHE aujourd'hui.
+                 // Sert de clé à la ventilation d'une BAISSE (2026-08-28).
+                 // Une seule des deux grandeurs est > 0 : soit la prime couvre tout
+                 // (capacite > 0, resteClient = 0), soit le client paie (l'inverse).
+                 resteClient: Math.max(0, num(res.venteTravaux) - num(res.prime)),
                  // Ce qui manque à CETTE habitation pour atteindre sa part du seuil projet
                  // (cf. seuilProrata). Négatif = déjà au-dessus de sa cible -> poids nul.
                  deficitMarge: Math.max(0, num(res.seuil) - num(res.marge)),
@@ -2183,8 +2215,101 @@ function appliquerMargeWidget(scope, key, cible){
 }
 // Prix de vente HT forcé → c'est directement la vente cible.
 function appliquerVenteWidget(scope, key, cible){ appliquerVenteCible(scope, key, round2(num(cible))); }
-// (2026-08-28) appliquerResteWidget a été retirée : un reste à charge forcé n'est plus
-// rétro-propagé dans les prix de vente, il est conservé tel quel via applyOv.
+/* ÉPINGLAGE (2026-08-28) — la ventilation écrit des prix au m² arrondis au centime,
+   catégorie par catégorie : le total peut retomber à un ou deux euros de la cible.
+   C'est CETTE dérive qui avait fait croire, le matin même, qu'il fallait renoncer à
+   ventiler. Face à un client, la valeur saisie doit tomber JUSTE : on mesure l'écart
+   résiduel et on l'absorbe sur la plus grosse ligne ventilée, en ajustant son prix au
+   m² à la 4e décimale. L'affichage arrondit au centime — invisible — et le total est exact. */
+function epinglerReste(scope, key, cibleReste){
+  for(let passe = 0; passe < 3; passe++){
+    const g = calcGlobal();
+    const actuel = scope === 'g' ? num(g.tot.reste)
+                 : num((g.blocks.find(x=> ovKey(x.vt) === key) || {res:{}}).res.reste);
+    const ecart = round2(num(cibleReste) - actuel);
+    if(Math.abs(ecart) < 0.005) break;
+    let best = null;
+    g.blocks.forEach(({vt, res})=>{
+      if(vt.role !== 'habitation' || res.distributed) return;
+      if(scope === 'v' && ovKey(vt) !== key) return;
+      res.lignes.forEach(l=>{
+        if(l.pc || l.itePart || !CHARGE_MAP[l.cat]) return;
+        if(!(num(l.surf) > 0) || !(num(l.vente) > 0)) return;
+        if(!best || num(l.vR) > num(best.l.vR)) best = { vt, l };
+      });
+    });
+    if(!best) break;
+    const kv = ovKey(best.vt);
+    if(!state.prixVentil) state.prixVentil = {};
+    state.prixVentil[kv] = state.prixVentil[kv] || {};
+    const px = num(state.prixVentil[kv][best.l.cat] != null ? state.prixVentil[kv][best.l.cat] : best.l.vente);
+    state.prixVentil[kv][best.l.cat] = Math.round((px + ecart / num(best.l.surf)) * 10000) / 10000;
+  }
+  saveLS();
+}
+
+/* RESTE À CHARGE FORCÉ — rétabli et corrigé le 2026-08-28.
+   Un reste forcé PILOTE les prix : vente cible = reste voulu + prime CEE (la prime ne
+   bouge pas). Le matin du 28 il était devenu une simple valeur d'affichage : la tuile
+   annonçait alors un reste que les prix ne produisaient pas — 0 € affiché pour 2 044 €
+   réellement à payer, inutilisable face à un client.
+   Renvoie le détail de la ventilation pour le récapitulatif affiché à l'écran. */
+function appliquerResteWidget(scope, key, cible){
+  const cibleReste = round2(num(cible));
+  const photo = () => {
+    const g = calcGlobal();
+    const map = {};
+    g.blocks.forEach(({vt, res})=>{
+      if(vt.role !== 'habitation' || res.distributed) return;
+      map[ovKey(vt)] = { label: vt.label, reste: num(res.reste), prime: num(res.prime), vente: num(res.venteTravaux) };
+    });
+    return { tot: { reste:num(g.tot.reste), marge:num(g.tot.marge), go:!!g.tot.go }, map };
+  };
+  const avant = photo();
+  applyOv(scope, key, 'reste', null);   // un ancien override d'affichage masquerait la ventilation
+  const g0 = calcGlobal();
+  const prime = scope === 'g' ? num(g0.tot.prime)
+              : num((g0.blocks.find(x=> ovKey(x.vt) === key) || {res:{}}).res.prime);
+  appliquerVenteCible(scope, key, round2(cibleReste + prime));
+  epinglerReste(scope, key, cibleReste);
+  const apres = photo();
+  const lignes = Object.keys(avant.map).map(k=>{
+    const a = avant.map[k], b = apres.map[k] || a;
+    return { label:a.label, prime:a.prime, avant:a.reste, apres:b.reste, delta: round2(b.vente - a.vente) };
+  });
+  return { scope, key, cible: cibleReste, avant, apres, lignes };
+}
+
+/* Récapitulatif d'un reste à charge forcé — même emplacement et même langue visuelle
+   que le récapitulatif de l'ajustement GO. On montre QUI absorbe, POURQUOI, et l'impact
+   sur la marge et la décision : l'utilisateur ne doit pas découvrir un NO-GO après coup. */
+function renderVentilationReste(info){
+  const zone = $('#scanIAResult'); if(!zone || !info) return;
+  const baisse = info.cible < info.avant.tot.reste;
+  const ecartTotal = round2(info.apres.tot.reste - info.avant.tot.reste);
+  const lignes = info.lignes.map(l=>{
+    if(Math.abs(l.delta) < 0.005)
+      return '<li><strong>' + esc(l.label) + '</strong> : <em>inchangée</em>'
+        + ' <small>— sa prime CEE (' + eur(l.prime) + ') couvrait déjà son prix de vente : ce client ne payait rien de sa poche</small></li>';
+    return '<li><strong>' + esc(l.label) + '</strong> : '
+      + (l.delta > 0 ? '+' : '−') + eur(Math.abs(l.delta)) + ' de prix de vente'
+      + ' <small>— reste à charge ' + eur(l.avant) + ' → <strong>' + eur(l.apres) + '</strong>'
+      + ' · prime CEE ' + eur(l.prime) + '</small></li>';
+  }).join('');
+  const goAvant = info.avant.tot.go, goApres = info.apres.tot.go;
+  zone.innerHTML = '<div class="alert ' + (goApres ? 'ok' : 'warn') + '">'
+    + '⚖️ <strong>Reste à charge fixé à ' + eur(info.cible) + '</strong> — '
+    + (baisse ? 'baisse' : 'hausse') + ' de ' + eur(Math.abs(ecartTotal)) + ' ventilée '
+    + (info.scope === 'g' ? 'sur les habitations' : 'sur cette habitation')
+    + (baisse ? ', en priorité là où le client payait le plus de sa poche :'
+              : ', en priorité sur les primes CEE encore disponibles :')
+    + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
+    + '<div style="margin-top:6px">Marge commerciale : <strong>' + eur(info.avant.tot.marge) + '</strong> &rarr; <strong>'
+      + eur(info.apres.tot.marge) + '</strong> &middot; Décision : '
+      + (goAvant ? '✅ GO' : '⛔ NO-GO') + ' &rarr; ' + (goApres ? '✅ GO' : '⛔ NO-GO')
+      + (goAvant !== goApres ? ' <strong>(bascule)</strong>' : '') + '</div>'
+    + '<small>Les prix ventilés apparaissent en rosé dans les tableaux ci-dessus — propres à ce dossier, le barème des Paramètres n\'est jamais touché. « ↺ » sur la tuile annule.</small></div>';
+}
 
 function annulerAjustementGo(){
   // Nouvelle ventilation par habitation : on la vide entièrement.
@@ -4875,6 +5000,7 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
   </div>`;
 }
 function openKpiEditor(kpi){
+  let _infoReste = null;   // détail de la ventilation d'un reste forcé, rendu après renderStep4
   const parts = kpi.dataset.ov.split('|');
   const scope = parts[0], key = decodeURIComponent(parts[1]), field = parts[2], type = parts[3];
   const valBox = kpi.querySelector('.val');
@@ -4889,15 +5015,13 @@ function openKpiEditor(kpi){
     if(saisie && field === 'marge')             appliquerMargeWidget(scope, key, num(v));
     else if(saisie && field === 'w_tauxMarge')  appliquerTauxMargeWidget(scope, key, num(v));
     else if(saisie && field === 'venteTravaux') appliquerVenteWidget(scope, key, num(v));
-    // RESTE A CHARGE (2026-08-28) : la valeur saisie est CONSERVÉE telle quelle.
-    // Avant, elle était rétro-propagée dans les prix de vente (vente cible = reste + prime),
-    // et la ventilation + les arrondis la faisaient dériver de quelques euros : le montant
-    // affiché n'était plus celui tapé. Le moteur sait déjà honorer ov.reste (cf. calcVT) et
-    // le bouclier exclut un reste forcé de ses contrôles (C8) : un simple override suffit.
-    // ↺ restaure la valeur calculée. Marge, Prix de vente et Taux de marge, eux, continuent
-    // de ventiler les prix — leur sens métier est de piloter le prix.
+    // RESTE À CHARGE : pilote les prix, comme la marge et le prix de vente. Ventilation
+    // pondérée par le reste à charge de chaque logement à la baisse, par la prime CEE
+    // disponible à la hausse — puis épinglage pour tomber juste au centime.
+    else if(saisie && field === 'reste') _infoReste = appliquerResteWidget(scope, key, num(v));
     else applyOv(scope, key, field, v);
     renderStep4();
+    if(_infoReste){ renderVentilationReste(_infoReste); _infoReste = null; }
   };
   if(type === 'dec'){
     valBox.innerHTML = '<select><option value="">Auto (calculé)</option><option value="go">✅ GO</option><option value="nogo">⛔ NO-GO</option></select>';
