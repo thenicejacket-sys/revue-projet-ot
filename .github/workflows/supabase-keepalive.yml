@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Supabase keep-alive — Revue Projet OT
+#
+#  POURQUOI : le plan gratuit Supabase met un projet EN PAUSE après ~7 jours
+#  sans la moindre requête. Quand ça arrive, le sous-domaine du projet ne résout
+#  même plus en DNS : l'app affiche « Historique inaccessible : NetworkError » et
+#  l'historique partagé disparaît pour TOUS les utilisateurs.
+#  C'est exactement ce qui s'est produit le 27/08/2026 (dernier commit le 03/08).
+#
+#  COMMENT : une requête de lecture par jour suffit à garder le projet éveillé.
+#  Si la base ne répond pas 200, le job échoue — GitHub envoie alors un mail,
+#  ce qui donne l'alerte AVANT que les utilisateurs ne tombent sur l'erreur.
+#
+#  NOTE SUR LA CLÉ : c'est la clé « publishable » déjà présente en clair dans
+#  index.html, servie publiquement par GitHub Pages. La mettre ici n'expose donc
+#  rien de nouveau. Elle est protégée par les règles RLS de la base (lecture et
+#  ajout publics, pas de modification). Pour la déplacer malgré tout dans un
+#  secret de dépôt : Settings → Secrets → Actions, puis ${{ secrets.SUPABASE_ANON }}.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: '17 6 * * *'      # tous les jours à 06:17 UTC (07:17 ou 08:17 à Paris)
+  workflow_dispatch:           # + déclenchement manuel depuis l'onglet « Actions »
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Réveiller la base (lecture d'une ligne)
+        run: |
+          set -uo pipefail
+          URL="https://qyyvhltydpwfyevaysuw.supabase.co/rest/v1/dossiers?select=id&limit=1"
+          KEY="sb_publishable_F9lxYGIlRmlhacQME0MfgA_AuQNJ61b"
+
+          code=$(curl -s -o /tmp/reponse.json -w '%{http_code}' --max-time 30 \
+                   -H "apikey: $KEY" \
+                   -H "Authorization: Bearer $KEY" \
+                   "$URL" || echo "000")
+
+          echo "Code HTTP : $code"
+          echo "Réponse   : $(head -c 300 /tmp/reponse.json 2>/dev/null)"
+
+          if [ "$code" = "000" ]; then
+            echo "::error::Base injoignable — aucune réponse HTTP. Le projet Supabase est probablement EN PAUSE ou SUPPRIMÉ. Va sur https://supabase.com/dashboard/project/qyyvhltydpwfyevaysuw et clique « Restore »."
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "::error::La base a répondu HTTP $code au lieu de 200. Vérifie la clé publishable et les règles RLS de la table « dossiers »."
+            exit 1
+          fi
+          echo "✅ Base éveillée — l'historique partagé reste joignable."
