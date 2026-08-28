@@ -203,7 +203,24 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 #jrnBody li{margin-bottom:3px}
 #jrnBody .src-auto{background:var(--orange-bg);color:var(--orange-tx);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
 #jrnBody .src-man{background:#e6ecff;color:#1B3F8B;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
-#jrnBody .regle{background:#f5f8ff;border-left:3px solid var(--primary);padding:10px 12px;border-radius:0 8px 8px 0;margin-top:14px;color:var(--text)}
+#jrnBody .regle{background:#f5f8ff;border-left:3px solid var(--primary);padding:10px 12px;border-radius:0 8px 8px 0;margin-top:6px;color:var(--text)}
+#jrnBody table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+#jrnBody th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);
+  border-bottom:1px solid var(--border);padding:5px 8px;font-weight:700;white-space:nowrap}
+#jrnBody td{padding:6px 8px;border-bottom:1px solid #eef1f7;vertical-align:top}
+#jrnBody td.num,#jrnBody th.num{text-align:right;white-space:nowrap}
+#jrnBody tr:last-child td{border-bottom:none}
+#jrnBody tbody tr.tot{background:#f2f6ff;font-weight:700}
+#jrnBody .av{color:var(--text-muted)}
+#jrnBody .fl{color:var(--text-muted);padding:0 3px}
+#jrnBody .detcat{display:block;color:var(--text-muted);font-size:11.5px;margin-top:2px}
+#jrnBody .pourquoi{display:block;color:var(--text-muted);font-size:11.5px;margin-top:2px}
+#jrnBody details.regleWrap{margin-top:14px}
+#jrnBody details.regleWrap>summary{cursor:pointer;font-weight:700;color:var(--primary);font-size:13px;padding:6px 0}
+#jrnBody .vide{padding:14px;text-align:center}
+#jrnBody table.t-hab td:first-child,#jrnBody table.t-hab th:first-child{width:34%}
+#jrnBody table.t-hab td:last-child,#jrnBody table.t-hab th:last-child{width:15%}
+#jrnBody .src-auto,#jrnBody .src-man{display:inline-block;margin-bottom:2px;white-space:nowrap}
 #jrnFoot{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;background:#fafbfe}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
 .hist-searchbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
@@ -915,7 +932,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2364,129 +2381,152 @@ const JRN_CHAMP  = { chargesTravaux:'Charges travaux', venteTravaux:'Prix de ven
                      reste:'Reste à charge', marge:'Marge commerciale', decision:'Décision' };
 
 function journalHtml(){
-  const g = calcGlobal();
-  const o = state.ventilOrigine;
-  const px = v => num(v).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €/m²';
-  const nomVt = k => { const v = (state.vts||[]).find(x=>ovKey(x)===k); return v ? v.label : k; };
-  const blocs = [];
-
-  // ── 1. Ventilation automatique des prix de vente ────────────────────────────
+  const g   = calcGlobal();
+  const o   = state.ventilOrigine;
   const ven = state.prixVentil || {};
-  const clesV = Object.keys(ven).filter(k => Object.keys(ven[k]||{}).length);
-  if(clesV.length){
-    let entete = '';
-    if(o && o.field){
-      const quoi = JRN_PILOTE[o.field] || o.field;
-      const ou   = o.scope === 'g' ? 'Total immeuble' : nomVt(o.key);
-      entete = '<p style="margin:2px 0 6px"><small>Déclenchée par : <strong>' + esc(quoi) + '</strong> sur <strong>'
-             + esc(ou) + '</strong>'
-             + (o.cible != null ? ', fixé à <strong>' + eur(o.cible) + '</strong>' : '')
-             + (o.quand ? ' — le ' + esc(new Date(o.quand).toLocaleString('fr-FR')) : '') + '</small></p>';
-    }
-    const lignes = clesV.map(k=>{
-      const cats = Object.entries(ven[k]).map(([cat, v])=>{
-        const cc = findChargeCol(CHARGE_MAP[cat]);
-        const man = !!(state.prixManuel && state.prixManuel[k] && state.prixManuel[k][cat]
-                    && state.prixManuel[k][cat].vente != null);
-        return (CAT_LABEL[cat]||cat) + ' ' + px(cc?cc.vente:0) + ' → ' + px(v)
-             + (man ? ' <em>(remplacé ensuite par un prix manuel)</em>' : '');
-      }).join(' · ');
-      let chiffres = '';
-      const b = g.blocks.find(x=>ovKey(x.vt)===k);
-      if(o && o.avant && o.avant.map && o.avant.map[k] && b){
-        const a = o.avant.map[k];
-        // « avant la ventilation → aujourd'hui » : formulation volontaire. L'état actuel
-        // peut inclure des modifications manuelles POSTÉRIEURES ; dire « → après ventilation »
-        // attribuerait à tort ces écarts au moteur.
-        chiffres = '<br><small>avant la ventilation : prix de vente ' + eur(a.vente)
-                 + ' · reste à charge ' + eur(a.reste) + ' · prime CEE ' + eur(a.prime)
-                 + '<br>aujourd\'hui : prix de vente ' + eur(b.res.venteTravaux)
-                 + ' · reste à charge ' + eur(b.res.reste) + '</small>';
-      }
-      return '<li><strong>' + esc(nomVt(k)) + '</strong> — ' + cats + chiffres + '</li>';
-    }).join('');
-    // Habitations volontairement NON touchées : c'est là que la règle se voit.
-    let intactes = '';
-    if(o && o.avant && o.avant.map){
-      const noms = Object.keys(o.avant.map).filter(k=>!clesV.includes(k)).map(k=>{
-        const a = o.avant.map[k];
-        return '<li><strong>' + esc(a.label) + '</strong> — <em>inchangée</em> <small>— sa prime CEE ('
-             + eur(a.prime) + ') couvrait déjà son prix de vente : ce client ne payait rien de sa poche</small></li>';
-      }).join('');
-      intactes = noms;
-    }
-    let impact = '';
-    if(o && o.avant && o.avant.tot){
-      impact = '<p style="margin:8px 0 0">Marge commerciale <strong>' + eur(o.avant.tot.marge)
-             + '</strong> avant la ventilation, <strong>' + eur(g.tot.marge) + '</strong> aujourd\'hui'
-             + ' · Décision ' + (o.avant.tot.go?'✅ GO':'⛔ NO-GO')
-             + ' → ' + (g.tot.go?'✅ GO':'⛔ NO-GO')
-             + (o.avant.tot.go !== !!g.tot.go ? ' <strong>(bascule)</strong>' : '')
-             + '<br><small>« Aujourd\'hui » tient compte des modifications manuelles faites depuis, listées ci-dessous.</small></p>';
-    }
-    blocs.push('<h4><span class="src-auto">⚖️ automatique</span> Ventilation des prix de vente</h4>'
-      + entete + '<ul>' + lignes + intactes + '</ul>' + impact);
-  }
-
-  // ── 2. Prix modifiés à la main ──────────────────────────────────────────────
   const man = state.prixManuel || {};
-  const lignesMan = [];
-  Object.keys(man).forEach(k=> Object.entries(man[k]||{}).forEach(([cat, o2])=>{
-    const cc = findChargeCol(CHARGE_MAP[cat]);
-    if(o2.achat != null) lignesMan.push('<li><strong>' + esc(nomVt(k)) + '</strong> — ' + (CAT_LABEL[cat]||cat)
-      + ', prix d\'achat ' + px(cc?cc.achat:0) + ' → ' + px(o2.achat) + '</li>');
-    if(o2.vente != null) lignesMan.push('<li><strong>' + esc(nomVt(k)) + '</strong> — ' + (CAT_LABEL[cat]||cat)
-      + ', prix de vente ' + px(cc?cc.vente:0) + ' → ' + px(o2.vente) + '</li>');
-  }));
-  if(lignesMan.length)
-    blocs.push('<h4><span class="src-man">✎ manuel</span> Prix saisis à la main</h4><ul>' + lignesMan.join('') + '</ul>');
-
-  // ── 3. Valeurs forcées sur les tuiles ───────────────────────────────────────
   const ovG = (state.overrides && state.overrides.global) || {};
   const ovV = (state.overrides && state.overrides.vt) || {};
-  const lignesOv = [];
+
+  const px    = v => num(v).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €/m²';
+  const nomVt = k => { const v = (state.vts||[]).find(x=>ovKey(x)===k); return v ? v.label : k; };
+  const flx   = (a,b) => '<span class="av">' + eur(a) + '</span><span class="fl">→</span><strong>' + eur(b) + '</strong>';
+  const tagA  = '<span class="src-auto">⚖️ ventilé</span>';
+  const tagM  = '<span class="src-man">✎ manuel</span>';
+
+  const hab = g.blocks.filter(b => b.vt.role === 'habitation' && !b.res.distributed);
+  const av  = (o && o.avant) ? o.avant : null;
+  const bl  = [];
+
+  // ── En-tête : ce qui a déclenché la ventilation ─────────────────────────────
+  const yaVentil = Object.keys(ven).some(k => Object.keys(ven[k]||{}).length);
+  const yaManuel = Object.keys(man).length
+                || Object.keys(ovG).some(f=>ovG[f]!=null)
+                || Object.keys(ovV).some(k=>Object.keys(ovV[k]||{}).some(f=>ovV[k][f]!=null))
+                || (state.vts||[]).some(v=>v.role==='habitation' && v.excluded);
+  if(!yaVentil && !yaManuel)
+    bl.push('<div class="alert ok vide">✅ <strong>Aucune modification.</strong> '
+          + 'Tous les chiffres sortent du barème et du calcul d\'origine.</div>');
+  else if(yaVentil && o && o.field){
+    bl.push('<div class="alert info" style="margin:0 0 10px">' + tagA
+      + ' Déclenchée par <strong>' + esc(JRN_PILOTE[o.field] || o.field) + '</strong> sur <strong>'
+      + esc(o.scope === 'g' ? 'Total immeuble' : nomVt(o.key)) + '</strong>'
+      + (o.cible != null ? ', fixé à <strong>' + eur(o.cible) + '</strong>' : '')
+      + (o.quand ? ' <small>— ' + esc(new Date(o.quand).toLocaleString('fr-FR')) + '</small>' : '') + '</div>');
+  }
+
+  // ── TABLEAU 1 — par habitation ──────────────────────────────────────────────
+  if(hab.length){
+    const lignes = hab.map(({vt, res})=>{
+      const k = ovKey(vt);
+      const a = av && av.map ? av.map[k] : null;
+      const vv = ven[k] || {}, mm = man[k] || {};
+      const aV = Object.keys(vv).length > 0;
+      const aM = Object.keys(mm).length > 0
+              || Object.keys(ovV[k] || {}).some(f => ovV[k][f] != null);
+
+      let origine = (aV ? tagA : '') + (aV && aM ? ' ' : '') + (aM ? tagM : '');
+      if(!aV && !aM) origine = '<span class="av">— inchangée</span>';
+
+      let pourquoi = '';
+      if(!aV && a && num(a.prime) >= num(a.vente))
+        pourquoi = '<span class="pourquoi">sa prime CEE couvrait déjà son prix de vente</span>';
+      else if(aV && a)
+        pourquoi = '<span class="pourquoi">' + (num(a.prime) >= num(a.vente)
+          ? 'prime CEE encore disponible' : 'ce client paie de sa poche') + '</span>';
+
+      const detail = Object.keys(vv).length
+        ? '<span class="detcat">' + Object.entries(vv).map(([c,v])=>{
+            const cc = findChargeCol(CHARGE_MAP[c]);
+            return (CAT_LABEL[c]||c) + ' ' + px(cc?cc.vente:0) + ' → ' + px(v);
+          }).join(' · ') + '</span>'
+        : '';
+
+      return '<tr><td><strong>' + esc(vt.label) + '</strong>' + detail + '</td>'
+        + '<td class="num">' + eur(res.prime) + '</td>'
+        + '<td class="num">' + (a ? flx(a.vente, res.venteTravaux) : '<strong>'+eur(res.venteTravaux)+'</strong>') + '</td>'
+        + '<td class="num">' + (a ? flx(a.reste, res.reste)        : '<strong>'+eur(res.reste)+'</strong>') + '</td>'
+        + '<td>' + origine + pourquoi + '</td></tr>';
+    }).join('');
+    bl.push('<h4>Par habitation</h4><table class="t-hab"><thead><tr>'
+      + '<th>Habitation</th><th class="num">Prime CEE</th>'
+      + '<th class="num">Prix de vente</th><th class="num">Reste à charge</th>'
+      + '<th>Origine</th></tr></thead><tbody>' + lignes + '</tbody></table>'
+      + (av ? '<small class="av">En gris : avant la ventilation. En gras : aujourd\'hui.</small>' : ''));
+  }
+
+  // ── TABLEAU 2 — total immeuble ──────────────────────────────────────────────
+  const t = g.tot;
+  const ligneTot = (lib, avant, apres)=>{
+    const ecart = (avant != null) ? round2(num(apres) - num(avant)) : null;
+    return '<tr><td>' + lib + '</td>'
+      + '<td class="num av">' + (avant != null ? eur(avant) : '—') + '</td>'
+      + '<td class="num"><strong>' + eur(apres) + '</strong></td>'
+      + '<td class="num">' + (ecart == null ? '—'
+          : (Math.abs(ecart) < 0.005 ? '<span class="av">—</span>'
+             : (ecart > 0 ? '+' : '−') + eur(Math.abs(ecart)))) + '</td></tr>';
+  };
+  let corpsTot = ligneTot('Prix de vente HT', av?av.tot.vente:null, t.venteTravaux)
+    + ligneTot('Prime CEE',       null, t.prime)
+    + ligneTot('Reste à charge',  av?av.tot.reste:null, t.reste)
+    + ligneTot('Coût de revient', null, t.coutRevient)
+    + '<tr class="tot"><td>Marge commerciale</td>'
+      + '<td class="num av">' + (av ? eur(av.tot.marge) : '—') + '</td>'
+      + '<td class="num">' + eur(t.marge) + '</td>'
+      + '<td class="num">' + (av ? ((round2(t.marge-av.tot.marge) >= 0 ? '+' : '−') + eur(Math.abs(round2(t.marge-av.tot.marge)))) : '—') + '</td></tr>'
+    + '<tr class="tot"><td>Décision</td>'
+      + '<td class="num av">' + (av ? (av.tot.go?'✅ GO':'⛔ NO-GO') : '—') + '</td>'
+      + '<td class="num">' + (t.go?'✅ GO':'⛔ NO-GO') + '</td>'
+      + '<td class="num">' + (av && av.tot.go !== !!t.go ? '<strong>bascule</strong>' : '<span class="av">—</span>') + '</td></tr>';
+  bl.push('<h4>Total immeuble</h4><table><thead><tr><th></th>'
+    + '<th class="num">Avant</th><th class="num">Aujourd\'hui</th><th class="num">Écart</th>'
+    + '</tr></thead><tbody>' + corpsTot + '</tbody></table>'
+    + (av ? '<small class="av">« Avant » = juste avant la ventilation. « Aujourd\'hui » tient compte des modifications manuelles faites depuis.</small>' : ''));
+
+  // ── TABLEAU 3 — modifications manuelles ─────────────────────────────────────
+  const mods = [];
+  Object.keys(man).forEach(k => Object.entries(man[k]||{}).forEach(([cat, o2])=>{
+    const cc = findChargeCol(CHARGE_MAP[cat]);
+    if(o2.achat != null) mods.push([nomVt(k), (CAT_LABEL[cat]||cat) + ' — prix d\'achat', px(cc?cc.achat:0), px(o2.achat)]);
+    if(o2.vente != null) mods.push([nomVt(k), (CAT_LABEL[cat]||cat) + ' — prix de vente', px(cc?cc.vente:0), px(o2.vente)]);
+  }));
   const dit = (ou, champ, val)=>{
     const nom = JRN_CHAMP[champ] || champ.replace(/^w_/, 'Widget ');
-    const aff = champ === 'decision' ? (String(val).toLowerCase()==='go' ? '✅ GO' : '⛔ NO-GO') : eur(val);
-    lignesOv.push('<li><strong>' + esc(ou) + '</strong> — ' + esc(nom) + ' forcé à <strong>' + aff + '</strong></li>');
+    mods.push([ou, nom + ' forcé', '<span class="av">calculé</span>',
+      champ === 'decision' ? (String(val).toLowerCase()==='go' ? '✅ GO' : '⛔ NO-GO') : eur(val)]);
   };
   Object.entries(ovG).forEach(([c,v])=>{ if(v!=null) dit('Total immeuble', c, v); });
   Object.entries(ovV).forEach(([k,bag])=> Object.entries(bag||{}).forEach(([c,v])=>{ if(v!=null) dit(nomVt(k), c, v); }));
-  if(lignesOv.length)
-    blocs.push('<h4><span class="src-man">✎ manuel</span> Valeurs forcées sur les tuiles</h4><ul>' + lignesOv.join('') + '</ul>');
-
-  // ── 4. Ce qui a été sorti du calcul ─────────────────────────────────────────
-  const exclues = (state.vts||[]).filter(v=>v.role==='habitation' && v.excluded);
-  let nOff = 0, nDecoche = 0;
-  (state.vts||[]).forEach(vt=> CATS.forEach(cat=>{
+  (state.vts||[]).filter(v=>v.role==='habitation' && v.excluded)
+    .forEach(v=> mods.push([v.label, 'Exclue du dossier', '<span class="av">incluse</span>', 'hors de tous les calculs']));
+  let nOff = 0, nDec = 0;
+  (state.vts||[]).forEach(vt => CATS.forEach(cat =>
     effectiveInstances(vt, cat).forEach((_,i)=>{
-      if(isDisabled(vt,cat,i)) nOff++;
-      else if(!isChecked(vt,cat,i)) nDecoche++;
-    });
-  }));
-  const lignesEx = [];
-  exclues.forEach(v=> lignesEx.push('<li><strong>' + esc(v.label) + '</strong> — exclue du dossier, hors de TOUS les calculs</li>'));
-  if(nOff)     lignesEx.push('<li>' + nOff + ' ligne(s) désactivées (✕) — sorties des totaux</li>');
-  if(nDecoche) lignesEx.push('<li>' + nDecoche + ' ligne(s) décochées — présentes mais hors du calcul</li>');
-  if(lignesEx.length)
-    blocs.push('<h4><span class="src-man">✎ manuel</span> Sorti du calcul</h4><ul>' + lignesEx.join('') + '</ul>');
+      if(isDisabled(vt,cat,i)) nOff++; else if(!isChecked(vt,cat,i)) nDec++;
+    })));
+  if(nOff) mods.push(['Toutes habitations', nOff + ' ligne(s) désactivées (✕)', '<span class="av">actives</span>', 'sorties des totaux']);
+  if(nDec) mods.push(['Toutes habitations', nDec + ' ligne(s) décochées', '<span class="av">cochées</span>', 'hors du calcul']);
 
-  // ── Rien du tout ────────────────────────────────────────────────────────────
-  if(!blocs.length)
-    blocs.push('<div class="alert ok">✅ <strong>Aucune modification.</strong> Tous les chiffres sortent du barème et du calcul d\'origine.</div>');
+  if(mods.length)
+    bl.push('<h4>' + tagM + ' Modifications manuelles</h4><table><thead><tr>'
+      + '<th>Où</th><th>Quoi</th><th class="num">D\'origine</th><th class="num">Retenu</th>'
+      + '</tr></thead><tbody>'
+      + mods.map(m=>'<tr><td><strong>'+esc(m[0])+'</strong></td><td>'+m[1]
+          +'</td><td class="num">'+m[2]+'</td><td class="num"><strong>'+m[3]+'</strong></td></tr>').join('')
+      + '</tbody></table>');
 
-  // ── La règle, toujours affichée ─────────────────────────────────────────────
-  blocs.push('<div class="regle"><strong>Comment la ventilation répartit</strong><br>'
+  // ── La règle, repliée ───────────────────────────────────────────────────────
+  bl.push('<details class="regleWrap"><summary>📖 Comment la ventilation répartit</summary><div class="regle">'
     + '<strong>À la hausse</strong> — d\'abord sur les logements dont la <strong>prime CEE n\'est pas épuisée</strong> '
     + '(on facture plus sans que le client paie plus), puis sur ceux dont la marge manque, puis au prorata des prix de vente.<br>'
     + '<strong>À la baisse</strong> — d\'abord sur les logements que la prime <strong>ne couvre pas</strong>, au prorata de ce qu\'ils '
-    + 'paient de leur poche. Un logement dont la prime couvre déjà tout <strong>ne bouge pas</strong> : lui baisser son prix '
-    + 'détruirait de la marge sans soulager personne.<br>'
+    + 'paient de leur poche. Un logement dont la prime couvre déjà tout <strong>ne bouge pas</strong>.<br>'
     + '<strong>Toujours</strong> — seules les catégories du barème bougent. Éléments à la pièce, ajouts individuels et part ITE '
     + 'ne sont jamais touchés, et le barème des Paramètres n\'est jamais modifié.<br>'
-    + '<small>Chaque prix reste modifiable à la main dans les tableaux : il passe alors en bleuté et prend le pas sur la ventilation.</small></div>');
+    + '<small>Chaque prix reste modifiable à la main dans les tableaux : il passe alors en bleuté et prend le pas sur la ventilation.</small>'
+    + '</div></details>');
 
-  return blocs.join('');
+  return bl.join('');
 }
 
 function ouvrirJournal(){
