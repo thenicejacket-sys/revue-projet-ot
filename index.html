@@ -586,26 +586,6 @@ main{position:relative;z-index:1}
     <div class="card">
       <h2>⚙️ Paramètres</h2>
 
-      <!-- CONFIGURATION PARTAGÉE — barèmes, widgets, formules, histogramme et
-           template de valorisation sont COMMUNS à tous les utilisateurs. Le fichier
-           JSON est le filet de sécurité : il permet de revenir en arrière si
-           quelqu'un publie une configuration cassée. -->
-      <details class="pset" open>
-        <summary>🌐 Configuration partagée</summary>
-        <div class="pset-b">
-          <div id="configPartageeEtat"></div>
-          <div class="flex" style="gap:8px;flex-wrap:wrap;margin-top:8px">
-            <button class="btn success small" id="cfgPublier" title="Envoie TOUS les paramètres (barèmes, widgets, formules, histogramme, template de valorisation) dans la base partagée. Les autres utilisateurs les recevront à leur prochain chargement.">📤 Publier la configuration</button>
-            <button class="btn small" id="cfgRecharger" title="Recharge la dernière configuration publiée, en écrasant les réglages locaux.">⟳ Recharger la configuration partagée</button>
-            <span style="flex:1"></span>
-            <button class="btn small" id="cfgExport" title="Télécharge TOUS les paramètres dans un fichier JSON — sauvegarde de secours avant toute modification risquée.">⬇ Exporter tous les paramètres</button>
-            <button class="btn small ghost" id="cfgImport" title="Recharge un fichier de paramètres exporté. Restaure l'application dans un état connu.">⬆ Importer un fichier</button>
-            <input type="file" id="cfgImportFile" accept=".json,application/json" style="display:none">
-          </div>
-          <p class="hint" style="margin-top:8px">La clé du modèle IA n'est <strong>jamais</strong> publiée ni exportée : elle reste sur ce poste.</p>
-        </div>
-      </details>
-
       <details class="pset">
         <summary>🤖 Modèle IA</summary>
         <div class="pset-b">
@@ -810,6 +790,30 @@ main{position:relative;z-index:1}
         </div>
       </details>
 
+      <!-- RÉGLAGES COMMUNS — placés en DERNIER (demande du 28/08) : on ne s'en sert
+           qu'une fois le reste réglé, et rarement. Repliés par défaut.
+           Trois actions seulement : publier, sauvegarder, restaurer. Le bouton
+           « recharger » a été retiré : recharger la page fait exactement la même chose. -->
+      <details class="pset" id="psetConfig">
+        <summary>🌐 Réglages communs à tous les utilisateurs</summary>
+        <div class="pset-b">
+          <div id="configPartageeEtat"></div>
+          <div class="flex" style="gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+            <button class="btn success small" id="cfgPublier" title="Envoie tes barèmes, widgets, formules et histogramme à tous les utilisateurs. Ils les recevront en rechargeant leur page.">📤 Publier pour tout le monde</button>
+            <span style="flex:1"></span>
+            <button class="btn small" id="cfgExport" title="Télécharge un fichier contenant tous tes réglages. À faire avant toute grosse modification : c'est le seul moyen de revenir en arrière.">💾 Sauvegarder dans un fichier</button>
+            <button class="btn small ghost" id="cfgImport" title="Recharge un fichier de sauvegarde sur CE poste. Rien n'est envoyé aux autres tant que tu ne publies pas.">↩ Restaurer depuis un fichier</button>
+            <input type="file" id="cfgImportFile" accept=".json,application/json" style="display:none">
+          </div>
+          <p class="hint" style="margin-top:8px">
+            <strong>Publier</strong> envoie tes barèmes, widgets, formules et histogramme à tous les utilisateurs — ils les reçoivent en rechargeant leur page.
+            <strong>Sauvegarder</strong> télécharge un fichier de secours ; fais-le avant toute grosse modification, c'est le seul moyen de revenir en arrière.
+            <strong>Restaurer</strong> recharge ce fichier sur ce poste uniquement.
+            La clé du modèle IA n'est jamais publiée ni sauvegardée : elle reste ici.
+          </p>
+        </div>
+      </details>
+
       <!-- Encadré appuyé : noyé dans la masse des champs, ce bloc passait inaperçu. -->
       <div class="guide-box">
         <div class="gb-ico">📖</div>
@@ -824,7 +828,7 @@ main{position:relative;z-index:1}
       </div>
 
       <div class="actions">
-        <span><small>Tous les paramètres sont persistés en localStorage.</small></span>
+        <span><small>Réglages conservés sur ce poste. « 🌐 Réglages communs » ci-dessus les partage avec tous les utilisateurs.</small></span>
         <button class="btn" id="saveParams">💾 Enregistrer</button>
       </div>
     </div>
@@ -875,7 +879,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -5856,7 +5860,8 @@ const HistoryStore = {
    La clé IA (settings.apiKey) n'est JAMAIS publiée ni exportée — elle reste locale.
    ════════════════════════════════════════════════════════════════════════════ */
 const CONFIG_SCHEMA = 1;
-let CONFIG_SOURCE = 'locale';          // 'partagée' | 'locale' | 'locale (base injoignable)'
+let CONFIG_SOURCE = 'locale';          // 'partagée' | 'locale'
+let CONFIG_PROBLEME = null;            // message SEULEMENT si quelque chose ne va pas (sinon null)
 let CONFIG_INFO   = null;              // { created_at, auteur } de la config chargée
 let CONFIG_DEPUIS_ARCHIVE = false;     // config widgets venue d'un dossier archivé -> jamais publiable
 let _configAvantReprise = null;        // config globale mise de côté pendant une reprise
@@ -5935,18 +5940,23 @@ async function chargerConfigPartagee(){
     if(row && row.payload){
       appliquerConfigGlobale(row.payload);
       CONFIG_SOURCE = 'partagée';
+      CONFIG_PROBLEME = null;
       CONFIG_INFO   = { created_at: row.created_at, auteur: row.auteur || '' };
     }else{
-      CONFIG_SOURCE = SUPA_DOWN ? 'locale (base injoignable)' : 'locale';
+      // Rien de publié : ce n'est PAS une anomalie, juste un état de départ.
+      CONFIG_SOURCE = 'locale';
       CONFIG_INFO   = null;
+      CONFIG_PROBLEME = SUPA_DOWN
+        ? 'La base partagée ne répond pas : impossible de lire ou de publier les réglages communs pour le moment.'
+        : null;
     }
   }catch(e){
-    // 404 = la table n'existe pas encore dans Supabase. Message ACTIONNABLE plutôt
-    // qu'un code d'erreur : l'utilisateur doit savoir quoi faire.
-    CONFIG_SOURCE = /404/.test(e.message)
-      ? 'table « config » absente de Supabase — colle supabase/schema.sql dans SQL Editor'
-      : 'erreur : ' + e.message;
+    // 404 = la table n'existe pas encore. Message ACTIONNABLE, pas un code d'erreur.
+    CONFIG_SOURCE = 'locale';
     CONFIG_INFO   = null;
+    CONFIG_PROBLEME = /404/.test(e.message)
+      ? 'La table « config » n\'existe pas encore dans Supabase — le SQL de création n\'a pas été exécuté.'
+      : 'La base partagée a renvoyé une erreur : ' + e.message;
   }
   try{ hydrateParamsUI(); renderConfigPartagee(); renderPollueurs(); }catch(_){ }
 }
@@ -10581,51 +10591,71 @@ async function factureDownload(){
 /* ============================================================================
    INITIALISATION
    ============================================================================ */
-/* Bandeau d'état de la configuration partagée, en tête des Paramètres. */
+/* Bandeau d'état des réglages communs.
+   RÈGLE (28/08) : l'orange est RÉSERVÉ aux vrais problèmes. « Rien n'a encore été
+   publié » n'en est pas un — c'est l'état de départ normal, il s'affiche en neutre.
+   Un bandeau orange doit vouloir dire « quelque chose ne va pas », sinon il inquiète
+   pour rien et on finit par ne plus le lire. */
 function renderConfigPartagee(){
   const el = $('#configPartageeEtat'); if(!el) return;
-  const partagee = CONFIG_SOURCE === 'partagée';
-  const quand = CONFIG_INFO && CONFIG_INFO.created_at
-      ? new Date(CONFIG_INFO.created_at).toLocaleString('fr-FR') : null;
+
+  // 1. Config empruntée à un dossier archivé — vrai avertissement.
   if(CONFIG_DEPUIS_ARCHIVE){
-    el.innerHTML = '<div class="alert warn">📦 <strong>Configuration issue d\'un dossier archivé</strong> — '
-      + 'les formules affichées sont celles d\'époque de ce dossier, pas la configuration commune. '
-      + 'Elle ne peut pas être publiée. <button class="btn small" id="cfgRestaurer">↺ Revenir à la configuration commune</button></div>';
+    el.innerHTML = '<div class="alert warn">📦 <strong>Tu consultes un dossier archivé</strong> — '
+      + 'les formules affichées sont celles de ce dossier à l\'époque, pas les réglages communs. '
+      + 'Elles ne peuvent pas être publiées. '
+      + '<button class="btn small" id="cfgRestaurer">↺ Revenir aux réglages communs</button></div>';
     const b = $('#cfgRestaurer');
     if(b) b.addEventListener('click', ()=>{
       if(_configAvantReprise){ state.widgetConfig = _configAvantReprise; wcInit(); }
       CONFIG_DEPUIS_ARCHIVE = false; _configAvantReprise = null;
       saveLS(); hydrateParamsUI(); renderConfigPartagee();
-      alert('Configuration commune restaurée.');
     });
     return;
   }
-  el.innerHTML = partagee
-    ? '<div class="alert ok">🌐 <strong>Configuration partagée active</strong>'
-      + (quand ? ' — publiée le <strong>' + esc(quand) + '</strong>' : '')
-      + (CONFIG_INFO && CONFIG_INFO.auteur ? ' par <strong>' + esc(CONFIG_INFO.auteur) + '</strong>' : '')
-      + '. <small>Tous les utilisateurs calculent avec ces réglages.</small></div>'
-    : '<div class="alert warn">💻 <strong>Configuration locale</strong> — ' + esc(CONFIG_SOURCE) + '. '
-      + '<small>Aucune configuration n\'a encore été publiée, ou la base est injoignable : '
-      + 'ce poste utilise ses propres réglages, qui peuvent différer de ceux des autres.</small></div>';
+
+  // 2. Un problème réel (base injoignable, table absente) — avertissement.
+  if(CONFIG_PROBLEME){
+    el.innerHTML = '<div class="alert warn">⚠️ ' + esc(CONFIG_PROBLEME)
+      + ' <small>En attendant, ce poste utilise ses propres réglages.</small></div>';
+    return;
+  }
+
+  // 3. Réglages communs actifs — tout va bien.
+  if(CONFIG_SOURCE === 'partagée'){
+    const quand = CONFIG_INFO && CONFIG_INFO.created_at
+        ? new Date(CONFIG_INFO.created_at).toLocaleString('fr-FR') : null;
+    el.innerHTML = '<div class="alert ok">🌐 <strong>Réglages communs actifs</strong>'
+      + (quand ? ' — publiés le ' + esc(quand) : '')
+      + (CONFIG_INFO && CONFIG_INFO.auteur ? ' par ' + esc(CONFIG_INFO.auteur) : '')
+      + '. <small>Tout le monde calcule avec ceux-ci.</small></div>';
+    return;
+  }
+
+  // 4. Rien n'a encore été publié : état de départ normal, ton neutre.
+  el.innerHTML = '<div class="alert info">💻 <strong>Réglages propres à ce poste.</strong> '
+    + 'Rien n\'a encore été publié : chacun travaille avec les siens. '
+    + 'Clique « 📤 Publier pour tout le monde » pour que les tiens deviennent la référence.</div>';
 }
 
-/* Câblage des quatre boutons. Appelé une fois au démarrage : la section est statique. */
+/* Câblage des trois boutons. Appelé une fois au démarrage : la section est statique. */
 function bindConfigPartagee(){
-  const bPub = $('#cfgPublier'), bRel = $('#cfgRecharger'),
-        bExp = $('#cfgExport'),  bImp = $('#cfgImport'), fImp = $('#cfgImportFile');
+  const bPub = $('#cfgPublier'), bExp = $('#cfgExport'),
+        bImp = $('#cfgImport'),  fImp = $('#cfgImportFile');
   if(!bPub) return;
 
   bPub.addEventListener('click', async ()=>{
     if(CONFIG_DEPUIS_ARCHIVE){
-      alert('Publication refusée : la configuration affichée vient d\'un dossier archivé.\n' +
-            'Reviens d\'abord à la configuration commune (bouton ↺ ci-dessus).');
+      alert('Impossible de publier : tu consultes un dossier archivé, donc les réglages affichés ' +
+            'sont ceux de ce dossier et non les tiens.\n\n' +
+            'Clique d\'abord « ↺ Revenir aux réglages communs ».');
       return;
     }
-    if(!confirm('Publier ces paramètres pour TOUS les utilisateurs ?\n\n' +
-                'Barèmes, widgets, formules, histogramme et template de valorisation deviendront ' +
-                'la référence commune au prochain chargement de chacun.\n\n' +
-                'Conseil : exporte d\'abord le fichier JSON — il permet de revenir en arrière.')) return;
+    if(!confirm('Envoyer tes réglages à TOUS les utilisateurs ?\n\n' +
+                'Barèmes, widgets, formules et histogramme deviendront la référence pour tout le monde, ' +
+                'dès que chacun rechargera sa page.\n\n' +
+                'Conseil : clique d\'abord « 💾 Sauvegarder dans un fichier » — c\'est le seul moyen ' +
+                'de revenir en arrière.')) return;
     const memo = localStorage.getItem('revueProjetOT.auteurConfig') || '';
     const auteur = prompt('Publié par (ton nom, pour retrouver qui a changé quoi) :', memo);
     if(auteur === null) return;
@@ -10635,18 +10665,11 @@ function bindConfigPartagee(){
       CONFIG_SOURCE = 'partagée';
       CONFIG_INFO   = { created_at: row.created_at, auteur };
       renderConfigPartagee();
-      alert('✅ Configuration publiée. Les autres utilisateurs la recevront à leur prochain chargement.');
+      alert('✅ Réglages publiés. Les autres les recevront en rechargeant leur page.');
     }catch(e){
       alert('Publication impossible : ' + e.message +
-            (e.supaDown ? '\n\nLa base partagée est injoignable. Réessaie plus tard.' : ''));
+            (e.supaDown ? '\n\nLa base ne répond pas. Réessaie plus tard.' : ''));
     }
-  });
-
-  bRel.addEventListener('click', async ()=>{
-    if(!confirm('Recharger la dernière configuration publiée ?\nTes réglages locaux non publiés seront écrasés.')) return;
-    await chargerConfigPartagee();
-    if(CONFIG_SOURCE === 'partagée') alert('✅ Configuration partagée rechargée.');
-    else alert('Aucune configuration partagée disponible (' + CONFIG_SOURCE + ').');
   });
 
   bExp.addEventListener('click', ()=>{
@@ -10672,14 +10695,14 @@ function bindConfigPartagee(){
                   : (j && j.type === 'widgetConfig' && j.config) ? { widgetConfig: j.config }
                   : null;
         if(!cfg) throw new Error('Ce fichier n\'est pas une configuration exportée par l\'application.');
-        if(!confirm('Remplacer les paramètres de CE poste par ceux du fichier ?\n\n' +
-                    'Rien n\'est publié : les autres utilisateurs ne sont pas affectés tant que ' +
-                    'tu ne cliques pas sur « Publier la configuration ».')) return;
+        if(!confirm('Remplacer les réglages de CE poste par ceux du fichier ?\n\n' +
+                    'Les autres utilisateurs ne sont pas touchés tant que tu ne cliques pas ' +
+                    'sur « 📤 Publier pour tout le monde ».')) return;
         appliquerConfigGlobale(cfg);
-        CONFIG_SOURCE = 'locale (fichier importé)'; CONFIG_INFO = null;
+        CONFIG_SOURCE = 'locale'; CONFIG_INFO = null; CONFIG_PROBLEME = null;
         CONFIG_DEPUIS_ARCHIVE = false;
         hydrateParamsUI(); renderConfigPartagee(); renderPollueurs();
-        alert('✅ Paramètres importés sur ce poste. Clique « 📤 Publier la configuration » pour les rendre communs.');
+        alert('✅ Réglages restaurés sur ce poste. Clique « 📤 Publier pour tout le monde » pour les rendre communs.');
       }catch(err){ alert('Import impossible : ' + err.message); }
       finally{ e.target.value = ''; }
     };
