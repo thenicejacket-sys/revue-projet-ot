@@ -190,6 +190,21 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
    dans toute l'application, rosé = « ventilé ». Trait plein pour la distinguer d'une
    valeur forcée en affichage (pointillés). */
 .kpi.ventil{border:1.5px solid #e05c8a;background:#fdecf1}
+/* Fenêtre « Journal des modifications » — pas de bibliothèque, 20 lignes de CSS. */
+#jrnBack{position:fixed;inset:0;background:rgba(15,25,50,.55);z-index:9998;display:none;align-items:flex-start;justify-content:center;padding:32px 16px;overflow:auto}
+#jrnBack.on{display:flex}
+#jrnBox{background:#fff;border-radius:14px;max-width:900px;width:100%;box-shadow:0 18px 60px rgba(0,0,0,.35);overflow:hidden}
+#jrnHead{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#eef4ff,#fbfdff)}
+#jrnHead h3{margin:0;color:var(--primary);font-size:17px}
+#jrnBody{padding:16px 18px;max-height:70vh;overflow:auto;font-size:13.5px;line-height:1.5}
+#jrnBody h4{margin:14px 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:.3px;color:var(--text-muted)}
+#jrnBody h4:first-child{margin-top:0}
+#jrnBody ul{margin:4px 0 0;padding-left:20px}
+#jrnBody li{margin-bottom:3px}
+#jrnBody .src-auto{background:var(--orange-bg);color:var(--orange-tx);border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
+#jrnBody .src-man{background:#e6ecff;color:#1B3F8B;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700}
+#jrnBody .regle{background:#f5f8ff;border-left:3px solid var(--primary);padding:10px 12px;border-radius:0 8px 8px 0;margin-top:14px;color:var(--text)}
+#jrnFoot{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center;background:#fafbfe}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
 .hist-searchbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .hist-field{position:relative;display:flex;align-items:center}
@@ -586,6 +601,22 @@ main{position:relative;z-index:1}
   <!-- Onglet Facturation retiré (décision réunion 30/07) : la vue step8 n'existe
        plus ; le module facture reste chargé pour lire les dossiers archivés. -->
 
+  <!-- Journal des modifications : ce qui s'écarte du calcul d'origine, et pourquoi. -->
+  <div id="jrnBack">
+    <div id="jrnBox">
+      <div id="jrnHead">
+        <h3>⚖️ Journal des modifications</h3>
+        <span style="flex:1"></span>
+        <button class="btn small ghost" id="jrnClose">✕ Fermer</button>
+      </div>
+      <div id="jrnBody"></div>
+      <div id="jrnFoot">
+        <span style="flex:1"><small id="jrnHint"></small></span>
+        <button class="btn small" id="jrnUndo" style="display:none">↺ Revenir aux prix d'origine</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ====================================================== PARAMÈTRES ====================================================== -->
   <section class="view" id="params">
     <div class="card">
@@ -884,7 +915,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.7';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2288,17 +2319,21 @@ function epinglerReste(scope, key, cibleReste){
    annonçait alors un reste que les prix ne produisaient pas — 0 € affiché pour 2 044 €
    réellement à payer, inutilisable face à un client.
    Renvoie le détail de la ventilation pour le récapitulatif affiché à l'écran. */
+/* Photo du dossier : par habitation et au total. Sert d'« avant » aux comparaisons du
+   journal des modifications, et au récapitulatif d'un reste forcé. */
+function photoDossier(){
+  const g = calcGlobal();
+  const map = {};
+  g.blocks.forEach(({vt, res})=>{
+    if(vt.role !== 'habitation' || res.distributed) return;
+    map[ovKey(vt)] = { label: vt.label, reste: num(res.reste), prime: num(res.prime), vente: num(res.venteTravaux) };
+  });
+  return { tot: { reste:num(g.tot.reste), marge:num(g.tot.marge), go:!!g.tot.go }, map };
+}
+
 function appliquerResteWidget(scope, key, cible){
   const cibleReste = round2(num(cible));
-  const photo = () => {
-    const g = calcGlobal();
-    const map = {};
-    g.blocks.forEach(({vt, res})=>{
-      if(vt.role !== 'habitation' || res.distributed) return;
-      map[ovKey(vt)] = { label: vt.label, reste: num(res.reste), prime: num(res.prime), vente: num(res.venteTravaux) };
-    });
-    return { tot: { reste:num(g.tot.reste), marge:num(g.tot.marge), go:!!g.tot.go }, map };
-  };
+  const photo = photoDossier;
   const avant = photo();
   applyOv(scope, key, 'reste', null);   // un ancien override d'affichage masquerait la ventilation
   const g0 = calcGlobal();
@@ -2312,6 +2347,158 @@ function appliquerResteWidget(scope, key, cible){
     return { label:a.label, prime:a.prime, avant:a.reste, apres:b.reste, delta: round2(b.vente - a.vente) };
   });
   return { scope, key, cible: cibleReste, avant, apres, lignes };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   JOURNAL DES MODIFICATIONS (2026-08-28)
+   Tout ce qui s'écarte du calcul d'origine, en distinguant systématiquement ce qui
+   a été fait AUTOMATIQUEMENT (ventilation) de ce qui a été fait À LA MAIN.
+   Consultable à tout moment : le récapitulatif affiché après une action disparaissait
+   au premier rechargement, et plus rien n'expliquait alors les prix rosés. */
+const JRN_PILOTE = { reste:'Reste à charge', marge:'Marge commerciale',
+                     venteTravaux:'Prix de vente HT', w_tauxMarge:'Taux de marge',
+                     go:'Ajustement automatique vers le GO' };
+const JRN_CHAMP  = { chargesTravaux:'Charges travaux', venteTravaux:'Prix de vente HT',
+                     audit:'Audit VT', vtIte:'Frais VT ITE', regie:'Régie commerciale',
+                     coutRevient:'Coût de revient', prime:'Prime CEE', margeBrute:'Marge brute',
+                     reste:'Reste à charge', marge:'Marge commerciale', decision:'Décision' };
+
+function journalHtml(){
+  const g = calcGlobal();
+  const o = state.ventilOrigine;
+  const px = v => num(v).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' €/m²';
+  const nomVt = k => { const v = (state.vts||[]).find(x=>ovKey(x)===k); return v ? v.label : k; };
+  const blocs = [];
+
+  // ── 1. Ventilation automatique des prix de vente ────────────────────────────
+  const ven = state.prixVentil || {};
+  const clesV = Object.keys(ven).filter(k => Object.keys(ven[k]||{}).length);
+  if(clesV.length){
+    let entete = '';
+    if(o && o.field){
+      const quoi = JRN_PILOTE[o.field] || o.field;
+      const ou   = o.scope === 'g' ? 'Total immeuble' : nomVt(o.key);
+      entete = '<p style="margin:2px 0 6px"><small>Déclenchée par : <strong>' + esc(quoi) + '</strong> sur <strong>'
+             + esc(ou) + '</strong>'
+             + (o.cible != null ? ', fixé à <strong>' + eur(o.cible) + '</strong>' : '')
+             + (o.quand ? ' — le ' + esc(new Date(o.quand).toLocaleString('fr-FR')) : '') + '</small></p>';
+    }
+    const lignes = clesV.map(k=>{
+      const cats = Object.entries(ven[k]).map(([cat, v])=>{
+        const cc = findChargeCol(CHARGE_MAP[cat]);
+        const man = !!(state.prixManuel && state.prixManuel[k] && state.prixManuel[k][cat]
+                    && state.prixManuel[k][cat].vente != null);
+        return (CAT_LABEL[cat]||cat) + ' ' + px(cc?cc.vente:0) + ' → ' + px(v)
+             + (man ? ' <em>(remplacé ensuite par un prix manuel)</em>' : '');
+      }).join(' · ');
+      let chiffres = '';
+      const b = g.blocks.find(x=>ovKey(x.vt)===k);
+      if(o && o.avant && o.avant.map && o.avant.map[k] && b){
+        const a = o.avant.map[k];
+        // « avant la ventilation → aujourd'hui » : formulation volontaire. L'état actuel
+        // peut inclure des modifications manuelles POSTÉRIEURES ; dire « → après ventilation »
+        // attribuerait à tort ces écarts au moteur.
+        chiffres = '<br><small>avant la ventilation : prix de vente ' + eur(a.vente)
+                 + ' · reste à charge ' + eur(a.reste) + ' · prime CEE ' + eur(a.prime)
+                 + '<br>aujourd\'hui : prix de vente ' + eur(b.res.venteTravaux)
+                 + ' · reste à charge ' + eur(b.res.reste) + '</small>';
+      }
+      return '<li><strong>' + esc(nomVt(k)) + '</strong> — ' + cats + chiffres + '</li>';
+    }).join('');
+    // Habitations volontairement NON touchées : c'est là que la règle se voit.
+    let intactes = '';
+    if(o && o.avant && o.avant.map){
+      const noms = Object.keys(o.avant.map).filter(k=>!clesV.includes(k)).map(k=>{
+        const a = o.avant.map[k];
+        return '<li><strong>' + esc(a.label) + '</strong> — <em>inchangée</em> <small>— sa prime CEE ('
+             + eur(a.prime) + ') couvrait déjà son prix de vente : ce client ne payait rien de sa poche</small></li>';
+      }).join('');
+      intactes = noms;
+    }
+    let impact = '';
+    if(o && o.avant && o.avant.tot){
+      impact = '<p style="margin:8px 0 0">Marge commerciale <strong>' + eur(o.avant.tot.marge)
+             + '</strong> avant la ventilation, <strong>' + eur(g.tot.marge) + '</strong> aujourd\'hui'
+             + ' · Décision ' + (o.avant.tot.go?'✅ GO':'⛔ NO-GO')
+             + ' → ' + (g.tot.go?'✅ GO':'⛔ NO-GO')
+             + (o.avant.tot.go !== !!g.tot.go ? ' <strong>(bascule)</strong>' : '')
+             + '<br><small>« Aujourd\'hui » tient compte des modifications manuelles faites depuis, listées ci-dessous.</small></p>';
+    }
+    blocs.push('<h4><span class="src-auto">⚖️ automatique</span> Ventilation des prix de vente</h4>'
+      + entete + '<ul>' + lignes + intactes + '</ul>' + impact);
+  }
+
+  // ── 2. Prix modifiés à la main ──────────────────────────────────────────────
+  const man = state.prixManuel || {};
+  const lignesMan = [];
+  Object.keys(man).forEach(k=> Object.entries(man[k]||{}).forEach(([cat, o2])=>{
+    const cc = findChargeCol(CHARGE_MAP[cat]);
+    if(o2.achat != null) lignesMan.push('<li><strong>' + esc(nomVt(k)) + '</strong> — ' + (CAT_LABEL[cat]||cat)
+      + ', prix d\'achat ' + px(cc?cc.achat:0) + ' → ' + px(o2.achat) + '</li>');
+    if(o2.vente != null) lignesMan.push('<li><strong>' + esc(nomVt(k)) + '</strong> — ' + (CAT_LABEL[cat]||cat)
+      + ', prix de vente ' + px(cc?cc.vente:0) + ' → ' + px(o2.vente) + '</li>');
+  }));
+  if(lignesMan.length)
+    blocs.push('<h4><span class="src-man">✎ manuel</span> Prix saisis à la main</h4><ul>' + lignesMan.join('') + '</ul>');
+
+  // ── 3. Valeurs forcées sur les tuiles ───────────────────────────────────────
+  const ovG = (state.overrides && state.overrides.global) || {};
+  const ovV = (state.overrides && state.overrides.vt) || {};
+  const lignesOv = [];
+  const dit = (ou, champ, val)=>{
+    const nom = JRN_CHAMP[champ] || champ.replace(/^w_/, 'Widget ');
+    const aff = champ === 'decision' ? (String(val).toLowerCase()==='go' ? '✅ GO' : '⛔ NO-GO') : eur(val);
+    lignesOv.push('<li><strong>' + esc(ou) + '</strong> — ' + esc(nom) + ' forcé à <strong>' + aff + '</strong></li>');
+  };
+  Object.entries(ovG).forEach(([c,v])=>{ if(v!=null) dit('Total immeuble', c, v); });
+  Object.entries(ovV).forEach(([k,bag])=> Object.entries(bag||{}).forEach(([c,v])=>{ if(v!=null) dit(nomVt(k), c, v); }));
+  if(lignesOv.length)
+    blocs.push('<h4><span class="src-man">✎ manuel</span> Valeurs forcées sur les tuiles</h4><ul>' + lignesOv.join('') + '</ul>');
+
+  // ── 4. Ce qui a été sorti du calcul ─────────────────────────────────────────
+  const exclues = (state.vts||[]).filter(v=>v.role==='habitation' && v.excluded);
+  let nOff = 0, nDecoche = 0;
+  (state.vts||[]).forEach(vt=> CATS.forEach(cat=>{
+    effectiveInstances(vt, cat).forEach((_,i)=>{
+      if(isDisabled(vt,cat,i)) nOff++;
+      else if(!isChecked(vt,cat,i)) nDecoche++;
+    });
+  }));
+  const lignesEx = [];
+  exclues.forEach(v=> lignesEx.push('<li><strong>' + esc(v.label) + '</strong> — exclue du dossier, hors de TOUS les calculs</li>'));
+  if(nOff)     lignesEx.push('<li>' + nOff + ' ligne(s) désactivées (✕) — sorties des totaux</li>');
+  if(nDecoche) lignesEx.push('<li>' + nDecoche + ' ligne(s) décochées — présentes mais hors du calcul</li>');
+  if(lignesEx.length)
+    blocs.push('<h4><span class="src-man">✎ manuel</span> Sorti du calcul</h4><ul>' + lignesEx.join('') + '</ul>');
+
+  // ── Rien du tout ────────────────────────────────────────────────────────────
+  if(!blocs.length)
+    blocs.push('<div class="alert ok">✅ <strong>Aucune modification.</strong> Tous les chiffres sortent du barème et du calcul d\'origine.</div>');
+
+  // ── La règle, toujours affichée ─────────────────────────────────────────────
+  blocs.push('<div class="regle"><strong>Comment la ventilation répartit</strong><br>'
+    + '<strong>À la hausse</strong> — d\'abord sur les logements dont la <strong>prime CEE n\'est pas épuisée</strong> '
+    + '(on facture plus sans que le client paie plus), puis sur ceux dont la marge manque, puis au prorata des prix de vente.<br>'
+    + '<strong>À la baisse</strong> — d\'abord sur les logements que la prime <strong>ne couvre pas</strong>, au prorata de ce qu\'ils '
+    + 'paient de leur poche. Un logement dont la prime couvre déjà tout <strong>ne bouge pas</strong> : lui baisser son prix '
+    + 'détruirait de la marge sans soulager personne.<br>'
+    + '<strong>Toujours</strong> — seules les catégories du barème bougent. Éléments à la pièce, ajouts individuels et part ITE '
+    + 'ne sont jamais touchés, et le barème des Paramètres n\'est jamais modifié.<br>'
+    + '<small>Chaque prix reste modifiable à la main dans les tableaux : il passe alors en bleuté et prend le pas sur la ventilation.</small></div>');
+
+  return blocs.join('');
+}
+
+function ouvrirJournal(){
+  const b = $('#jrnBody'); if(!b) return;
+  b.innerHTML = journalHtml();
+  const u = $('#jrnUndo');
+  if(u) u.style.display = ajustementActif() ? '' : 'none';
+  const h = $('#jrnHint');
+  if(h) h.textContent = ajustementActif()
+    ? 'Les prix ventilés apparaissent en rosé dans les tableaux.'
+    : 'Aucune ventilation en cours sur ce dossier.';
+  $('#jrnBack').classList.add('on');
 }
 
 /* Récapitulatif d'un reste à charge forcé — même emplacement et même langue visuelle
@@ -5059,9 +5246,11 @@ function openKpiEditor(kpi){
   // (cf. appliquerVenteCible) ; les autres restent des valeurs forcées d'affichage.
   const commit = v => {
     const saisie = (v !== null && v !== '');
-    // Mémoriser QUELLE tuile pilote la ventilation, pour la signaler ensuite (rosé + ↺).
+    // Mémoriser QUELLE tuile pilote la ventilation (rosé + ↺) ET l'état d'AVANT,
+    // pour que le journal des modifications puisse expliquer l'écart plus tard.
     if(saisie && ['marge','w_tauxMarge','venteTravaux','reste'].includes(field))
-      state.ventilOrigine = { scope, key, field };
+      state.ventilOrigine = { scope, key, field, cible:num(v),
+                              quand:new Date().toISOString(), avant:photoDossier() };
     if(saisie && field === 'marge')             appliquerMargeWidget(scope, key, num(v));
     else if(saisie && field === 'w_tauxMarge')  appliquerTauxMargeWidget(scope, key, num(v));
     else if(saisie && field === 'venteTravaux') appliquerVenteWidget(scope, key, num(v));
@@ -5361,7 +5550,7 @@ function renderStep4(){
       // (cas 1 et 2) affiche donc 1. Recalcule a chaque rendu de l'etape 4.
       const nHab = habitations().length;
       return ` <span class="pill" style="vertical-align:middle;margin-left:8px" title="Nombre d'habitations comptabilisees dans ce total. La VT ITE dediee n'en est pas une ; une habitation exclue du dossier n'est pas comptee.">${nHab} habitation${nHab>1?'s':''}</span>`;
-    })()}</h3>
+    })()}<button class="btn small ghost" id="btnJournal" style="float:right;font-weight:600" title="Tout ce qui s'écarte du calcul d'origine : ventilations automatiques, prix saisis à la main, valeurs forcées, lignes sorties du calcul — et la logique de répartition expliquée.">⚖️ D'où viennent ces chiffres ?</button></h3>
     ${wgKpiGridHtml('proj', {blocks, tot})}
     ${(()=>{ const dd = wcInit().defs['proj:decision']; return (dd && !dd.deleted && dd.visible) ? goFixHtml() : ''; })()}
     <table style="margin-top:8px"><tbody>
@@ -5403,9 +5592,15 @@ function renderStep4(){
   });
 
   // Ajustement automatique vers le GO
+  const btnJrn = area.querySelector('#btnJournal');
+  if(btnJrn) btnJrn.addEventListener('click', ouvrirJournal);
   const btnFix = area.querySelector('#goFixApply');
   if(btnFix) btnFix.addEventListener('click', ()=>{
     const avant = calcAjustementGo();
+    // Mémorisé pour le journal des modifications : sans ça, rien n'expliquerait
+    // les prix rosés une fois le récapitulatif disparu.
+    state.ventilOrigine = { scope:'g', key:'', field:'go', cible:null,
+                            quand:new Date().toISOString(), avant:photoDossier() };
     const apres = appliquerAjustementGo();
     renderStep4();
     autoArchiveFromStep4();
@@ -10826,6 +11021,20 @@ if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENT
 if(window.BG_IMAGES && !window.BG_IMAGES.step7) window.BG_IMAGES.step7 = window.BG_IMAGES.step6 || window.BG_IMAGES.step5;
 if(window.BG_IMAGES && !window.BG_IMAGES.step8) window.BG_IMAGES.step8 = window.BG_IMAGES.step7;
 hydrateParamsUI();
+// Journal des modifications : câblage unique, la fenêtre est statique.
+(function(){
+  const back = $('#jrnBack'); if(!back) return;
+  const fermer = ()=> back.classList.remove('on');
+  $('#jrnClose').addEventListener('click', fermer);
+  back.addEventListener('click', e=>{ if(e.target === back) fermer(); });
+  document.addEventListener('keydown', e=>{ if(e.key === 'Escape') fermer(); });
+  $('#jrnUndo').addEventListener('click', ()=>{
+    if(!confirm('Revenir aux prix de vente d\'origine ?\nLa ventilation sera annulée sur tout le dossier.')) return;
+    annulerAjustementGo();
+    fermer();
+    renderStep4();
+  });
+})();
 bindConfigPartagee();
 renderConfigPartagee();
 // La configuration COMMUNE gagne sur les réglages locaux : c'est ce qui garantit que
