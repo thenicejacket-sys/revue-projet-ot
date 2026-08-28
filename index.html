@@ -586,6 +586,26 @@ main{position:relative;z-index:1}
     <div class="card">
       <h2>⚙️ Paramètres</h2>
 
+      <!-- CONFIGURATION PARTAGÉE — barèmes, widgets, formules, histogramme et
+           template de valorisation sont COMMUNS à tous les utilisateurs. Le fichier
+           JSON est le filet de sécurité : il permet de revenir en arrière si
+           quelqu'un publie une configuration cassée. -->
+      <details class="pset" open>
+        <summary>🌐 Configuration partagée</summary>
+        <div class="pset-b">
+          <div id="configPartageeEtat"></div>
+          <div class="flex" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn success small" id="cfgPublier" title="Envoie TOUS les paramètres (barèmes, widgets, formules, histogramme, template de valorisation) dans la base partagée. Les autres utilisateurs les recevront à leur prochain chargement.">📤 Publier la configuration</button>
+            <button class="btn small" id="cfgRecharger" title="Recharge la dernière configuration publiée, en écrasant les réglages locaux.">⟳ Recharger la configuration partagée</button>
+            <span style="flex:1"></span>
+            <button class="btn small" id="cfgExport" title="Télécharge TOUS les paramètres dans un fichier JSON — sauvegarde de secours avant toute modification risquée.">⬇ Exporter tous les paramètres</button>
+            <button class="btn small ghost" id="cfgImport" title="Recharge un fichier de paramètres exporté. Restaure l'application dans un état connu.">⬆ Importer un fichier</button>
+            <input type="file" id="cfgImportFile" accept=".json,application/json" style="display:none">
+          </div>
+          <p class="hint" style="margin-top:8px">La clé du modèle IA n'est <strong>jamais</strong> publiée ni exportée : elle reste sur ce poste.</p>
+        </div>
+      </details>
+
       <details class="pset">
         <summary>🤖 Modèle IA</summary>
         <div class="pset-b">
@@ -855,7 +875,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -890,6 +910,7 @@ let _autoSaveBusy = false;
 const SUPABASE_URL  = 'https://qyyvhltydpwfyevaysuw.supabase.co';
 const SUPABASE_ANON = 'sb_publishable_F9lxYGIlRmlhacQME0MfgA_AuQNJ61b';   // clé publishable — sûre à publier, protégée par RLS (lecture+ajout publics, aucune modif/suppression)
 const SUPABASE_TABLE = 'dossiers';
+const CONFIG_TABLE   = 'config';     // configuration GLOBALE de l'application (voir ConfigStore)
 const SUPA_ON = () => !!(SUPABASE_URL && SUPABASE_ANON);
 
 const state = {
@@ -5818,6 +5839,118 @@ const HistoryStore = {
   }
 };
 
+/* ════════════════════════════════════════════════════════════════════════════
+   CONFIGURATION GLOBALE DE L'APPLICATION (2026-08-28)
+
+   POURQUOI : jusqu'ici, TOUT ce qui se règle dans Paramètres — barèmes, widgets,
+   formules, histogramme, template de valorisation — vivait dans le localStorage du
+   navigateur de chacun. Deux utilisateurs pouvaient donc obtenir deux résultats
+   différents sur le même dossier. Inacceptable dès lors que l'app est partagée.
+
+   PRINCIPE : on n'écrase jamais, on AJOUTE. Publier = insérer une ligne ; lire =
+   prendre la plus récente. Trois bénéfices : ça fonctionne avec les règles RLS
+   existantes (lecture + ajout publics, aucun droit de modification requis),
+   l'historique des configurations est gratuit, et un retour arrière reste possible.
+
+   REPLI : si la base ne répond pas, on garde la configuration locale et on le DIT.
+   La clé IA (settings.apiKey) n'est JAMAIS publiée ni exportée — elle reste locale.
+   ════════════════════════════════════════════════════════════════════════════ */
+const CONFIG_SCHEMA = 1;
+let CONFIG_SOURCE = 'locale';          // 'partagée' | 'locale' | 'locale (base injoignable)'
+let CONFIG_INFO   = null;              // { created_at, auteur } de la config chargée
+let CONFIG_DEPUIS_ARCHIVE = false;     // config widgets venue d'un dossier archivé -> jamais publiable
+let _configAvantReprise = null;        // config globale mise de côté pendant une reprise
+
+/* Photo de TOUS les paramètres partageables. La clé IA en est retirée. */
+function configGlobale(){
+  const s = Object.assign({}, state.settings || {});
+  delete s.apiKey;                     // strictement locale, jamais publiée ni exportée
+  return {
+    schema: CONFIG_SCHEMA,
+    buildId: BUILD_ID,
+    settings:      s,
+    chargesTable:  state.chargesTable  ? JSON.parse(JSON.stringify(state.chargesTable))  : null,
+    elementsTable: state.elementsTable ? JSON.parse(JSON.stringify(state.elementsTable)) : null,
+    widgetConfig:  JSON.parse(JSON.stringify(wcInit())),
+    chartConfig:   state.chartConfig   ? JSON.parse(JSON.stringify(state.chartConfig))   : null,
+    valoTable:     state.valoTable     ? JSON.parse(JSON.stringify(state.valoTable))     : null,
+    valoFileName:  state.valoFileName  || '',
+    pollueurs:     JSON.parse(JSON.stringify(state.pollueurs || []))
+  };
+}
+
+/* Application d'une configuration. La clé IA locale est préservée. */
+function appliquerConfigGlobale(cfg){
+  if(!cfg || typeof cfg !== 'object') return false;
+  if(cfg.settings){
+    const cle = state.settings.apiKey;
+    Object.assign(state.settings, cfg.settings);
+    if(cle) state.settings.apiKey = cle;   // on ne perd pas la clé du poste
+  }
+  if(cfg.chargesTable)  state.chargesTable  = cfg.chargesTable;
+  if(cfg.elementsTable) state.elementsTable = cfg.elementsTable;
+  if(cfg.widgetConfig){ state.widgetConfig = cfg.widgetConfig; wcInit(); }
+  if(cfg.chartConfig)   state.chartConfig   = cfg.chartConfig;
+  if(cfg.valoTable){
+    state.valoTable    = cfg.valoTable;
+    state.pollueurs    = cfg.pollueurs || [];
+    state.valoFileName = cfg.valoFileName || '';
+    saveValoTemplate();
+  }
+  saveLS();
+  return true;
+}
+
+const ConfigStore = {
+  async publier(payload, auteur){
+    if(!SUPA_ON()) throw new Error('Base partagée non configurée.');
+    const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+CONFIG_TABLE, {
+      method:'POST',
+      headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON,
+                'Content-Type':'application/json', 'Prefer':'return=representation' },
+      body: JSON.stringify({ auteur: String(auteur||'').slice(0,120), payload })
+    });
+    if(!r.ok) throw new Error('Supabase '+r.status+' — '+(await r.text()).slice(0,200));
+    return (await r.json())[0];
+  },
+  async derniere(){
+    if(!SUPA_ON()) return null;
+    try{
+      const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+CONFIG_TABLE
+                  +'?select=id,created_at,auteur,payload&order=created_at.desc&limit=1',
+        { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
+      if(!r.ok) throw new Error('Supabase '+r.status);
+      const rows = await r.json();
+      return rows[0] || null;
+    }catch(e){ if(e.supaDown) return null; throw e; }
+  }
+};
+
+/* Chargement au démarrage. La config partagée gagne toujours sur la locale : c'est
+   ce qui garantit que deux postes calculent pareil. Si la base ne répond pas, on
+   garde la locale et le bandeau des Paramètres l'indique. */
+async function chargerConfigPartagee(){
+  try{
+    const row = await ConfigStore.derniere();
+    if(row && row.payload){
+      appliquerConfigGlobale(row.payload);
+      CONFIG_SOURCE = 'partagée';
+      CONFIG_INFO   = { created_at: row.created_at, auteur: row.auteur || '' };
+    }else{
+      CONFIG_SOURCE = SUPA_DOWN ? 'locale (base injoignable)' : 'locale';
+      CONFIG_INFO   = null;
+    }
+  }catch(e){
+    // 404 = la table n'existe pas encore dans Supabase. Message ACTIONNABLE plutôt
+    // qu'un code d'erreur : l'utilisateur doit savoir quoi faire.
+    CONFIG_SOURCE = /404/.test(e.message)
+      ? 'table « config » absente de Supabase — colle supabase/schema.sql dans SQL Editor'
+      : 'erreur : ' + e.message;
+    CONFIG_INFO   = null;
+  }
+  try{ hydrateParamsUI(); renderConfigPartagee(); renderPollueurs(); }catch(_){ }
+}
+
 /* ── ARCHIVAGE AUTOMATIQUE ───────────────────────────────────────────────────
    Il n'y a plus d'étape « Sauvegarde » : dès que l'étape 4 produit des calculs
    valides, le dossier part dans l'historique. Un dossier n'a qu'UNE entrée, qui
@@ -6080,7 +6213,19 @@ async function openArchived(id){
   state.prixManuel = snap.prixManuel || {};
   // Config widgets du dossier (schema 3). Un snapshot schema 2 n'en a pas : on GARDE la
   // config courante (comportement d'époque = formules d'usine, wcInit comble l'absence).
-  if(snap.widgetConfig) state.widgetConfig = JSON.parse(JSON.stringify(snap.widgetConfig));
+  /* Config widgets du dossier archivé : appliquée pour la CONSULTATION seulement.
+     Avant (bug de contagion diagnostiqué le 28/08), elle remplaçait définitivement la
+     config du poste : celui qui archivait un dossier imposait ses formules à tous ceux
+     qui l'ouvraient ensuite. Désormais on met la config commune de côté, on marque
+     l'emprunt, et le bandeau des Paramètres propose d'y revenir en un clic. Cette
+     config-là ne peut pas être publiée, et le prochain chargement de la page reprend
+     de toute façon la configuration commune. */
+  if(snap.widgetConfig){
+    if(!CONFIG_DEPUIS_ARCHIVE) _configAvantReprise = JSON.parse(JSON.stringify(wcInit()));
+    state.widgetConfig = JSON.parse(JSON.stringify(snap.widgetConfig));
+    CONFIG_DEPUIS_ARCHIVE = true;
+    try{ renderConfigPartagee(); }catch(_){ }
+  }
   state.elementsTable = snap.elementsTable || state.elementsTable;
   state.prop = snap.prop || null;      // sa proposition de travaux, ré-éditable
   // Journal de facturation. snap.facture est l'ancien format (un document unique) :
@@ -6106,6 +6251,10 @@ async function openArchived(id){
   // entrée au lieu d'écraser celle-ci.
   $('#frozenExit').addEventListener('click', ()=>{
     CURRENT_HIST_ID = null; CURRENT_HIST_FROM_ARCHIVE = false; _lastSavedFingerprint = null;
+    // On rend la main à la configuration commune : l'emprunt ne survit pas au dossier.
+    if(CONFIG_DEPUIS_ARCHIVE && _configAvantReprise){ state.widgetConfig = _configAvantReprise; wcInit(); }
+    CONFIG_DEPUIS_ARCHIVE = false; _configAvantReprise = null;
+    try{ renderConfigPartagee(); }catch(_){ }
     $('#frozenBar').innerHTML = '';
     saveLS();
   });
@@ -10432,6 +10581,112 @@ async function factureDownload(){
 /* ============================================================================
    INITIALISATION
    ============================================================================ */
+/* Bandeau d'état de la configuration partagée, en tête des Paramètres. */
+function renderConfigPartagee(){
+  const el = $('#configPartageeEtat'); if(!el) return;
+  const partagee = CONFIG_SOURCE === 'partagée';
+  const quand = CONFIG_INFO && CONFIG_INFO.created_at
+      ? new Date(CONFIG_INFO.created_at).toLocaleString('fr-FR') : null;
+  if(CONFIG_DEPUIS_ARCHIVE){
+    el.innerHTML = '<div class="alert warn">📦 <strong>Configuration issue d\'un dossier archivé</strong> — '
+      + 'les formules affichées sont celles d\'époque de ce dossier, pas la configuration commune. '
+      + 'Elle ne peut pas être publiée. <button class="btn small" id="cfgRestaurer">↺ Revenir à la configuration commune</button></div>';
+    const b = $('#cfgRestaurer');
+    if(b) b.addEventListener('click', ()=>{
+      if(_configAvantReprise){ state.widgetConfig = _configAvantReprise; wcInit(); }
+      CONFIG_DEPUIS_ARCHIVE = false; _configAvantReprise = null;
+      saveLS(); hydrateParamsUI(); renderConfigPartagee();
+      alert('Configuration commune restaurée.');
+    });
+    return;
+  }
+  el.innerHTML = partagee
+    ? '<div class="alert ok">🌐 <strong>Configuration partagée active</strong>'
+      + (quand ? ' — publiée le <strong>' + esc(quand) + '</strong>' : '')
+      + (CONFIG_INFO && CONFIG_INFO.auteur ? ' par <strong>' + esc(CONFIG_INFO.auteur) + '</strong>' : '')
+      + '. <small>Tous les utilisateurs calculent avec ces réglages.</small></div>'
+    : '<div class="alert warn">💻 <strong>Configuration locale</strong> — ' + esc(CONFIG_SOURCE) + '. '
+      + '<small>Aucune configuration n\'a encore été publiée, ou la base est injoignable : '
+      + 'ce poste utilise ses propres réglages, qui peuvent différer de ceux des autres.</small></div>';
+}
+
+/* Câblage des quatre boutons. Appelé une fois au démarrage : la section est statique. */
+function bindConfigPartagee(){
+  const bPub = $('#cfgPublier'), bRel = $('#cfgRecharger'),
+        bExp = $('#cfgExport'),  bImp = $('#cfgImport'), fImp = $('#cfgImportFile');
+  if(!bPub) return;
+
+  bPub.addEventListener('click', async ()=>{
+    if(CONFIG_DEPUIS_ARCHIVE){
+      alert('Publication refusée : la configuration affichée vient d\'un dossier archivé.\n' +
+            'Reviens d\'abord à la configuration commune (bouton ↺ ci-dessus).');
+      return;
+    }
+    if(!confirm('Publier ces paramètres pour TOUS les utilisateurs ?\n\n' +
+                'Barèmes, widgets, formules, histogramme et template de valorisation deviendront ' +
+                'la référence commune au prochain chargement de chacun.\n\n' +
+                'Conseil : exporte d\'abord le fichier JSON — il permet de revenir en arrière.')) return;
+    const memo = localStorage.getItem('revueProjetOT.auteurConfig') || '';
+    const auteur = prompt('Publié par (ton nom, pour retrouver qui a changé quoi) :', memo);
+    if(auteur === null) return;
+    localStorage.setItem('revueProjetOT.auteurConfig', auteur);
+    try{
+      const row = await ConfigStore.publier(configGlobale(), auteur);
+      CONFIG_SOURCE = 'partagée';
+      CONFIG_INFO   = { created_at: row.created_at, auteur };
+      renderConfigPartagee();
+      alert('✅ Configuration publiée. Les autres utilisateurs la recevront à leur prochain chargement.');
+    }catch(e){
+      alert('Publication impossible : ' + e.message +
+            (e.supaDown ? '\n\nLa base partagée est injoignable. Réessaie plus tard.' : ''));
+    }
+  });
+
+  bRel.addEventListener('click', async ()=>{
+    if(!confirm('Recharger la dernière configuration publiée ?\nTes réglages locaux non publiés seront écrasés.')) return;
+    await chargerConfigPartagee();
+    if(CONFIG_SOURCE === 'partagée') alert('✅ Configuration partagée rechargée.');
+    else alert('Aucune configuration partagée disponible (' + CONFIG_SOURCE + ').');
+  });
+
+  bExp.addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(
+      { app:'revue-projet-ot', type:'configGlobale', schema:CONFIG_SCHEMA,
+        exporteLe:new Date().toISOString(), config:configGlobale() }, null, 2)],
+      {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'config-revue-projet-ot-' + new Date().toISOString().slice(0,10) + '.json';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+  });
+
+  bImp.addEventListener('click', ()=> fImp.click());
+  fImp.addEventListener('change', e=>{
+    const f = e.target.files && e.target.files[0]; if(!f) return;
+    const fr = new FileReader();
+    fr.onload = ()=>{
+      try{
+        const j = JSON.parse(fr.result);
+        const cfg = (j && j.type === 'configGlobale' && j.config) ? j.config
+                  : (j && j.type === 'widgetConfig' && j.config) ? { widgetConfig: j.config }
+                  : null;
+        if(!cfg) throw new Error('Ce fichier n\'est pas une configuration exportée par l\'application.');
+        if(!confirm('Remplacer les paramètres de CE poste par ceux du fichier ?\n\n' +
+                    'Rien n\'est publié : les autres utilisateurs ne sont pas affectés tant que ' +
+                    'tu ne cliques pas sur « Publier la configuration ».')) return;
+        appliquerConfigGlobale(cfg);
+        CONFIG_SOURCE = 'locale (fichier importé)'; CONFIG_INFO = null;
+        CONFIG_DEPUIS_ARCHIVE = false;
+        hydrateParamsUI(); renderConfigPartagee(); renderPollueurs();
+        alert('✅ Paramètres importés sur ce poste. Clique « 📤 Publier la configuration » pour les rendre communs.');
+      }catch(err){ alert('Import impossible : ' + err.message); }
+      finally{ e.target.value = ''; }
+    };
+    fr.readAsText(f);
+  });
+}
+
 function hydrateParamsUI(){
   $('#apiKey').value = state.settings.apiKey || '';
   $('#model').value = ['google/gemini-2.5-flash-lite','google/gemini-2.5-flash','google/gemini-3-flash-preview','openai/gpt-5-mini'].includes(state.settings.model) ? state.settings.model : '__custom__';
@@ -10514,6 +10769,12 @@ if(!state.elementsTable) state.elementsTable = JSON.parse(JSON.stringify(ELEMENT
 if(window.BG_IMAGES && !window.BG_IMAGES.step7) window.BG_IMAGES.step7 = window.BG_IMAGES.step6 || window.BG_IMAGES.step5;
 if(window.BG_IMAGES && !window.BG_IMAGES.step8) window.BG_IMAGES.step8 = window.BG_IMAGES.step7;
 hydrateParamsUI();
+bindConfigPartagee();
+renderConfigPartagee();
+// La configuration COMMUNE gagne sur les réglages locaux : c'est ce qui garantit que
+// deux postes calculent la même chose. Chargement asynchrone — l'app s'affiche
+// immédiatement avec la config locale, puis se met à jour dès la réponse de la base.
+chargerConfigPartagee();
 renderVtList();
 renderResumeBanner();
 renderPollueurs();
