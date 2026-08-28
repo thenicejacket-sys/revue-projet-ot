@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-27.3';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-27.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -1863,9 +1863,10 @@ function setPrixManuel(vt, cat, field, val){
    3. S'il dépasse la capacité totale, le solde se répartit au prorata des
       prix de vente (comme l'ancien comportement).
    4. Dans chaque habitation, sa hausse s'applique uniformément à ses
-      catégories du barème (prorata des ventes cochées), plafonnée à
-      GO_FIX_HAUSSE_MAX (+30 %) PAR HABITATION — l'excédent d'une habitation
-      plafonnée est redistribué une fois sur les autres.
+      catégories du barème (prorata des ventes cochées). Le plafond de hausse par
+      habitation a été retiré le 2026-08-27 (GO_FIX_HAUSSE_MAX = Infinity) : la
+      mécanique de redistribution de l'excédent reste en place et sert dès qu'un
+      appelant passe un capMax fini.
 
    Résultat : un même poste (ex. Plancher) peut finir à des €/m² DIFFÉRENTS
    entre deux habitations du même dossier. Les prix ventilés sont écrits dans
@@ -1888,8 +1889,10 @@ function ventilRepartition(parts, deficit, capMax){
   const sumV = vivants.reduce((s,p)=>s+p.venteCat, 0);
   if(!vivants.length || sumV <= 0) return { alloc: out.map(p=>({key:p.key, hausse:0, k:0})), residuel: D };
   if(D <= 0){
-    // Baisse (marge cible bidirectionnelle) : uniforme au prorata des ventes, borne −capMax.
-    const k = Math.max(-capMax, D / sumV);
+    // Baisse (marge cible bidirectionnelle) : uniforme au prorata des ventes.
+    // Borne −capMax, elle-même plafonnée à −100 % : un prix ne devient jamais négatif,
+    // y compris quand capMax est infini (hausse débridée, cf. GO_FIX_HAUSSE_MAX).
+    const k = Math.max(-Math.min(capMax, 1), D / sumV);
     vivants.forEach(p=>{ p.hausse = p.venteCat * k; });
     return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0})),
              residuel: round2(D - vivants.reduce((s,p)=>s+p.hausse,0)) };
@@ -1935,7 +1938,20 @@ function ventilRepartition(parts, deficit, capMax){
   return { alloc: out.map(p=>({key:p.key, hausse:round2(p.hausse), k:p.venteCat>0?p.hausse/p.venteCat:0, plafond:!!p.plafond})),
            residuel: round2(D - total) };
 }
-const GO_FIX_HAUSSE_MAX = 0.30;   // garde-fou : +30 % au maximum sur un prix de vente
+/* HAUSSE : plus aucun plafond (2026-08-27). Le garde-fou +30 % partait du principe qu'au-dela
+   ce n'etait plus un arrondi commercial. En test, on met couramment prix de vente = prix
+   d'achat pour observer le comportement : la hausse necessaire depasse alors tres largement
+   30 % et l'ajustement se bloquait entierement, donc ne servait plus a rien. La hausse est
+   desormais libre — c'est l'operateur qui juge si le chiffre a un sens. */
+const GO_FIX_HAUSSE_MAX = Infinity;
+/* BAISSE : plancher conserve a -100 %. Ce n'est pas le plafond commercial retire ci-dessus,
+   c'est une borne physique — un prix de vente ne descend jamais sous zero. */
+const GO_FIX_BAISSE_MAX = 1;
+/* SEUIL D'ALERTE (2026-08-28) : au-dela, on PREVIENT — on ne bloque plus.
+   L'ancien +30 % gardait tout son sens comme signal (au-dela, ce n'est plus un arrondi
+   commercial), il n'en avait aucun comme verrou : en test on met couramment prix de vente
+   = prix d'achat, et l'ajustement devenait alors inutilisable. Alerte, pas verrou. */
+const GO_FIX_HAUSSE_WARN = 0.30;
 
 /* Moteur générique : viser un MONTANT de marge (€). Deux appelants seulement —
    le bouton GO vise le seuil GO/NO-GO, le recalcul des Paramètres vise la marge
@@ -1987,7 +2003,9 @@ function calcAjustementVersMarge(margeCible, opts){
     venteAjustable, postes, parts, residuel: rep.residuel, bidirectionnel,
     pctMarge: cible > 0 ? (deficit / cible) : null,
     pctHausse: isFinite(variation) ? variation : null,
-    faisable: isFinite(variation) && Math.abs(variation) <= GO_FIX_HAUSSE_MAX && parts.length > 0,
+    // Plus de plafond de hausse (2026-08-27) : l'ajustement reste proposé quelle que soit
+    // l'ampleur. Il n'est « infaisable » que s'il n'y a rien à ventiler.
+    faisable: isFinite(variation) && parts.length > 0,
     aucunPoste: parts.length === 0,
   };
 }
@@ -2129,7 +2147,7 @@ function appliquerVenteCible(scope, key, venteCible){
     if(a.aucunPoste){ applyOv('g', '', 'venteTravaux', num(venteCible)); return; }
     appliquerVentilation(a, { exact: true });
     purge();
-    if(Math.abs(a.residuel) > 1) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % par habitation : il reste ' + eur(a.residuel) + ' d\'écart avec la valeur demandée.');
+    if(Math.abs(a.residuel) > 1) alert('La ventilation n\'atteint pas exactement la valeur demandée : il reste ' + eur(a.residuel) + ' d\'écart. Une baisse ne peut pas descendre un prix de vente sous 0.');
   } else {
     const b = g.blocks.find(x=> ovKey(x.vt) === key);
     if(!b) return;
@@ -2139,12 +2157,13 @@ function appliquerVenteCible(scope, key, venteCible){
     // L'écart porte sur les seules catégories ventilables : les éléments à la pièce et la
     // part ITE ne bougent pas, on ne demande donc aux catégories que ce qu'elles doivent.
     const ecart = num(venteCible) - num(b.res.venteTravaux);
-    const k = Math.max(-GO_FIX_HAUSSE_MAX, Math.min(GO_FIX_HAUSSE_MAX, ecart / venteCat));
+    // Hausse libre ; baisse bornée à −100 % (un prix ne passe jamais sous 0).
+    const k = Math.max(-GO_FIX_BAISSE_MAX, Math.min(GO_FIX_HAUSSE_MAX, ecart / venteCat));
     if(!state.prixVentil) state.prixVentil = {};
     state.prixVentil[key] = state.prixVentil[key] || {};
     cats.forEach(l=>{ state.prixVentil[key][l.cat] = round2(num(l.vente) * (1 + k)); });
     purge();
-    if(Math.abs(ecart / venteCat) > GO_FIX_HAUSSE_MAX) alert('Ventilation plafonnée à ±' + (GO_FIX_HAUSSE_MAX*100) + ' % : la valeur demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
+    if(ecart / venteCat < -GO_FIX_BAISSE_MAX) alert('Baisse bornée à −100 % : un prix de vente ne peut pas devenir négatif. La valeur demandée n\'est pas entièrement atteinte sur ' + b.vt.label + '.');
   }
   saveLS();
 }
@@ -2157,13 +2176,8 @@ function appliquerMargeWidget(scope, key, cible){
 }
 // Prix de vente HT forcé → c'est directement la vente cible.
 function appliquerVenteWidget(scope, key, cible){ appliquerVenteCible(scope, key, round2(num(cible))); }
-// Reste à charge forcé → vente cible = reste voulu + prime CEE (la prime ne bouge pas).
-function appliquerResteWidget(scope, key, cible){
-  const g = calcGlobal();
-  const prime = scope === 'g' ? num(g.tot.prime)
-              : num((g.blocks.find(x=> ovKey(x.vt) === key) || {res:{}}).res.prime);
-  appliquerVenteCible(scope, key, round2(num(cible) + prime));
-}
+// (2026-08-28) appliquerResteWidget a été retirée : un reste à charge forcé n'est plus
+// rétro-propagé dans les prix de vente, il est conservé tel quel via applyOv.
 
 function annulerAjustementGo(){
   // Nouvelle ventilation par habitation : on la vide entièrement.
@@ -2210,6 +2224,9 @@ function goFixHtml(){
 
   const faible = a.pctHausse <= 0.10;
   const dur = !a.faisable;
+  // Alerte au-dela du seuil : informative uniquement. Le bouton reste proposé à côté —
+  // c'est l'opérateur qui tranche, plus le code (blocage retiré le 2026-08-27).
+  const fort = a.pctHausse !== null && a.pctHausse > GO_FIX_HAUSSE_WARN;
   return '<div class="go-fix">'
     + '<span>⛔ <strong>Il manque ' + eur(a.deficit) + '</strong> pour atteindre le seuil de ' + eur(a.seuil) + '.</span>'
     + (a.pctMarge !== null ? '<span><small>soit</small> <span class="ecart' + (faible?' faible':'') + '">'
@@ -2217,8 +2234,9 @@ function goFixHtml(){
     + '<span style="border-left:1px solid #e0c0c0;padding-left:10px"><small>hausse nécessaire sur les prix de vente</small> '
     + '<span class="ecart' + (faible?' faible':'') + '">+' + pct(a.pctHausse) + '</span></span>'
     + '<span style="flex:1"></span>'
+    + (fort ? '<small style="color:#9c0006;max-width:300px">⚠️ Au-delà de +' + (GO_FIX_HAUSSE_WARN*100) + ' %, ce n\'est plus un arrondi commercial. L\'ajustement reste possible — à toi de juger si le projet tient.</small> ' : '')
     + (dur
-        ? '<small style="color:#9c0006;max-width:280px">Au-delà de +' + (GO_FIX_HAUSSE_MAX*100) + ' %, l\'ajustement est bloqué : à ce niveau ce n\'est plus un arrondi commercial, c\'est un autre projet.</small>'
+        ? '<small style="color:#9c0006;max-width:280px">Aucun prix de vente ventilable : l\'ajustement n\'a rien sur quoi répartir la hausse.</small>'
         : '<button class="btn success small" id="goFixApply" title="Ventile la hausse habitation par habitation : prime CEE encore disponible d\'abord, puis le manque de marge de chaque logement. Les prix ventilés apparaissent en rosé — le barème des Paramètres n\'est pas touché. Détail de la méthode dans le guide.">⚖️ Ajuster les prix pour atteindre le GO</button>')
     + (actif ? ' <button class="btn small ghost" id="goFixUndo">↺ Prix d\'origine</button>' : '')
     + '</div>';
@@ -4837,7 +4855,13 @@ function openKpiEditor(kpi){
     if(saisie && field === 'marge')             appliquerMargeWidget(scope, key, num(v));
     else if(saisie && field === 'w_tauxMarge')  appliquerTauxMargeWidget(scope, key, num(v));
     else if(saisie && field === 'venteTravaux') appliquerVenteWidget(scope, key, num(v));
-    else if(saisie && field === 'reste')        appliquerResteWidget(scope, key, num(v));
+    // RESTE A CHARGE (2026-08-28) : la valeur saisie est CONSERVÉE telle quelle.
+    // Avant, elle était rétro-propagée dans les prix de vente (vente cible = reste + prime),
+    // et la ventilation + les arrondis la faisaient dériver de quelques euros : le montant
+    // affiché n'était plus celui tapé. Le moteur sait déjà honorer ov.reste (cf. calcVT) et
+    // le bouclier exclut un reste forcé de ses contrôles (C8) : un simple override suffit.
+    // ↺ restaure la valeur calculée. Marge, Prix de vente et Taux de marge, eux, continuent
+    // de ventiler les prix — leur sens métier est de piloter le prix.
     else applyOv(scope, key, field, v);
     renderStep4();
   };
@@ -5183,7 +5207,7 @@ function renderStep4(){
       const lignes = (avant.parts||[]).map(p=>
         '<li><strong>' + esc(p.label) + '</strong> : ' + (p.hausse ? '+' + eur(p.hausse) + ' (+' + pctFr(p.k) + ' %)' : '<em>inchangée</em>')
         + ' <small>— prime disponible ' + eur(p.capacite) + ' · manque à sa cible ' + eur(p.deficitMarge)
-        + (p.plafond ? ' · plafonnée à +' + (GO_FIX_HAUSSE_MAX*100) + ' %' : '') + '</small></li>').join('');
+        + (p.plafond && isFinite(GO_FIX_HAUSSE_MAX) ? ' · plafonnée à +' + (GO_FIX_HAUSSE_MAX*100) + ' %' : '') + '</small></li>').join('');
       zone.innerHTML = '<div class="alert ' + (apres.dejaGo?'ok':'warn') + '">'
         + (apres.dejaGo ? '✅ <strong>Seuil de marge atteint.</strong> ' : '⚠️ <strong>Ventilation plafonnée</strong> — il manque encore ' + eur(apres.deficit) + '. ')
         + 'Hausse <strong>ventilée par habitation</strong> : prime CEE disponible d\'abord, puis le manque de marge de chaque logement :'
@@ -6101,7 +6125,7 @@ function renderMargeCible(){
         ? '<small style="color:var(--green-tx)">✅ Déjà atteint.</small>'
         : '<small style="color:var(--text-muted)">· prix de vente visé <strong>' + eur(venteCible) + '</strong>'
           + ' — ' + sens + ' de <strong>' + pctTxt(a.pctHausse) + '</strong> sur les prix'
-          + (a.faisable ? '' : ' <span style="color:#9c0006">(plafonnée à ' + (GO_FIX_HAUSSE_MAX*100) + '%)</span>')
+          + (a.faisable ? '' : ' <span style="color:#9c0006">(rien à ventiler)</span>')
           + '</small>')
     + '</div>';
   const b = $('#margeRecalc');
@@ -6139,8 +6163,8 @@ function recalculerAvecMargeCible(){
       + 'Marge obtenue : <strong>' + eur(g.tot.marge) + '</strong> soit <strong>'
       + (reelPct*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1}) + nbsp + '%</strong> '
       + 'pour un prix de vente de ' + eur(g.tot.venteTravaux) + ' et un coût de revient de ' + eur(g.tot.coutRevient) + '.'
-      + (apres.atteint ? '' : '<br>Écart restant : ' + eur(Math.abs(apres.deficit)) + ' — la variation a été plafonnée à '
-          + (GO_FIX_HAUSSE_MAX*100) + '%.')
+      + (apres.atteint ? '' : '<br>Écart restant : ' + eur(Math.abs(apres.deficit))
+          + ' — une baisse ne peut pas descendre un prix de vente sous 0.')
       + '<ul style="margin:6px 0 0;padding-left:20px">' + lignes + '</ul>'
       + '<small>Variation ventilée par habitation (pondérée par la prime CEE), en rosé ci-dessus — propre à CE dossier. Le barème des Paramètres n\'est pas modifié. « ↺ Prix d\'origine » restaure.</small></div>';
   }
