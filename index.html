@@ -185,6 +185,11 @@ tr.total td{font-weight:700;border-top:2px solid var(--primary);background:#eef2
 .marge-tick{width:16px;height:16px;accent-color:var(--primary);cursor:pointer;flex:0 0 16px}
 .price-cell input{width:92px;text-align:right;font-family:inherit;font-size:13px;padding:2px 5px;border:1.5px solid var(--primary);border-radius:5px;box-sizing:border-box}
 .kpi.edited{border:1.5px dashed #e05c8a;background:#fdecf1}
+/* Tuile dont la valeur a été obtenue en VENTILANT les prix de vente (reste à charge,
+   marge, prix de vente, taux de marge). Même rosé que les prix ventilés des tableaux :
+   dans toute l'application, rosé = « ventilé ». Trait plein pour la distinguer d'une
+   valeur forcée en affichage (pointillés). */
+.kpi.ventil{border:1.5px solid #e05c8a;background:#fdecf1}
 /* Historique — style aligné sur l'app Revue Audit VT (barre loupe, icônes Lucide, actions par ligne) */
 .hist-searchbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
 .hist-field{position:relative;display:flex;align-items:center}
@@ -243,8 +248,8 @@ body.locked #loginGate{display:flex}
 .guide-box .gb-txt p{margin:0;font-size:12.5px;color:var(--text-dark);line-height:1.45}
 .guide-box .gb-act{display:flex;gap:9px;flex-wrap:wrap;flex:0 0 auto}
 .guide-box .gb-act .btn{text-decoration:none;display:inline-flex;align-items:center;gap:6px}
-.kpi .ov-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
-.kpi .ov-reset:hover{color:var(--primary)}
+.kpi .ov-reset,.kpi .ventil-reset{position:absolute;top:6px;right:8px;border:none;background:none;cursor:pointer;font-size:14px;color:var(--text-muted);padding:0;line-height:1}
+.kpi .ov-reset:hover,.kpi .ventil-reset:hover{color:var(--primary)}
 .kpi .val input,.kpi .val select{width:100%;font-family:inherit;font-size:15px;font-weight:700;padding:3px 6px;border:1.5px solid var(--primary);border-radius:6px;box-sizing:border-box}
 
 .alert{padding:10px 14px;border-radius:8px;font-size:13px;margin:8px 0;border:1px solid}
@@ -879,7 +884,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.5';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.6';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -924,6 +929,9 @@ const state = {
   general: { pollueur:'' },
   overrides: { global:{}, vt:{} },             // corrections manuelles des widgets (par dossier) : prime, reste, marge, decision…
   widgetConfig: null,       // configuration des widgets de l'étape 4 (Paramètres → 🧩 Widgets) — matérialisée par wcInit(), GLOBALE (pas par dossier), versionnée
+  // Tuile à l'origine de la ventilation en cours : { scope, key, field }. Sert à la
+  // signaler en rosé et à lui donner un ↺. Propriété DU DOSSIER, comme prixVentil.
+  ventilOrigine: null,
   chartConfig: null,        // séries de l'histogramme (Paramètres → 📊 Histogramme) : [{id widget hab, visible, color}] — GLOBALE, matérialisée par ccInit()
   settings: { apiKey:'', model:'google/gemini-2.5-flash-lite', auditVT:0, vtIte:70, regiePct:12, seuilGo:0,
     // Étape 7 — proposition de travaux. Toute clé absente d'un localStorage ancien garde sa
@@ -1130,6 +1138,7 @@ function saveLS(){
           prixDossier: state.prixDossier || {},
           prixVentil: state.prixVentil || {},
           prixManuel: state.prixManuel || {},
+          ventilOrigine: state.ventilOrigine || null,
           // Le dossier lui-même (sans le texte brut des PDF, trop volumineux) : extraction, sélections, réponses, rôles…
           // photos:null — les vignettes ne quittent JAMAIS la session (cf. extractVtPhotos)
           vts: state.vts.map(v=>Object.assign({}, v, {text:'', hints:null, extracting:false, photos:null, photosLoading:false})) };
@@ -2333,7 +2342,7 @@ function renderVentilationReste(info){
       + eur(info.apres.tot.marge) + '</strong> &middot; Décision : '
       + (goAvant ? '✅ GO' : '⛔ NO-GO') + ' &rarr; ' + (goApres ? '✅ GO' : '⛔ NO-GO')
       + (goAvant !== goApres ? ' <strong>(bascule)</strong>' : '') + '</div>'
-    + '<small>Les prix ventilés apparaissent en rosé dans les tableaux ci-dessus — propres à ce dossier, le barème des Paramètres n\'est jamais touché. « ↺ » sur la tuile annule.</small></div>';
+    + '<small>Les prix ventilés apparaissent en rosé dans les tableaux ci-dessus — propres à ce dossier, le barème des Paramètres n\'est jamais touché. La tuile pilote passe elle aussi en rosé : son « ↺ » restaure les prix d\'origine.</small></div>';
 }
 
 function annulerAjustementGo(){
@@ -2351,6 +2360,7 @@ function annulerAjustementGo(){
   }
   state.chargesAutoBak = {};
   state.chargesAuto = {};
+  state.ventilOrigine = null;   // plus de ventilation en cours : plus de tuile à signaler
   saveLS();
 }
 function ajustementActif(){
@@ -4480,6 +4490,15 @@ function wgFormulaTip(niveau, def, ctx, cache, fmod){
      · les exports Excel, le PDF et les archives.
    Un total immeuble lui-même négatif est donc, lui aussi, affiché 0 — mais après avoir
    été calculé sur les vraies valeurs. */
+/* Vrai si CETTE tuile est celle qui a déclenché la ventilation encore active.
+   On ne marque que la tuile réellement pilotée par l'utilisateur : marquer toutes les
+   grandeurs dérivées noierait l'information. */
+function estPiloteVentilation(scope, key, def){
+  const o = state.ventilOrigine;
+  if(!o || !ajustementActif()) return false;
+  return o.scope === scope && String(o.key||'') === String(key||'') && o.field === wgOvField(def);
+}
+
 function resteAffiche(def, v){
   return (def.champ === 'reste' && typeof v === 'number' && isFinite(v) && v < 0) ? 0 : v;
 }
@@ -4506,7 +4525,8 @@ function wgKpiGridHtml(niveau, ctx){
     const goHere = def.special!=='bareme' && def.clsRule ? (def.clsRule==='signe' ? (v!==null && v>=0) : wgDecision(niveau, ctx, cache)) : null;
     return kpiCell({scope, key, wid:def.id, niveau, field:wgOvField(def), type:'num', label:def.label,
       display:wgFmt(def, vAff), rawVal:v===null?0:round2(v), cls:goHere===null?'':(goHere?'go':'nogo'),
-      edited:ov[wgOvField(def)] != null, locked:!wcEditable(def), fmod,
+      edited:ov[wgOvField(def)] != null, ventil:estPiloteVentilation(scope, key, def),
+      locked:!wcEditable(def), fmod,
       formula: wgFormulaTip(niveau, def, ctx, cache, fmod)
         + (vAff !== v ? ' — Affiché 0 € : le reste calculé est négatif (' + eur(v) + '), la prime CEE dépasse le prix de vente. La valeur réelle est conservée dans le total et les exports.' : '')});
   });
@@ -5016,12 +5036,14 @@ function kpiCell(o){ // {scope:'v'|'g', key, field, type:'num'|'dec', label, dis
   const ro = !!FROZEN || !!o.locked;
   const tip = o.formula
     + (o.edited ? ' — ✎ valeur modifiée manuellement' : '')
+    + (o.ventil ? ' — ⚖️ valeur atteinte en ventilant les prix de vente (en rosé dans le tableau). ↺ restaure les prix d\'origine.' : '')
     + (o.locked ? ' — 🔒 valeur non éditable : ce widget est en lecture seule (Paramètres → 🧩 Widgets)' : (ro ? '' : ' — clic : forcer la valeur'));
     // La formule reste LISIBLE ici (o.formula ouvre la bulle) mais n'est plus MODIFIABLE
     // depuis l'étape 4 : un seul endroit pour l'éditer, Paramètres → 🧩 Widgets.
-  return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
-    ${(o.edited && !ro)?'<button class="ov-reset" title="Revenir au calcul automatique">↺</button>':''}
-    <div class="lab">${o.label}${o.edited?' ✎':''}<span class="kpi-lock" title="${ro?'Verrouillé — valeur non modifiable ici':'Modifiable — clic pour forcer la valeur'}">${ro?'🔒':'🔓'}</span>${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}</div><div class="val">${o.display}</div>
+  return `<div class="kpi ${ro?'':'editable'} ${o.cls||''} ${o.edited?'edited':''} ${o.ventil?'ventil':''} ${o.locked?'locked':''}" data-ov="${id}" data-val="${esc(String(o.rawVal))}" title="${esc(tip)}">
+    ${(o.edited && !ro) ? '<button class="ov-reset" title="Revenir au calcul automatique">↺</button>'
+      : ((o.ventil && !ro) ? '<button class="ventil-reset" title="Revenir aux prix de vente d\'origine">↺</button>' : '')}
+    <div class="lab">${o.label}${o.edited?' ✎':''}${o.ventil?' ⚖️':''}<span class="kpi-lock" title="${ro?'Verrouillé — valeur non modifiable ici':'Modifiable — clic pour forcer la valeur'}">${ro?'🔒':'🔓'}</span>${o.fmod?'<span class="kpi-fmod" title="Formule modifiée par rapport à l\'usine (Paramètres → 🧩 Widgets)">ƒ</span>':''}</div><div class="val">${o.display}</div>
   </div>`;
 }
 function openKpiEditor(kpi){
@@ -5037,6 +5059,9 @@ function openKpiEditor(kpi){
   // (cf. appliquerVenteCible) ; les autres restent des valeurs forcées d'affichage.
   const commit = v => {
     const saisie = (v !== null && v !== '');
+    // Mémoriser QUELLE tuile pilote la ventilation, pour la signaler ensuite (rosé + ↺).
+    if(saisie && ['marge','w_tauxMarge','venteTravaux','reste'].includes(field))
+      state.ventilOrigine = { scope, key, field };
     if(saisie && field === 'marge')             appliquerMargeWidget(scope, key, num(v));
     else if(saisie && field === 'w_tauxMarge')  appliquerTauxMargeWidget(scope, key, num(v));
     else if(saisie && field === 'venteTravaux') appliquerVenteWidget(scope, key, num(v));
@@ -5412,9 +5437,17 @@ function renderStep4(){
      endroit pour ça, Paramètres → 🧩 Widgets. Elle reste LISIBLE au survol (bulle). */
   area.querySelectorAll('.kpi.editable').forEach(kpi=>{
     kpi.addEventListener('click', e=>{
-      if(e.target.closest('.ov-reset')) return;
+      if(e.target.closest('.ov-reset') || e.target.closest('.ventil-reset')) return;
       if(kpi.querySelector('input,select')) return;
       openKpiEditor(kpi);
+    });
+    const rv = kpi.querySelector('.ventil-reset');
+    if(rv) rv.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(!confirm('Revenir aux prix de vente d\'origine ?\nLa ventilation sera annulée sur tout le dossier.')) return;
+      annulerAjustementGo();
+      renderStep4();
+      const z = $('#scanIAResult'); if(z) z.innerHTML = '<div class="alert info">↺ Prix de vente d\'origine restaurés.</div>';
     });
     const rst = kpi.querySelector('.ov-reset');
     if(rst) rst.addEventListener('click', e=>{
@@ -10766,6 +10799,7 @@ function renderResumeBanner(){
     state.prixDossier = d.prixDossier || {};
     state.prixVentil = d.prixVentil || {};
     state.prixManuel = d.prixManuel || {};
+    state.ventilOrigine = d.ventilOrigine || null;
     state.prop = d.prop || null;                   // la proposition de travaux revient avec SON dossier
     state.factures = d.factures || [];              // idem pour tout le journal de facturation
     state.factureActiveId = d.factureActiveId || '';
