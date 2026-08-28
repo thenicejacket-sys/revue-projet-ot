@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.2';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -878,6 +878,10 @@ let FROZEN = null;                 // vestige : plus jamais renseigné (un dossi
 // Déclaré ici, avant saveLS/loadLS qui le lisent : un `let` plus bas les mettrait en
 // zone morte temporelle et ferait planter le chargement.
 let CURRENT_HIST_ID = null;
+/* Vrai quand le dossier en cours a ete REPRIS depuis l'historique et n'a pas encore
+   ete re-archive. La premiere sauvegarde cree alors une nouvelle version au lieu
+   d'ecraser l'entree d'origine, puis le drapeau retombe. */
+let CURRENT_HIST_FROM_ARCHIVE = false;
 let _lastSavedFingerprint = null;  // empreinte du dernier archivage, évite de réécrire à l'identique
 let _autoSaveBusy = false;
 
@@ -1087,6 +1091,9 @@ function saveLS(){
           // Lien vers l'entrée d'historique de ce dossier : sans lui, « Reprendre » après
           // un rechargement recréerait une entrée au lieu de mettre à jour l'existante.
           histId: CURRENT_HIST_ID,
+          // Reprise en cours : le drapeau doit survivre a un rechargement, sinon la
+          // sauvegarde suivante ecraserait l'entree d'origine au lieu de la versionner.
+          histFromArchive: CURRENT_HIST_FROM_ARCHIVE,
           // Surlignage rosé des prix édités : propriété DU DOSSIER (2026-07-22) — un nouveau
           // dossier repart blanc, même si le prix modifié reste le nouveau défaut du barème.
           chargesEdited: state.chargesEdited || {},
@@ -5716,6 +5723,58 @@ function autoSaveBlockers(){
   return problems;
 }
 
+/* ── VERSIONNING DES REPRISES (2026-08-28) ───────────────────────────────────
+   Reprendre un dossier archive ne l'ecrase plus. La PREMIERE sauvegarde apres une
+   reprise cree une NOUVELLE entree « <nom> vN » ; l'entree d'origine reste intacte.
+
+   Une version par REPRISE, pas une par sauvegarde. C'est le point delicat :
+   l'archivage est automatique a chaque changement d'empreinte a l'etape 4, donc
+   versionner a chaque sauvegarde produirait v1, v2, v3, v4... en une seule seance.
+   Apres la creation de la version, le drapeau retombe et les sauvegardes suivantes
+   mettent a jour CETTE version.
+
+   N = plus grand numero deja present pour ce nom de base, + 1. Reprendre la v1
+   quand la v3 existe donne donc une v4 : aucun ecrasement possible. */
+function baseNomDossier(nom){
+  return String(nom || '').replace(/\s+v\d+\s*$/i, '').trim();
+}
+async function prochainNomVersionne(nom){
+  const base = baseNomDossier(nom) || 'Dossier';
+  let rows = [];
+  try{ rows = await HistoryStore.list(); }catch(_){ rows = []; }   // base injoignable : on numerote sur ce qu'on a
+  let max = 0;
+  rows.forEach(r=>{
+    const n = String(r.nom || '').trim();
+    if(baseNomDossier(n).toLowerCase() !== base.toLowerCase()) return;
+    const m = n.match(/\sv(\d+)\s*$/i);
+    if(m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  return base + ' v' + (max + 1);
+}
+/* Point d'entree UNIQUE de l'archivage. Les trois appelants (etape 4, devis,
+   proposition) passent par ici : le versionning est donc identique partout. */
+async function archiverSnapshot(snap){
+  if(CURRENT_HIST_ID && CURRENT_HIST_FROM_ARCHIVE){
+    const nom = await prochainNomVersionne(snap.nom);
+    snap.nom = nom;
+    state.nomDossier = nom;
+    const champ = $('#nomDossier'); if(champ) champ.value = nom;
+    const row = await HistoryStore.save(snap);   // NOUVELLE entree — l'originale est conservee
+    CURRENT_HIST_FROM_ARCHIVE = false;           // les sauvegardes suivantes mettent a jour CETTE version
+    const bar = $('#frozenBar');
+    if(bar && bar.innerHTML) bar.innerHTML = `<span style="font-size:18px">🗂️</span>
+      <strong>Nouvelle version créée : ${esc(nom)}</strong>
+      <span style="opacity:.8;font-size:13px">— la version d'origine est conservée dans l'historique. Les sauvegardes suivantes mettent à jour <strong>cette</strong> version.</span>
+      <span style="flex:1"></span>
+      <button class="btn small" id="frozenExit">← Quitter sans lier</button>`;
+    const ex = $('#frozenExit');
+    if(ex) ex.addEventListener('click', ()=>{ CURRENT_HIST_ID = null; CURRENT_HIST_FROM_ARCHIVE = false; _lastSavedFingerprint = null; $('#frozenBar').innerHTML = ''; saveLS(); });
+    return row;
+  }
+  return CURRENT_HIST_ID ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
+                         : await HistoryStore.save(snap);
+}
+
 async function autoArchive(opts){
   if(_autoSaveBusy) return null;
   const problems = autoSaveBlockers();
@@ -5726,9 +5785,7 @@ async function autoArchive(opts){
   if(fp === _lastSavedFingerprint && !(opts && opts.force)) return null;   // rien n'a bougé
   _autoSaveBusy = true;
   try{
-    const row = CURRENT_HIST_ID
-      ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
-      : await HistoryStore.save(snap);
+    const row = await archiverSnapshot(snap);   // versionne si le dossier vient de l'historique
     CURRENT_HIST_ID = row && row.id ? row.id : CURRENT_HIST_ID;
     _lastSavedFingerprint = fp;
     return row;
@@ -5752,8 +5809,11 @@ function renderAutoSave(){
     return;
   }
   area.innerHTML = '<div class="alert ok" id="autoSaveMsg">💾 <strong>'
-    + (CURRENT_HIST_ID ? 'Dossier mis à jour' : 'Archivage automatique')
-    + '</strong> dans l\'' + lieu + '. 🛡️ Calculs vérifiés (' + integ.passCount + '/' + integ.autoCount + ').'
+    + (CURRENT_HIST_FROM_ARCHIVE ? 'Nouvelle version à la prochaine modification'
+       : (CURRENT_HIST_ID ? 'Dossier mis à jour' : 'Archivage automatique'))
+    + '</strong>'
+    + (state.nomDossier ? ' — <strong>' + esc(state.nomDossier) + '</strong>' : '')
+    + ' dans l\'' + lieu + '. 🛡️ Calculs vérifiés (' + integ.passCount + '/' + integ.autoCount + ').'
     + ' <button class="btn small" data-goto="history">Voir l\'historique →</button></div>';
 }
 
@@ -5879,7 +5939,8 @@ async function openArchived(id){
   try{ snap = await HistoryStore.get(id); }catch(e){ alert('Ouverture impossible : '+e.message); return; }
   if(!snap){ alert('Dossier introuvable.'); return; }
   FROZEN = null;                       // plus de lecture seule
-  CURRENT_HIST_ID = id;                // toute sauvegarde ultérieure remplacera CETTE entrée
+  CURRENT_HIST_ID = id;                // l'entrée d'origine, jamais écrasée (cf. archiverSnapshot)
+  CURRENT_HIST_FROM_ARCHIVE = true;    // la prochaine sauvegarde créera « <nom> vN »
   _lastSavedFingerprint = null;        // on ne connaît pas encore l'empreinte locale
   state.cas = snap.cas; state.nomDossier = snap.nom;
   state.general = snap.general || {pollueur:''};
@@ -5908,7 +5969,7 @@ async function openArchived(id){
   document.body.classList.remove('frozen');
   $('#frozenBar').innerHTML = `<span style="font-size:18px">✏️</span>
     <strong>Dossier repris : ${esc(snap.nom||'(sans nom)')}</strong>
-    <span style="opacity:.8;font-size:13px">— modifiable. Toute sauvegarde <strong>remplacera</strong> cette entrée de l'historique.</span>
+    <span style="opacity:.8;font-size:13px">— modifiable. Dès la première modification, une <strong>nouvelle version</strong> sera créée dans l'historique : cette entrée-ci reste intacte.</span>
     <span style="flex:1"></span>
     <button class="btn small" id="frozenExport">📊 Rapport Excel</button>
     <button class="btn small" id="frozenExit">← Quitter sans lier</button>`;
@@ -5920,12 +5981,17 @@ async function openArchived(id){
   // lien avec l'entrée d'historique — la prochaine sauvegarde créera une NOUVELLE
   // entrée au lieu d'écraser celle-ci.
   $('#frozenExit').addEventListener('click', ()=>{
-    CURRENT_HIST_ID = null; _lastSavedFingerprint = null;
+    CURRENT_HIST_ID = null; CURRENT_HIST_FROM_ARCHIVE = false; _lastSavedFingerprint = null;
     $('#frozenBar').innerHTML = '';
     saveLS();
   });
   $('#nomDossier').value = state.nomDossier;
   refreshCas();
+  // Empreinte de référence = le dossier tel qu'il vient d'être rouvert. Sans elle, le
+  // simple passage à l'étape 4 déclencherait un archivage — donc une version — alors
+  // que rien n'a été modifié. Une version naît d'une MODIFICATION, pas d'une lecture.
+  try{ _lastSavedFingerprint = dossierFingerprint(buildDossierSnapshot()); }
+  catch(_){ _lastSavedFingerprint = null; }
   saveLS();
   showView('step1');
   window.scrollTo(0,0);
@@ -8777,9 +8843,7 @@ async function propDownload(){
         propPrime: t.primeCee, propReste: t.resteTTC,
       });
       try{
-        const row = CURRENT_HIST_ID
-          ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
-          : await HistoryStore.save(snap);
+        const row = await archiverSnapshot(snap);   // versionne si le dossier vient de l'historique
         if(row && row.id) CURRENT_HIST_ID = row.id;
         _lastSavedFingerprint = dossierFingerprint(snap);
         if(btn){ btn.textContent = '✅ Téléchargé'; }
@@ -10220,8 +10284,7 @@ async function factureDownload(){
         propPrime: t.primeCee, propReste: t.netAPayer,
       });
       try{
-        const row = CURRENT_HIST_ID ? await HistoryStore.replace(CURRENT_HIST_ID, snap)
-                                    : await HistoryStore.save(snap);
+        const row = await archiverSnapshot(snap);   // versionne si le dossier vient de l'historique
         if(row && row.id) CURRENT_HIST_ID = row.id;
         _lastSavedFingerprint = dossierFingerprint(snap);
         if(btn) btn.textContent = '✅ Téléchargé';
@@ -10306,6 +10369,7 @@ function renderResumeBanner(){
     state.factureActiveId = d.factureActiveId || '';
     state.facture = (!state.factures.length && d.facture) ? d.facture : null;   // ancien format : migré par factureEnsure
     CURRENT_HIST_ID = d.histId || null;            // on reprend le lien vers SON entrée d'historique
+    CURRENT_HIST_FROM_ARCHIVE = !!d.histFromArchive;   // et l'état « reprise pas encore versionnée »
     _lastSavedFingerprint = null;
     Object.assign(state.general, d.general||{});
     _vtSeq = Math.max(0, ...state.vts.map(v=>num(v.id)), 0);
