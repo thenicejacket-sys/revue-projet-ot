@@ -855,7 +855,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-27.4';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-08-28.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -2450,6 +2450,24 @@ function retainedSurface(vt, cat){ return sumActive(vt, cat) * catPct(vt, cat) /
    Purement informatif — n'entre dans AUCUN calcul.
    Renvoie null quand la mention n'a pas de sens : aucune VT ITE dediee, ou habitation
    marquee « ITE = non ». Mieux vaut rien qu'un chiffre faux. */
+/* QUOTE-PART d'une habitation (2026-08-28) — champ GRISÉ, jamais saisi.
+   Part de cette habitation dans le dossier, au prorata de la Shab.
+   Quand une VT ITE dédiée existe, on renvoie EXACTEMENT iteShare().pct : le champ et
+   l'indicatif ITE lisent alors la même valeur et ne peuvent pas diverger. Sinon, repli
+   sur la part dans l'ensemble des habitations incluses.
+   RIEN N'EST FIGÉ : recalculé à chaque rendu. Exclure, réintégrer ou supprimer une
+   habitation redistribue immédiatement les parts des autres. */
+function quotePartHab(vt){
+  if(!vt || vt.role !== 'habitation' || !vtIncluded(vt)) return null;
+  const share = iteShare(vt);
+  if(share) return share.pct;                        // cohérence stricte avec l'indicatif ITE
+  const parts = habitations();
+  if(!parts.length) return null;
+  const tot = parts.reduce((s,h)=> s + num(h.shab), 0);
+  return tot > 0 ? num(vt.shab) / tot : 1 / parts.length;   // pas de Shab saisie -> parts égales
+}
+function pctFr1(x){ return (x*100).toLocaleString('fr-FR',{minimumFractionDigits:1,maximumFractionDigits:1}) + ' %'; }
+
 function iteIndicatif(vt){
   const share = iteShare(vt);
   if(!share) return null;
@@ -3197,7 +3215,7 @@ function renderStep3(){
         // quote-part de CETTE habitation, au % indicatif de sa ligne ITI (25 % par défaut).
         const _ind = (cat === 'ITI') ? iteIndicatif(vt) : null;
         const indicIte = _ind
-          ? `<span class="pill" style="background:var(--orange-bg);color:var(--orange-tx)" title="Purement indicatif — aide à la décision. N'entre dans AUCUN calcul.&#10;Formule : faces ITE COCHÉES × quote-part de cette habitation × ${catPct(vt,cat)} %.&#10;Quote-part ${(_ind.pct*100).toFixed(1).replace('.',',')} % = part ITE revenant à cette habitation (prorata Shab), soit ${m2(_ind.surfEq)} d'ITE équivalente.&#10;Se recalcule dès qu'une face ITE est cochée ou décochée.">Indicatif ITE ${catPct(vt,cat)} % · quote-part ${(_ind.pct*100).toFixed(1).replace('.',',')} % : <strong>${m2(_ind.valeur)}</strong></span>`
+          ? `<span class="pill" style="background:var(--orange-bg);color:var(--orange-tx)" title="Purement indicatif — aide à la décision. N'entre dans AUCUN calcul.&#10;Formule : faces ITE COCHÉES × quote-part de cette habitation × ${catPct(vt,cat)} %.&#10;Quote-part ${(_ind.pct*100).toFixed(1).replace('.',',')} % = part ITE revenant à cette habitation (prorata Shab), soit ${m2(_ind.surfEq)} d'ITE équivalente.&#10;Se recalcule dès qu'une face ITE est cochée ou décochée.">Indicatif ITE ${catPct(vt,cat)} % : <strong>${m2(_ind.valeur)}</strong></span>`
           : '';
         const totalBar = inst.length ? `<div class="flex" style="justify-content:space-between;gap:12px;padding:9px 12px;margin-top:6px;border-top:1px solid var(--border);background:#f2f6ff;border-radius:0 0 8px 8px">
             <span class="pill" style="background:var(--green-bg);color:var(--green-tx)" title="Lignes cochées uniquement — SEULE surface utilisée dans le calcul (onglet Charges &amp; marges)">Total coché : <strong>${m2(sumChecked(vt,cat))}</strong></span>${indicIte}
@@ -3249,6 +3267,11 @@ function renderStep3(){
            <div class="col" style="max-width:110px;min-width:110px;flex:0 0 auto"><label class="fld">Audit</label>
              <input type="number" data-audits="${vt.id}" value="${vtAudits(vt)}" min="0" step="1" style="width:100%">
              <small>× ${eur(num(state.settings.auditVT))}</small></div>
+           <div class="col" style="max-width:120px;min-width:120px;flex:0 0 auto"><label class="fld">Quote-part</label>
+             <input type="text" value="${quotePartHab(vt)!==null ? pctFr1(quotePartHab(vt)) : '—'}" disabled
+               style="width:100%;text-align:right;background:#eef2fb;color:var(--text-muted);cursor:not-allowed"
+               title="Part de cette habitation dans l'immeuble, au prorata de la surface habitable. Calculée, jamais saisie.&#10;Elle sert de clé de répartition des coûts ITE et de base à l'indicatif ITE ci-dessous.&#10;Exclure ou supprimer une habitation redistribue aussitôt les parts des autres.">
+             <small>de l'immeuble</small></div>
            <div class="col" style="max-width:60px;min-width:60px;flex:0 0 auto;margin-left:auto"><label class="fld">ITE</label>
              <label style="display:flex;align-items:center;justify-content:center;margin:0;padding:10px 0;cursor:pointer">
                <input type="checkbox" data-hasite="${vt.id}" ${(vt.hasIte||'oui')!=='non'?'checked':''} style="width:18px;height:18px">
@@ -3337,6 +3360,10 @@ function renderStep3(){
     state.vts.find(v=>v.id==e.target.dataset.shab).shab = num(e.target.value);
     saveLS();
   }));
+  // Sortie du champ Surface habitable : re-rendu, pour que les quote-parts et l'indicatif
+  // ITE reflètent la nouvelle répartition (2026-08-28). Volontairement sur 'change' et non
+  // sur 'input' : re-rendre à chaque frappe volerait le focus du champ en cours de saisie.
+  wrap.querySelectorAll('[data-shab]').forEach(inp=> inp.addEventListener('change', ()=> renderStep3()));
   wrap.querySelectorAll('[data-hasite]').forEach(chk=> chk.addEventListener('change', e=>{
     state.vts.find(v=>v.id==e.target.dataset.hasite).hasIte = e.target.checked ? 'oui' : 'non';
     renderStep3();
