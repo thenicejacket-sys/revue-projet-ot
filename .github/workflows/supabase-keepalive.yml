@@ -26,11 +26,20 @@ on:
 
 permissions:
   contents: read
+  actions: write     # nécessaire à l'étape « Rester actif » ci-dessous
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
+      # GitHub DÉSACTIVE tout workflow planifié après 60 jours sans commit sur le dépôt
+      # (état « disabled_inactivity »). C'est ce qui a tué ce keep-alive le 27/10/2026,
+      # 60 jours après le dernier commit du 28/08 — puis la base s'est mise en pause.
+      # Ré-activer le workflow via l'API remet ce compteur à zéro, sans aucun commit.
+      - name: Rester actif (anti-désactivation après 60 jours)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/supabase-keepalive.yml/enable" && echo "Workflow ré-armé pour 60 jours."
       - name: Réveiller la base (lecture d'une ligne)
         run: |
           set -uo pipefail

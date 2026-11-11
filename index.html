@@ -932,7 +932,7 @@ const CHARGES_ROWS = [
   { key:'Planchers', label:'Plancher' }, { key:'ITE', label:'ITE' }
 ];
 
-const BUILD_ID = '2026-08-28.8';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
+const BUILD_ID = '2026-11-11.1';   // ← incrémenter à CHAQUE déploiement (anti-cache : le site se met à jour tout seul)
 // Paramètres de l'étape 7 pilotés en boucle (lecture #saveParams / écriture hydrateParamsUI).
 /* Paramètres GLOBAUX seulement : l'objectif de marge (politique de l'entreprise) et
    l'identité de l'émetteur (le papier à en-tête). Le chargé d'affaires, la TVA, la
@@ -6059,19 +6059,60 @@ const HistoryStore = {
     localStorage.setItem(this._lsKey, JSON.stringify(all));
     return row;
   },
+  /* ── RESYNCHRONISATION (2026-11-11) ──────────────────────────────────────────
+     Pendant une panne, save() archive en local (id « loc-… »). Sans resynchro, ces
+     dossiers restaient prisonniers du navigateur : dès que la base répondait à
+     nouveau, list() ne lisait plus QUE la base et ils disparaissaient de l'écran
+     (incident pause Supabase de novembre). On les pousse donc vers la base dès
+     qu'elle répond, en conservant leur date d'origine, puis on les retire du local
+     un par un — jamais avant que la base ait confirmé l'écriture. */
+  _isLocal(id){ return String(id||'').startsWith('loc-'); },
+  _synced: {},          // id local -> id en base, pour qu'un remove/replace sur l'ancien id vise la bonne ligne
+  _syncing: null,
+  _syncPending(){
+    if(this._syncing) return this._syncing;
+    this._syncing = (async ()=>{
+      let n = 0;
+      for(const row of this._lsAll().slice().reverse()){   // du plus ancien au plus récent
+        if(!this._isLocal(row.id)) continue;
+        let r;
+        try{
+          r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE, {
+            method:'POST', headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON,
+              'Content-Type':'application/json', 'Prefer':'return=representation' },
+            body: JSON.stringify({ nom:row.nom, resume:row.resume, snapshot:row.snapshot, created_at:row.created_at }) });
+        }catch(e){ if(e.supaDown) break; throw e; }      // la base retombe : on reprendra au prochain affichage
+        if(!r.ok){ console.warn('Resynchro refusée pour « '+row.nom+' » :', r.status); continue; }
+        const saved = (await r.json())[0];
+        if(saved && saved.id != null){
+          this._synced[row.id] = saved.id;
+          if(typeof CURRENT_HIST_ID !== 'undefined' && CURRENT_HIST_ID === row.id) CURRENT_HIST_ID = saved.id;
+        }
+        localStorage.setItem(this._lsKey, JSON.stringify(this._lsAll().filter(x=>x.id!==row.id)));
+        n++;
+      }
+      if(n) console.info(n+' dossier(s) archivé(s) hors ligne renvoyé(s) dans l\'historique partagé.');
+      return n;
+    })().finally(()=>{ this._syncing = null; });
+    return this._syncing;
+  },
   async list(){
+    const local = () => this._lsAll().map(({id,nom,resume,created_at})=>({id,nom,resume,created_at}));
     if(SUPA_ON()){
       try{
+        try{ await this._syncPending(); }catch(e){ console.warn('Resynchro interrompue :', e.message); }
         const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?select=id,nom,resume,created_at&order=created_at.desc',
           { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
         if(!r.ok) throw new Error('Supabase '+r.status);
-        return await r.json();
+        // Ce qui reste en local (resynchro refusée ou interrompue) reste visible.
+        return (await r.json()).concat(local()).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
       }catch(e){ if(!e.supaDown) throw e; }   // injoignable -> on affiche l'historique LOCAL
     }
-    return this._lsAll().map(({id,nom,resume,created_at})=>({id,nom,resume,created_at}));
+    return local();
   },
   async get(id){
-    if(SUPA_ON()){
+    if(this._synced[id] != null) id = this._synced[id];
+    if(SUPA_ON() && !this._isLocal(id)){
       try{
         const r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id)+'&select=snapshot',
           { headers:{ 'apikey':SUPABASE_ANON, 'Authorization':'Bearer '+SUPABASE_ANON } });
@@ -6082,7 +6123,8 @@ const HistoryStore = {
     const row = this._lsAll().find(x=>x.id===id); return row && row.snapshot;
   },
   async remove(id){
-    if(SUPA_ON()){
+    if(this._synced[id] != null) id = this._synced[id];
+    if(SUPA_ON() && !this._isLocal(id)){
       let r; 
       try{
         r = await supaFetch(SUPABASE_URL+'/rest/v1/'+SUPABASE_TABLE+'?id=eq.'+encodeURIComponent(id),
